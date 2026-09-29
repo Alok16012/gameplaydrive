@@ -22,6 +22,7 @@ interface Seat {
   cards: Card[];
   packed: boolean;
   seen: boolean;
+  shown?: boolean; // cards revealed to you via a side show
   action?: string;
 }
 
@@ -81,7 +82,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     const n = poker ? 2 : 3;
     const prev = g.current;
     const next = fresh();
-    next.bots = prev.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, action: undefined }));
+    next.bots = prev.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined }));
     next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn };
     next.community = poker ? dk.splice(0, 5) : [];
     next.pot = buyIn * 4;
@@ -188,6 +189,59 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     botsTurn();
   };
 
+  // Side show: compare hands privately with the previous active player (who must also be Seen).
+  // They may accept or reject; on accept the lower hand packs (ties go against the requester).
+  const sideShowTarget = () => {
+    for (let i = s.bots.length - 1; i >= 0; i--) if (!s.bots[i].packed) return i;
+    return -1;
+  };
+  const canSideShow = () => !poker && s.me.seen && activeCount() >= 3 && sideShowTarget() >= 0 && s.bots[sideShowTarget()].seen;
+
+  function activeCount() {
+    return (s.me.packed ? 0 : 1) + s.bots.filter((b) => !b.packed).length;
+  }
+
+  const sideShow = async () => {
+    if (s.phase !== "playing" || s.turn !== "me" || s.busy || !canSideShow()) return;
+    const t = sideShowTarget();
+    const bot = s.bots[t];
+    if (!pay(s.stake * 2)) return;
+    const st = s;
+    st.busy = true;
+    st.turn = t;
+    bot.action = "Side show?";
+    bump();
+    await sleep(1200);
+    if (g.current !== st) return;
+    if (Math.random() < 0.3) {
+      bot.action = "Rejected";
+      showToast(`${bot.name} rejected the side show`);
+      return botsTurn();
+    }
+    bot.shown = true;
+    const mine = teenPattiScore(st.me.cards);
+    const theirs = teenPattiScore(bot.cards);
+    if (compare(mine, theirs) > 0) {
+      bot.packed = true;
+      bot.action = "Lost side show";
+      showToast(`Side show won — your ${TP_NAMES[mine[0]]} beats ${TP_NAMES[theirs[0]]}`);
+      bump();
+      await sleep(900);
+      if (g.current !== st) return;
+      if (st.bots.every((b) => b.packed)) return finish("me", "Won side show");
+      botsTurn();
+    } else {
+      st.me.packed = true;
+      bot.action = "Won side show";
+      showToast(`Side show lost — ${bot.name}'s ${TP_NAMES[theirs[0]]} is higher`);
+      st.busy = false;
+      bump();
+      await sleep(900);
+      if (g.current !== st) return;
+      showdownAmong(st.bots.map((b, i) => (b.packed ? -1 : i)).filter((i) => i >= 0));
+    }
+  };
+
   // Pot goes to the best remaining bot once you fold.
   const showdownAmong = (alive: number[]) => {
     let best = alive[0];
@@ -241,7 +295,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
               </div>
               {s.phase !== "idle" && (
                 <div className="flex -space-x-3 mt-1">
-                  {b.cards.map((c, j) => <PlayingCard key={j} card={c} faceDown={!reveal || b.packed} size="xs" />)}
+                  {b.cards.map((c, j) => <PlayingCard key={j} card={c} faceDown={!(reveal || b.shown)} size="xs" />)}
                 </div>
               )}
               {b.action && <div className={`mt-1 text-[9px] pill px-1.5 py-0.5 ${b.packed ? "bg-rose-500/30 text-rose-200" : "bg-white/15"}`}>{b.action}</div>}
@@ -308,19 +362,25 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
                 <button disabled={!myTurn} onClick={() => act("raise")} className="btn-green rounded-full py-3 text-sm">Raise</button>
               </div>
             ) : (
-              <div className="grid grid-cols-4 gap-2">
-                <button disabled={!myTurn} onClick={() => act("pack")} className="rounded-full py-3 text-sm font-semibold bg-[#1b2350] border border-white/10 disabled:opacity-40">Fold</button>
-                {s.me.seen ? (
-                  <button disabled={!myTurn} onClick={() => act("chaal")} className="rounded-full py-3 text-[13px] font-semibold bg-sky-500 disabled:opacity-40 leading-tight">Chaal<br /><span className="text-[10px] font-normal">₹{chaalAmt}</span></button>
-                ) : (
-                  <button disabled={!myTurn} onClick={() => act("see")} className="rounded-full py-3 text-sm font-semibold bg-sky-500 disabled:opacity-40">See</button>
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <button disabled={!myTurn} onClick={() => act("pack")} className="rounded-full py-3 text-sm font-bold tracking-wide bg-[#1b2350] border border-white/10 disabled:opacity-40">PACK</button>
+                  <button disabled={!myTurn || !canSideShow()} onClick={sideShow} className="rounded-full py-3 text-sm font-bold tracking-wide bg-fuchsia-600 disabled:opacity-40">SIDE SHOW</button>
+                  <button disabled={!myTurn || (activeBots > 1 && s.round < 3)} onClick={() => act("show")} className="rounded-full py-3 text-sm font-bold tracking-wide bg-gold-500 text-slate-900 disabled:opacity-40">SHOW</button>
+                </div>
+                <div className="grid grid-cols-[1fr_2fr] gap-2">
+                  <button disabled={!myTurn || s.me.seen} onClick={() => act("see")} className="rounded-full py-3 text-sm font-bold tracking-wide bg-sky-500 disabled:opacity-40">{s.me.seen ? "SEEN ✓" : "SEE"}</button>
+                  <button disabled={!myTurn} onClick={() => act("chaal")} className="btn-green rounded-full py-3 text-sm font-bold tracking-wide">
+                    CHAAL ₹{chaalAmt}
+                  </button>
+                </div>
+                {myTurn && (
+                  <button onClick={() => act("raise")} className="w-full text-xs text-white/60 py-1">Raise to ₹{chaalAmt * 2} (2×)</button>
                 )}
-                <button disabled={!myTurn} onClick={() => act("raise")} className="btn-green rounded-full py-3 text-sm">Raise</button>
-                <button disabled={!myTurn || (activeBots > 1 && s.round < 3)} onClick={() => act("show")} className="rounded-full py-3 text-sm font-semibold bg-gold-500 text-slate-900 disabled:opacity-40">Show</button>
+                {myTurn && !canSideShow() && s.me.seen && activeBots >= 2 && (
+                  <div className="text-center text-[10px] text-white/40">Side show needs the previous player to be Seen too</div>
+                )}
               </div>
-            )}
-            {!poker && !s.me.seen && myTurn && (
-              <button onClick={() => act("chaal")} className="w-full mt-2 text-xs text-white/60 py-1.5">Play Blind ₹{chaalAmt}</button>
             )}
             <div className="text-center text-[10px] text-white/35 mt-2">If you disconnect, you have 60s to rejoin — otherwise the server auto-packs your hand.</div>
           </div>
