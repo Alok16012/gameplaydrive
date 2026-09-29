@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/* GameHub palette — deep navy casino night with neon-green actions and gold highlights. */
+@theme {
+  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+  --color-night-950: #070b22;
+  --color-night-900: #0a0f2c;
+  --color-night-800: #111838;
+  --color-night-700: #172048;
+  --color-night-600: #1f2a5a;
+  --color-neon-300: #86efac;
+  --color-neon-400: #4ade80;
+  --color-neon-500: #22c55e;
+  --color-neon-600: #16a34a;
+  --color-gold-300: #fcd34d;
+  --color-gold-400: #fbbf24;
+  --color-gold-500: #f59e0b;
+}
+
+:root {
+  --bg: #0a0f2c;
+  --surface: #121a3e;
+  --surface-2: #18214b;
+  --line: rgba(255, 255, 255, 0.07);
+  --ink: #ffffff;
+  --ink-soft: #aab3d6;
+  --ink-mute: #6f7aa6;
+  --green: #4ade80;
+  --gold: #fbbf24;
+  --red: #f43f5e;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #05081a;
+  color: var(--ink);
+  font-family: var(--font-poppins), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Desktop backdrop behind the phone-width app */
+.stage {
+  min-height: 100dvh;
+  background:
+    radial-gradient(60% 50% at 20% 10%, rgba(91, 97, 255, 0.18), transparent 60%),
+    radial-gradient(50% 40% at 85% 90%, rgba(74, 222, 128, 0.1), transparent 60%),
+    #05081a;
+  display: flex;
+  justify-content: center;
+}
+
+.app {
+  position: relative;
+  width: 100%;
+  max-width: 430px;
+  min-height: 100dvh;
+  background:
+    radial-gradient(120% 60% at 50% -10%, #1a2366 0%, transparent 60%),
+    linear-gradient(180deg, #0c1234 0%, #080c26 100%);
+  overflow-x: hidden;
+  box-shadow: 0 0 80px rgba(0, 0, 0, 0.6);
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(27, 36, 80, 0.85), rgba(17, 24, 58, 0.85));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.balance-card {
+  background:
+    radial-gradient(100% 120% at 100% 0%, rgba(74, 222, 128, 0.25), transparent 55%),
+    linear-gradient(135deg, #10593d 0%, #0d3d33 45%, #0b2438 100%);
+  border: 1px solid rgba(74, 222, 128, 0.25);
+  border-radius: 20px;
+}
+
+.btn-green {
+  background: linear-gradient(180deg, #5ef08f 0%, #22c55e 100%);
+  color: #06210f;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(34, 197, 94, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.btn-green:active { transform: scale(0.97); }
+.btn-green:disabled { filter: grayscale(0.8) brightness(0.7); box-shadow: none; }
+
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.btn-ghost:active { transform: scale(0.97); }
+
+.pill { border-radius: 999px; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+.felt {
+  background:
+    radial-gradient(60% 55% at 50% 45%, #1f8a55 0%, #13673f 55%, #0c4a2d 100%);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.55), 0 0 0 10px #3b2412, 0 0 0 13px #6b4424, 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes float { 0%,100% { transform: translateY(0) rotate(var(--r, 0deg)); } 50% { transform: translateY(-10px) rotate(var(--r, 0deg)); } }
+.float { animation: float 5s ease-in-out infinite; }
+
+@keyframes load { from { width: 0%; } to { width: 100%; } }
+.loadbar { animation: load 2.4s ease-in-out forwards; }
+
+@keyframes pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.06); } 100% { transform: scale(1); opacity: 1; } }
+.pop { animation: pop 0.35s ease-out both; }
+
+@keyframes slideup { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.slideup { animation: slideup 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.fadein { animation: fadein 0.25s ease-out both; }
+
+@keyframes flip { from { transform: rotateY(90deg); } to { transform: rotateY(0); } }
+.flip { animation: flip 0.35s ease-out both; }
+
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); } 100% { box-shadow: 0 0 0 12px rgba(74, 222, 128, 0); } }
+.pulse-ring { animation: pulse-ring 1.2s ease-out infinite; }
+
+@keyframes roll { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.15); } 100% { transform: rotate(360deg) scale(1); } }
+.roll { animation: roll 0.5s ease-in-out; }
+
+@keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+.gold-text {
+  background: linear-gradient(90deg, #fde68a, #f59e0b, #fde68a);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 4s linear infinite;
+}

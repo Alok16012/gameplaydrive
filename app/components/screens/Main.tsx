@@ -1,0 +1,241 @@
+"use client";
+
+import { useState } from "react";
+import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
+import { GAMES, NOTIFICATIONS, TABLES, USER, gameById, type Game, type GameId, type Stake } from "../../lib/data";
+import { useStore } from "../../lib/store";
+import { GameThumb, GameTile, GameIcon } from "../GameArt";
+import { Avatar, Header, Money, Sheet } from "../ui";
+import type { Nav } from "../nav";
+
+export function openGame(nav: Nav, game: Game) {
+  if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
+  else nav.push({ name: "lobby", game: game.id });
+}
+
+function Bucket({ color, icon, label, n }: { color: string; icon: React.ReactNode; label: string; n: number }) {
+  return (
+    <div className="flex-1 rounded-xl p-2.5 bg-white/[0.04] border border-white/5 min-w-0">
+      <div className="flex items-start gap-1.5 min-h-[26px]">
+        <span className="w-4 h-4 rounded-full grid place-items-center shrink-0" style={{ background: color }}>{icon}</span>
+        <span className="text-[10px] leading-tight" style={{ color }}>{label}</span>
+      </div>
+      <Money n={n} className="block mt-1.5 text-[17px] font-semibold" />
+    </div>
+  );
+}
+
+export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
+  const { wallet, total } = useStore();
+  return (
+    <div
+      className="rounded-[20px] p-4 border border-white/10"
+      style={{ background: "radial-gradient(120% 100% at 100% 0%, rgba(74,222,128,.14), transparent 50%), linear-gradient(135deg,#18225a,#101743)" }}
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-sm text-white/75">Total Balance</div>
+          <Money n={total} className="block text-[26px] font-semibold mt-0.5" />
+        </div>
+        <button onClick={onAdd} className="btn-green pill px-4 py-2 text-sm flex items-center gap-1.5">
+          <Plus size={16} strokeWidth={3} /> Add Cash
+        </button>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <Bucket color="#4ade80" icon={<WalletIcon size={10} color="#052e16" />} label="Deposit Cash" n={wallet.deposit} />
+        <Bucket color="#93c5fd" icon={<Trophy size={10} color="#0b1f4a" />} label="Winning Cash" n={wallet.winning} />
+        <Bucket color="#f0abfc" icon={<Gift size={10} color="#4a044e" />} label="Bonus / Promo" n={wallet.bonus} />
+      </div>
+    </div>
+  );
+}
+
+export function Home({ nav }: { nav: Nav }) {
+  const unread = NOTIFICATIONS.filter((n) => n.unread).length;
+  return (
+    <div className="px-4 pt-6 pb-28 fadein">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-[22px] font-semibold">Hello, {USER.first} 👋</div>
+          <div className="text-sm text-[var(--ink-soft)]">Ready to play?</div>
+        </div>
+        <div className="flex items-center gap-4">
+          <button onClick={() => nav.push({ name: "notifications" })} className="relative" aria-label="Notifications">
+            <Bell size={24} />
+            {unread > 0 && <span className="absolute -top-0.5 right-0 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[#0c1234]" />}
+          </button>
+          <button onClick={() => nav.reset({ name: "more" })}><Avatar size={40} /></button>
+        </div>
+      </div>
+
+      <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
+
+      <div className="grid grid-cols-3 gap-2.5 mt-5">
+        {GAMES.map((g) => <GameTile key={g.id} game={g} onClick={() => openGame(nav, g)} />)}
+      </div>
+
+      <button
+        onClick={() => nav.push({ name: "casino", game: "dragon-tiger" })}
+        className="w-full mt-5 rounded-2xl p-4 flex items-center gap-4 text-left border border-white/10 active:scale-[.98] transition-transform"
+        style={{ background: "linear-gradient(90deg,#3b2ad6 0%,#5b21b6 55%,#a21caf 100%)", boxShadow: "0 10px 30px rgba(91,33,182,.4)" }}
+      >
+        <span className="text-5xl drop-shadow-lg">🏆</span>
+        <div className="flex-1 text-lg font-semibold leading-tight">Play More<br />Win Bigger</div>
+        <ChevronRight />
+      </button>
+
+      <div className="mt-6 flex items-center justify-between">
+        <div className="font-semibold">Live right now</div>
+        <button onClick={() => nav.reset({ name: "games" })} className="text-xs text-neon-400">See all</button>
+      </div>
+      <div className="mt-3 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4">
+        {[...GAMES].sort((a, b) => b.online - a.online).slice(0, 5).map((g) => (
+          <button key={g.id} onClick={() => openGame(nav, g)} className="card p-2.5 w-36 shrink-0 text-left">
+            <GameThumb game={g} className="h-20" />
+            <div className="mt-2 text-sm font-medium">{g.name}</div>
+            <div className="text-[11px] text-neon-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-neon-400" />{g.online.toLocaleString("en-IN")} playing</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | "casino" | "board" }) {
+  const [cat, setCat] = useState(initial);
+  const [q, setQ] = useState<string | null>(null);
+  const list = GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
+  return (
+    <div className="pb-28 fadein">
+      <Header
+        title="All Games"
+        onBack={() => nav.reset({ name: "home" })}
+        right={
+          <button onClick={() => setQ(q === null ? "" : null)} aria-label="Search">{q === null ? <Search size={22} /> : <X size={22} />}</button>
+        }
+      />
+      <div className="px-4">
+        {q !== null ? (
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search 9 games…" className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
+        ) : (
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            {([["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
+              <button key={id} onClick={() => setCat(id)} className={`pill px-3.5 py-2 text-[12.5px] font-medium whitespace-nowrap transition-colors ${cat === id ? "btn-green" : "bg-white/5 text-white/80"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="mt-4 space-y-3">
+          {list.map((g) => (
+            <div key={g.id} onClick={() => openGame(nav, g)} className="card p-2.5 flex items-center gap-3.5 cursor-pointer active:scale-[.99] transition-transform">
+              <GameThumb game={g} className="w-28 h-[84px] shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold">{g.name}</div>
+                <div className="text-xs text-[var(--ink-soft)]">{g.meta}</div>
+                <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>
+              </div>
+              <ChevronRight className="text-white/60 mr-1" />
+            </div>
+          ))}
+          {list.length === 0 && <div className="text-center text-sm text-white/40 py-10">No games match “{q}”</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1 };
+
+export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
+  const game = gameById(gameId);
+  const [stake, setStake] = useState<"All" | Stake>("All");
+  const [priv, setPriv] = useState(false);
+  const [code] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
+  const m = MULT[gameId] ?? 1;
+  const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
+  const tables = TABLES.map((t) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: t.buyIn * m })).filter((t) => stake === "All" || t.stake === stake);
+
+  const join = (table: string, buyIn: number) => {
+    if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn });
+    else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn });
+    else nav.push({ name: "cardtable", game: game.id, table, buyIn });
+  };
+
+  return (
+    <div className="pb-28 fadein">
+      <Header
+        title={game.name}
+        sub={game.meta}
+        onBack={nav.back}
+        icon={<div className="w-11 h-11 rounded-xl grid place-items-center overflow-hidden scale-90" style={{ background: `linear-gradient(160deg,${game.from},${game.to})` }}><div className="scale-[.6]"><GameIcon id={game.id} /></div></div>}
+        right={<div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{game.online.toLocaleString("en-IN")}</div>}
+      />
+      <div className="px-4">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          {(["All", "Low", "Mid", "High"] as const).map((s) => (
+            <button key={s} onClick={() => setStake(s)} className={`pill px-3.5 py-1.5 text-xs font-medium whitespace-nowrap ${stake === s ? "btn-green" : "bg-white/5 text-white/80"}`}>
+              {s === "All" ? "All Tables" : `${s} Stakes`}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 card divide-y divide-white/5">
+          {tables.map((t, i) => {
+            const full = t.seated >= t.seats;
+            return (
+              <div key={t.id} className="flex items-center gap-3 p-3.5">
+                <div className="relative">
+                  <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i]} />
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium">Table {t.id}</div>
+                  <div className="text-[11px] text-[var(--ink-soft)]">{t.seated}/{t.seats} Players • ₹{t.buyIn} {game.id === "rummy" ? "Buy-in" : "Entry"}</div>
+                </div>
+                <button disabled={full} onClick={() => join(t.id, t.buyIn)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
+                  {full ? "Full" : "Join"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 text-[11px] text-white/40 text-center">Seats are balanced automatically so you don't face the same opponents every game.</div>
+      </div>
+      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] p-4 bg-gradient-to-t from-[#080c26] via-[#080c26] to-transparent">
+        <button onClick={() => setPriv(true)} className="btn-green w-full py-3.5 rounded-2xl flex items-center justify-center gap-2"><Users size={18} /> Create Private Table</button>
+      </div>
+      <Sheet open={priv} onClose={() => setPriv(false)} title="Private Table">
+        <div className="text-sm text-[var(--ink-soft)]">Share this invite code with friends. They can join from the {game.name} lobby.</div>
+        <div className="mt-4 card p-4 flex items-center justify-between">
+          <div className="text-2xl font-bold tracking-[0.3em]">{code}</div>
+          <button onClick={() => navigator.clipboard?.writeText(code)} className="btn-ghost pill px-3 py-1.5 text-xs flex items-center gap-1"><Copy size={14} /> Copy</button>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          {[10, 50, 100].map((b) => (
+            <div key={b} className="card py-3 text-center text-sm">₹{b * m}<div className="text-[10px] text-white/50">Entry</div></div>
+          ))}
+        </div>
+        <button onClick={() => { setPriv(false); join("P-" + code, 50 * m); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
+      </Sheet>
+    </div>
+  );
+}
+
+export function Notifications({ nav }: { nav: Nav }) {
+  return (
+    <div className="pb-10 fadein">
+      <Header title="Notifications" onBack={nav.back} />
+      <div className="px-4 space-y-2.5">
+        {NOTIFICATIONS.map((n, i) => (
+          <div key={i} className="card p-3.5 flex gap-3">
+            <div className="w-10 h-10 rounded-full bg-white/5 grid place-items-center shrink-0">{i === 1 ? <Star size={18} className="text-gold-400" /> : <Bell size={18} className="text-neon-400" />}</div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 text-sm font-medium">{n.title}{n.unread && <span className="w-2 h-2 rounded-full bg-rose-500" />}</div>
+              <div className="text-xs text-[var(--ink-soft)] mt-0.5">{n.body}</div>
+              <div className="text-[10px] text-white/40 mt-1">{n.when}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
