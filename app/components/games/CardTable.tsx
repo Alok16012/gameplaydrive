@@ -6,14 +6,14 @@ import { AVATARS, BOT_NAMES, deck, gameById, inr, type Card, type GameId } from 
 import { POKER_NAMES, TP_NAMES, compare, pokerScore, teenPattiScore } from "../../lib/hands";
 import { useStore } from "../../lib/store";
 import { Avatar, Header, Money, PlayingCard, Sheet } from "../ui";
+import { TURN_SECS, TimerAvatar, humanDelay, sleep } from "./bots";
 import type { Nav } from "../nav";
 
 // Teen Patti (PRD §6.1) and Texas Hold'em demo table. Game logic runs locally against three bots;
 // in production the table is a server-side FSM and the client only renders state + sends actions.
 
-const TURN_SECS = 20;
 const RAKE = 0.05;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const BOTS = 5; // 6 players at the table: you + 5
 
 interface Seat {
   name: string;
@@ -45,7 +45,7 @@ function fresh(): G {
   return {
     phase: "idle",
     me: { cards: [], packed: false, seen: false, paid: 0 },
-    bots: [0, 1, 2].map((i) => ({ name: BOT_NAMES[i], emoji: AVATARS[i + 1], bal: [980, 1250, 1430][i], cards: [], packed: false, seen: false })),
+    bots: Array.from({ length: BOTS }, (_, i) => ({ name: BOT_NAMES[i], emoji: AVATARS[(i + 1) % AVATARS.length], bal: [980, 1250, 1430, 2210, 760][i], cards: [], packed: false, seen: false })),
     pot: 0,
     stake: 0,
     round: 1,
@@ -85,7 +85,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     next.bots = prev.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined }));
     next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn };
     next.community = poker ? dk.splice(0, 5) : [];
-    next.pot = buyIn * 4;
+    next.pot = buyIn * (BOTS + 1);
     next.stake = buyIn;
     next.phase = "playing";
     next.turn = "me";
@@ -125,12 +125,19 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     for (let i = 0; i < st.bots.length; i++) {
       const b = st.bots[i];
       if (b.packed || st.phase !== "playing") continue;
+      // Each bot gets its own 15 s clock and uses a human-like slice of it.
+      const delay = humanDelay();
       st.turn = i;
+      st.timerEnd = Date.now() + TURN_SECS * 1000;
+      b.action = "Thinking…";
       bump();
-      await sleep(850);
+      await sleep(delay * 1000);
       if (g.current !== st) return; // left / restarted
-      const active = st.bots.filter((x) => !x.packed).length;
-      if (Math.random() < 0.16 && (active > 1 || st.me.packed === false)) {
+      const packChance = poker ? 0.14 : 0.08 + st.round * 0.04 + (b.seen ? 0.04 : 0);
+      if (delay >= TURN_SECS) {
+        b.packed = true;
+        b.action = "Timed out";
+      } else if (Math.random() < packChance) {
         b.packed = true;
         b.action = poker ? "Fold" : "Pack";
       } else {
@@ -141,6 +148,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         b.action = poker ? (st.stake ? `Call ₹${amt}` : "Check") : `${b.seen ? "Chaal" : "Blind"} ₹${amt}`;
       }
       bump();
+      await sleep(300);
+      if (g.current !== st) return;
     }
     st.busy = false;
     if (st.bots.every((b) => b.packed)) return finish("me", "Everyone else folded");
@@ -251,44 +260,48 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
 
   // Turn timer → auto-play (PRD AUTH-5): pack / fold on timeout.
   useEffect(() => {
-    if (s.phase !== "playing" || s.turn !== "me") return;
+    if (s.phase !== "playing") return;
     const t = setInterval(() => {
-      if (Date.now() >= g.current.timerEnd && g.current.turn === "me") {
+      if (Date.now() >= g.current.timerEnd && g.current.turn === "me" && !g.current.busy) {
         showToast("Time's up — auto-packed");
         act("pack");
       } else bump();
     }, 250);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.phase, s.turn]);
+  }, [s.phase, g.current]);
 
   useEffect(() => () => { g.current = fresh(); }, []);
 
-  const secs = Math.max(0, Math.ceil((s.timerEnd - Date.now()) / 1000));
+  const secs = Math.min(TURN_SECS, Math.max(0, Math.ceil((s.timerEnd - Date.now()) / 1000)));
   const myTurn = s.phase === "playing" && s.turn === "me" && !s.busy;
   const reveal = s.phase === "done";
   const chaalAmt = poker ? s.stake : s.me.seen ? s.stake * 2 : s.stake;
   const activeBots = s.bots.filter((b) => !b.packed).length;
   const stageName = ["Pre-Flop", "Flop", "Turn", "River", "Showdown"][s.stage];
 
-  const seatPos = ["left-1 top-[44%] -translate-y-1/2", "left-1/2 -translate-x-1/2 -top-3", "right-1 top-[44%] -translate-y-1/2"];
+  const seatPos = [
+    "-left-2 top-[50%]",
+    "left-1 top-[6%]",
+    "left-1/2 -translate-x-1/2 -top-6",
+    "right-1 top-[6%]",
+    "-right-2 top-[50%]",
+  ];
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
       <Header
         title={game.name}
-        sub={`Table #${table} • 4 Players • Boot ₹${buyIn}`}
+        sub={`Table #${table} • 6 Players • Boot ₹${buyIn}`}
         onBack={nav.back}
         right={<div className="flex items-center gap-3"><Money n={total} className="text-sm font-semibold text-neon-400" /><MoreVertical size={20} className="text-white/60" /></div>}
       />
 
       <div className="px-3 flex-1 flex flex-col">
-        <div className="relative mt-8 mx-3 felt" style={{ height: 330, borderRadius: "160px" }}>
+        <div className="relative mt-12 mx-4 felt" style={{ height: 350, borderRadius: "170px" }}>
           {s.bots.map((b, i) => (
-            <div key={i} className={`absolute ${seatPos[i]} flex flex-col items-center z-10 w-24`}>
-              <div className={`rounded-full ${s.turn === i ? "pulse-ring" : ""} ${b.packed ? "opacity-40 grayscale" : ""}`}>
-                <Avatar emoji={b.emoji} size={46} />
-              </div>
+            <div key={i} className={`absolute ${seatPos[i]} flex flex-col items-center z-10 w-[84px]`}>
+              <TimerAvatar emoji={b.emoji} size={40} active={s.phase === "playing" && s.turn === i} left={s.turn === i ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={b.packed} />
               <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
                 <div className="text-[10px] font-medium leading-tight">{b.name}</div>
                 <div className="text-[10px] text-gold-300 leading-tight">₹{b.bal.toLocaleString("en-IN")}</div>
@@ -322,7 +335,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
                 <div className="text-sm font-semibold">{poker ? stageName : `Round ${s.round}`}</div>
                 <div className="text-[11px] text-gold-300 font-semibold">Pot ₹{s.pot.toLocaleString("en-IN")}</div>
                 <div className="text-lg font-bold mt-0.5">
-                  {s.phase === "playing" ? (s.turn === "me" && !s.busy ? `${secs}s` : typeof s.turn === "number" ? <span className="text-xs font-normal text-white/70">{s.bots[s.turn].name} is thinking…</span> : "") : ""}
+                  {s.phase === "playing" ? (s.turn === "me" && !s.busy ? `${secs}s` : typeof s.turn === "number" ? <span className="text-xs font-normal text-white/70">{s.bots[s.turn].name}&apos;s turn • {secs}s</span> : "") : ""}
                 </div>
               </>
             )}
@@ -330,7 +343,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
 
           {/* You */}
           <div className="absolute left-1/2 -translate-x-1/2 -bottom-7 flex flex-col items-center z-10">
-            <div className={`rounded-full ${myTurn ? "pulse-ring" : ""} ${s.me.packed ? "opacity-40" : ""}`}><Avatar size={50} /></div>
+            <TimerAvatar size={48} active={myTurn} left={myTurn ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={s.me.packed} />
             <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
               <div className="text-[10px] font-medium leading-tight">You {!poker && s.phase === "playing" && <span className="text-white/60">• {s.me.seen ? "Seen" : "Blind"}</span>}</div>
               <div className="text-[10px] text-gold-300 leading-tight">₹{total.toLocaleString("en-IN")}</div>

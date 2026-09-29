@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownUp, Layers, Trophy } from "lucide-react";
 import { AVATARS, BOT_NAMES, RANKS, SUITS, inr, rankValue, type Card } from "../../lib/data";
 import { useStore } from "../../lib/store";
-import { Avatar, Header, Money, PlayingCard, Sheet } from "../ui";
+import { Header, Money, PlayingCard, Sheet } from "../ui";
+import { TURN_SECS, TimerAvatar, humanDelay, sleep } from "./bots";
 import type { Nav } from "../nav";
 
 // 13 Card Rummy demo (PRD §6.1). Two decks; valid declare = 1 pure sequence + 1 more sequence,
@@ -18,7 +19,7 @@ interface HC {
 type GroupKind = "pure" | "impure" | "set" | "invalid";
 const KIND_LABEL: Record<GroupKind, string> = { pure: "Pure Sequence", impure: "Sequence", set: "Set", invalid: "Invalid" };
 
-const TURN_SECS = 30;
+const BOTS = 5; // 6 players at the table: you + 5
 let uid = 0;
 
 function twoDecks(): HC[] {
@@ -66,53 +67,93 @@ function classify(group: HC[], wild: Card["r"]): GroupKind {
 
 export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
   const { total, debit, credit, showToast } = useStore();
-  const [phase, setPhase] = useState<"idle" | "play" | "done">("idle");
-  const [stock, setStockState] = useState<HC[]>([]);
+  const [phase, setPhase] = useState<"idle" | "seating" | "play" | "done">("idle");
+  const [seated, setSeated] = useState(0);
+  const [stockN, setStockN] = useState(0);
   const stockRef = useRef<HC[]>([]);
-  const setStock = (next: HC[]) => {
-    stockRef.current = next;
-    setStockState(next);
+  const [open, setOpenState] = useState<HC[]>([]);
+  const openRef = useRef<HC[]>([]);
+  const setOpen = (next: HC[]) => {
+    openRef.current = next;
+    setOpenState(next);
   };
-  const [open, setOpen] = useState<HC[]>([]);
   const [wild, setWild] = useState<Card>({ r: "5", s: "♣" });
   const [groups, setGroups] = useState<HC[][]>([]);
   const [sel, setSel] = useState<number[]>([]);
   const [drawn, setDrawn] = useState(false);
-  const [myTurn, setMyTurn] = useState(true);
-  const [botMsg, setBotMsg] = useState("");
-  const [timerEnd, setTimerEnd] = useState(0);
+  const [turn, setTurn] = useState<"me" | number>("me");
+  const [turnEnd, setTurnEnd] = useState(0);
   const [now, setNow] = useState(0);
+  const [bots, setBotsState] = useState(() => BOT_NAMES.slice(0, BOTS).map((name, i) => ({ name, emoji: AVATARS[(i + 1) % AVATARS.length], dropped: false, action: "" })));
+  const botsRef = useRef(bots);
+  const setBot = (i: number, patch: Partial<(typeof bots)[number]>) => {
+    botsRef.current = botsRef.current.map((b, j) => (j === i ? { ...b, ...patch } : b));
+    setBotsState(botsRef.current);
+  };
+  const botHands = useRef<HC[][]>([]);
+  const round = useRef(1);
+  const run = useRef(0); // bumps on every deal / leave so stale bot loops stop
   const [result, setResult] = useState<{ won: boolean; title: string; sub: string } | null>(null);
   const label = `Rummy • Table #${table}`;
+  const myTurn = phase === "play" && turn === "me";
 
   const hand = groups.flat();
   const kinds = useMemo(() => groups.map((g) => classify(g, wild.r)), [groups, wild]);
   const invalidPts = groups.reduce((a, g, i) => a + (kinds[i] === "invalid" ? g.reduce((x, h) => x + (h.c.r === wild.r ? 0 : points(h.c)), 0) : 0), 0);
+  const prize = Math.floor(buyIn * (BOTS + 1) * 0.9);
 
-  const deal = () => {
+  useEffect(() => () => { run.current++; }, []);
+
+  useEffect(() => {
+    if (phase !== "play") return;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  // Draw from the closed deck; when it runs out, the open pile (minus its top card) is reshuffled in.
+  const takeStock = (): HC => {
+    if (stockRef.current.length === 0) {
+      const [top, ...rest] = openRef.current;
+      stockRef.current = rest.sort(() => Math.random() - 0.5);
+      setOpen([top]);
+      showToast("Closed deck reshuffled");
+    }
+    const [c, ...rest] = stockRef.current;
+    stockRef.current = rest;
+    setStockN(rest.length);
+    return c;
+  };
+
+  const deal = async () => {
     if (!debit(buyIn, `${label} • Entry`)) return showToast("Not enough balance — add cash");
+    const id = ++run.current;
+    setResult(null);
+    setPhase("seating");
+    setSeated(0);
+    botsRef.current = botsRef.current.map((b) => ({ ...b, dropped: false, action: "" }));
+    setBotsState(botsRef.current);
+    for (let i = 1; i <= BOTS; i++) {
+      await sleep(250 + Math.random() * 350);
+      if (run.current !== id) return;
+      setSeated(i);
+    }
+    await sleep(400);
+    if (run.current !== id) return;
     const d = twoDecks();
     const mine = d.splice(0, 13);
-    const w = d.pop()!;
-    setWild(w.c);
+    botHands.current = Array.from({ length: BOTS }, () => d.splice(0, 13));
+    setWild(d.pop()!.c);
     setOpen([d.pop()!]);
-    setStock(d);
+    stockRef.current = d;
+    setStockN(d.length);
     setGroups([mine]);
     setSel([]);
     setDrawn(false);
-    setMyTurn(true);
-    setTimerEnd(Date.now() + TURN_SECS * 1000);
+    round.current = 1;
+    setTurn("me");
+    setTurnEnd(Date.now() + TURN_SECS * 1000);
     setPhase("play");
-    setResult(null);
   };
-
-  useEffect(() => {
-    if (phase !== "play" || !myTurn) return;
-    const t = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(t);
-  }, [phase, myTurn]);
-
-  const secs = Math.max(0, Math.ceil((timerEnd - now) / 1000));
 
   const sortHand = () => {
     const bySuit = SUITS.map((s) => hand.filter((h) => h.c.s === s).sort((a, b) => rankValue(a.c.r) - rankValue(b.c.r))).filter((g) => g.length);
@@ -131,18 +172,23 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
   };
 
   const draw = (from: "stock" | "open") => {
-    if (!myTurn || drawn || phase !== "play") return;
-    if (from === "stock") {
-      const [top, ...rest] = stockRef.current;
-      setStock(rest);
-      setGroups((g) => [...g.slice(0, -1), [...g[g.length - 1], top]]);
-    } else {
-      if (open[0].c.r === wild.r) return showToast("Can't pick a joker from the open deck");
-      const [top, ...rest] = open;
-      setOpen(rest);
-      setGroups((g) => [...g.slice(0, -1), [...g[g.length - 1], top]]);
+    if (!myTurn || drawn) return;
+    let top: HC;
+    if (from === "stock") top = takeStock();
+    else {
+      if (!openRef.current[0]) return;
+      if (openRef.current[0].c.r === wild.r) return showToast("Can't pick a joker from the open deck");
+      [top] = openRef.current;
+      setOpen(openRef.current.slice(1));
     }
+    setGroups((g) => [...g.slice(0, -1), [...g[g.length - 1], top]]);
     setDrawn(true);
+  };
+
+  const endMyTurn = () => {
+    setSel([]);
+    setDrawn(false);
+    botsPlay(run.current);
   };
 
   const discard = () => {
@@ -150,49 +196,95 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     if (sel.length !== 1) return showToast("Select one card to discard");
     const card = hand.find((h) => h.id === sel[0])!;
     setGroups((gs) => gs.map((g) => g.filter((h) => h.id !== card.id)).filter((g) => g.length));
-    setOpen((o) => [card, ...o]);
-    setSel([]);
-    setDrawn(false);
-    setMyTurn(false);
-    botsPlay();
+    setOpen([card, ...openRef.current]);
+    endMyTurn();
   };
 
-  const botsPlay = () => {
-    let i = 0;
-    const step = () => {
-      if (i >= 3) {
-        setBotMsg("");
-        setMyTurn(true);
-        setTimerEnd(Date.now() + TURN_SECS * 1000);
-        return;
-      }
-      const name = BOT_NAMES[i];
-      const [top, ...rest] = stockRef.current;
-      setStock(rest);
-      setOpen((o) => [top, ...o]);
-      setBotMsg(`${name} drew and discarded ${top.c.r}${top.c.s}`);
-      i++;
-      setTimeout(step, 900);
-    };
-    setTimeout(step, 400);
+  const loseTo = (name: string) => {
+    setResult({ won: false, title: `${name} declared & won`, sub: `Valid declaration by ${name}. You lose with ${Math.min(invalidPts, 80)} points.` });
+    setPhase("done");
   };
 
-  // Auto-play on timeout (PRD §6.1): draw from stock and discard it.
-  useEffect(() => {
-    if (phase === "play" && myTurn && timerEnd && now > timerEnd) {
-      showToast("Time's up — auto-play");
-      if (drawn) {
-        const last = groups[groups.length - 1];
-        const card = last[last.length - 1];
-        setGroups((gs) => gs.map((g) => g.filter((h) => h.id !== card.id)).filter((g) => g.length));
-        setOpen((o) => [card, ...o]);
+  // Opponents take their turns one by one, each with its own 15 s clock and a human-ish pace.
+  const botsPlay = async (id: number) => {
+    const alive = () => run.current === id;
+    for (let i = 0; i < BOTS; i++) {
+      const b = botsRef.current[i];
+      if (b.dropped) continue;
+      const delay = humanDelay();
+      setTurn(i);
+      setTurnEnd(Date.now() + TURN_SECS * 1000);
+      setBot(i, { action: "Thinking…" });
+
+      // Drops happen early: first drop in round 1, middle drop in rounds 2-4.
+      const stillIn = botsRef.current.filter((x) => !x.dropped).length;
+      const dropChance = round.current === 1 ? 0.1 : round.current <= 4 ? 0.05 : 0;
+      if (stillIn > 1 && Math.random() < dropChance) {
+        await sleep(Math.min(delay, 5) * 1000);
+        if (!alive()) return;
+        setBot(i, { dropped: true, action: round.current === 1 ? "Dropped" : "Middle drop" });
+        showToast(`${b.name} ${round.current === 1 ? "dropped" : "middle-dropped"}`);
+        await sleep(600);
+        if (!alive()) return;
+        continue;
       }
-      setTimerEnd(Date.now() + TURN_SECS * 1000);
-      setMyTurn(false);
-      setDrawn(false);
-      setSel([]);
-      botsPlay();
+
+      await sleep(delay * 450);
+      if (!alive()) return;
+      const hand = botHands.current[i];
+      const top = openRef.current[0];
+      const fromOpen = !!top && top.c.r !== wild.r && Math.random() < 0.3;
+      let picked: HC;
+      if (fromOpen) {
+        picked = top;
+        setOpen(openRef.current.slice(1));
+      } else picked = takeStock();
+      hand.push(picked);
+      setBot(i, { action: fromOpen ? "Picked from Open" : "Picked from Closed" });
+
+      await sleep(delay * 550);
+      if (!alive()) return;
+
+      // Late in the game a bot may go out.
+      if (round.current >= 5 && Math.random() < 0.05) {
+        setBot(i, { action: "Declared!" });
+        await sleep(900);
+        if (!alive()) return;
+        return loseTo(b.name);
+      }
+
+      const out = !fromOpen && Math.random() < 0.55 ? hand.length - 1 : Math.floor(Math.random() * (hand.length - 1));
+      const [thrown] = hand.splice(out, 1);
+      setOpen([thrown, ...openRef.current]);
+      setBot(i, { action: delay >= TURN_SECS ? "Timed out • auto" : `Discarded ${thrown.c.r}${thrown.c.s}` });
+      await sleep(350);
+      if (!alive()) return;
     }
+    if (botsRef.current.every((b) => b.dropped)) {
+      credit(prize, label);
+      setResult({ won: true, title: `You won ${inr(prize)}!`, sub: "All other players dropped" });
+      setPhase("done");
+      return;
+    }
+    round.current += 1;
+    setTurn("me");
+    setTurnEnd(Date.now() + TURN_SECS * 1000);
+  };
+
+  // Your turn times out → auto-play (PRD §6.1): draw from closed and throw it back.
+  useEffect(() => {
+    if (!myTurn || !turnEnd || now <= turnEnd) return;
+    showToast("Time's up — auto-play");
+    if (drawn) {
+      const last = groups[groups.length - 1];
+      const card = last[last.length - 1];
+      setGroups((gs) => gs.map((g) => g.filter((h) => h.id !== card.id)).filter((g) => g.length));
+      setOpen([card, ...openRef.current]);
+    } else {
+      setOpen([takeStock(), ...openRef.current]);
+    }
+    setTurnEnd(0);
+    endMyTurn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [now]);
 
@@ -201,8 +293,8 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     const pure = kinds.filter((k) => k === "pure").length;
     const seqs = kinds.filter((k) => k === "pure" || k === "impure").length;
     const valid = pure >= 1 && seqs >= 2 && kinds.every((k) => k !== "invalid");
+    run.current++;
     if (valid) {
-      const prize = Math.floor(buyIn * 4 * 0.9);
       credit(prize, label);
       setResult({ won: true, title: `You won ${inr(prize)}!`, sub: "Valid declaration • 0 points" });
     } else {
@@ -212,7 +304,8 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
   };
 
   const drop = () => {
-    setResult({ won: false, title: "You dropped", sub: drawn ? "Middle drop • 40 points" : "First drop • 20 points" });
+    run.current++;
+    setResult({ won: false, title: "You dropped", sub: drawn || round.current > 1 ? "Middle drop • 40 points" : "First drop • 20 points" });
     setPhase("done");
   };
 
@@ -230,32 +323,52 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     setDrawn(false);
   };
 
+  const left = Math.min(TURN_SECS, Math.max(0, (turnEnd - now) / 1000));
+  const secs = Math.ceil(left);
+  const botTurn = phase === "play" && typeof turn === "number" ? bots[turn] : null;
+
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Rummy" sub={`13 Card • Table #${table} • Entry ₹${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Rummy" sub={`13 Card • Table #${table} • 6 Players • Entry ₹${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
 
-      <div className="px-3">
-        <div className="flex justify-around">
-          {BOT_NAMES.slice(0, 3).map((n, i) => (
-            <div key={n} className="flex flex-col items-center">
-              <div className={`rounded-full ${!myTurn && botMsg.startsWith(n) ? "pulse-ring" : ""}`}><Avatar emoji={AVATARS[i + 1]} size={40} /></div>
-              <div className="text-[10px] mt-1">{n}</div>
-              <div className="flex -space-x-4 mt-0.5 scale-75">{Array.from({ length: 4 }, (_, j) => <PlayingCard key={j} faceDown size="xs" />)}</div>
-            </div>
-          ))}
+      <div className="px-2">
+        <div className="grid grid-cols-5 gap-1">
+          {bots.map((b, i) => {
+            const here = phase === "play" || phase === "done" || (phase === "seating" && i < seated);
+            const active = phase === "play" && turn === i;
+            return (
+              <div key={b.name} className={`flex flex-col items-center transition-opacity ${here ? "opacity-100" : "opacity-25"}`}>
+                <TimerAvatar emoji={b.emoji} size={38} active={active} left={active ? left : 0} dim={b.dropped} />
+                <div className={`text-[10px] mt-1.5 font-medium ${active ? "text-neon-400" : ""}`}>{b.name}</div>
+                {b.dropped ? (
+                  <div className="text-[8px] pill px-1.5 py-0.5 mt-0.5 bg-rose-500/25 text-rose-200 font-semibold">{b.action.toUpperCase()}</div>
+                ) : (
+                  <>
+                    <div className="flex -space-x-4 mt-0.5 scale-[.6] origin-top h-5">{here && Array.from({ length: 4 }, (_, j) => <PlayingCard key={j} faceDown size="xs" />)}</div>
+                    <div className={`text-[8.5px] leading-tight text-center h-5 ${active ? "text-white" : "text-white/45"}`}>{phase === "play" ? b.action : here && phase === "seating" ? "Joined" : ""}</div>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        <div className="felt rounded-[36px] mt-6 mx-2 p-4 flex items-center justify-center gap-5" style={{ minHeight: 150 }}>
+        <div className="felt rounded-[36px] mt-4 mx-2 p-4 flex items-center justify-center gap-5" style={{ minHeight: 150 }}>
           {phase === "idle" ? (
             <button onClick={deal} className="btn-green pill px-6 py-2.5 text-sm">Deal Cards • Entry ₹{buyIn}</button>
+          ) : phase === "seating" ? (
+            <div className="text-center">
+              <div className="text-sm font-semibold">Waiting for players…</div>
+              <div className="text-xs text-white/70 mt-1">{seated + 1}/6 seated</div>
+            </div>
           ) : (
             <>
               <button onClick={() => draw("stock")} className="flex flex-col items-center gap-1">
                 <div className="relative"><PlayingCard faceDown size="md" /><PlayingCard faceDown size="md" className="absolute -top-1 -left-1" /></div>
-                <span className="text-[10px] text-white/70">Closed ({stock.length})</span>
+                <span className="text-[10px] text-white/70">Closed ({stockN})</span>
               </button>
               <button onClick={() => draw("open")} className="flex flex-col items-center gap-1">
-                {open[0] ? <PlayingCard card={open[0].c} size="md" /> : <div className="w-12 h-[68px] rounded-lg border-2 border-dashed border-white/30" />}
+                {open[0] ? <PlayingCard key={open[0].id} card={open[0].c} size="md" className="flip" /> : <div className="w-12 h-[68px] rounded-lg border-2 border-dashed border-white/30" />}
                 <span className="text-[10px] text-white/70">Open</span>
               </button>
               <div className="flex flex-col items-center gap-1">
@@ -269,10 +382,10 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
         {phase === "play" && (
           <div className="mt-2 text-center text-xs h-5">
             {myTurn ? (
-              <span className={secs <= 10 ? "text-rose-400" : "text-neon-400"}>Your turn • {drawn ? "select a card and discard" : "draw from Closed or Open"} • {secs}s</span>
-            ) : (
-              <span className="text-white/60">{botMsg || "Opponents playing…"}</span>
-            )}
+              <span className={secs <= 5 ? "text-rose-400 font-semibold" : "text-neon-400"}>Your turn • {drawn ? "select a card and discard" : "draw from Closed or Open"} • {secs}s</span>
+            ) : botTurn ? (
+              <span className="text-white/70">{botTurn.name}&apos;s turn • {secs}s</span>
+            ) : null}
           </div>
         )}
       </div>
@@ -295,7 +408,7 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
 
       {phase === "play" && (
         <div className="px-3 mt-auto pt-4">
-          <div className="text-center text-[11px] text-white/50 mb-2">Points in hand: <b className="text-white">{invalidPts}</b> • {hand.length} cards</div>
+          <div className="text-center text-[11px] text-white/50 mb-2">Points in hand: <b className="text-white">{invalidPts}</b> • {hand.length} cards • Prize {inr(prize)}</div>
           <div className="grid grid-cols-5 gap-1.5 text-[11px]">
             <button onClick={sortHand} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><ArrowDownUp size={15} />Sort</button>
             <button onClick={makeGroup} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><Layers size={15} />Group</button>

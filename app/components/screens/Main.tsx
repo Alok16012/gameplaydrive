@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
-import { GAMES, NOTIFICATIONS, TABLES, USER, gameById, type Game, type GameId, type Stake } from "../../lib/data";
+import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, USER, gameById, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
@@ -154,7 +154,9 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [code] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
   const m = MULT[gameId] ?? 1;
   const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
-  const tables = TABLES.map((t) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: t.buyIn * m })).filter((t) => stake === "All" || t.stake === stake);
+  const privEntries = gameId === "rummy" ? [50, 100, 250] : [10 * m, 50 * m, 100 * m];
+  const base = gameId === "rummy" ? RUMMY_TABLES.map((t) => ({ ...t, buyIn: t.buyIn / m })) : TABLES;
+  const tables = base.map((t) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: t.buyIn * m })).filter((t) => stake === "All" || t.stake === stake);
 
   const join = (table: string, buyIn: number) => {
     if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn });
@@ -210,11 +212,11 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
           <button onClick={() => navigator.clipboard?.writeText(code)} className="btn-ghost pill px-3 py-1.5 text-xs flex items-center gap-1"><Copy size={14} /> Copy</button>
         </div>
         <div className="grid grid-cols-3 gap-2 mt-4">
-          {[10, 50, 100].map((b) => (
-            <div key={b} className="card py-3 text-center text-sm">₹{b * m}<div className="text-[10px] text-white/50">Entry</div></div>
+          {privEntries.map((b) => (
+            <div key={b} className="card py-3 text-center text-sm">₹{b}<div className="text-[10px] text-white/50">Entry</div></div>
           ))}
         </div>
-        <button onClick={() => { setPriv(false); join("P-" + code, 50 * m); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
+        <button onClick={() => { setPriv(false); join("P-" + code, privEntries[1]); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
       </Sheet>
     </div>
   );
