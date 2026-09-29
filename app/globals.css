@@ -138,3 +138,6 @@ body {
   color: transparent;
   animation: shimmer 4s linear infinite;
 }
+
+/* Hide the "Powered by Netlify" badge Netlify injects on hosted builds */
+#nl-badge-frame { display: none !important; }
