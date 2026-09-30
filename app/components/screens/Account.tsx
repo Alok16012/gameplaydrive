@@ -9,6 +9,7 @@ import { Avatar, Header, Toggle } from "../ui";
 import type { Nav } from "../nav";
 
 export function More({ nav }: { nav: Nav }) {
+  const { player } = useStore();
   const items: { icon: React.ReactNode; label: string; right?: React.ReactNode; go: () => void; danger?: boolean }[] = [
     { icon: <WalletIcon size={19} />, label: "Wallet", go: () => nav.reset({ name: "wallet" }) },
     { icon: <History size={19} />, label: "Game History", go: () => nav.push({ name: "history" }) },
@@ -23,8 +24,8 @@ export function More({ nav }: { nav: Nav }) {
       <div className="px-4 pt-7 flex items-center gap-3.5">
         <Avatar size={58} />
         <div className="flex-1">
-          <div className="text-lg font-semibold">{USER.name}</div>
-          <div className="text-[11px] text-[var(--ink-soft)]">ID: {USER.id}</div>
+          <div className="text-lg font-semibold">{player.name}</div>
+          <div className="text-[11px] text-[var(--ink-soft)]">ID: {player.id}</div>
           <span className="inline-flex items-center gap-1 mt-1 pill px-2 py-0.5 text-[10px] bg-neon-400/15 text-neon-400"><BadgeCheck size={12} /> Verified</span>
         </div>
         <button onClick={() => nav.push({ name: "settings" })} aria-label="Settings"><SettingsIcon size={22} /></button>
@@ -79,8 +80,9 @@ export function GameHistory({ nav }: { nav: Nav }) {
 }
 
 export function Kyc({ nav }: { nav: Nav }) {
+  const { player } = useStore();
   const steps = [
-    { icon: <Phone size={18} />, t: "Mobile Number", s: USER.phone },
+    { icon: <Phone size={18} />, t: "Mobile Number", s: player.phone },
     { icon: <Mail size={18} />, t: "Email", s: USER.email },
     { icon: <IdCard size={18} />, t: "PAN Card", s: "ABCPS••••K" },
     { icon: <IdCard size={18} />, t: "Aadhaar (Age 18+)", s: "•••• •••• 7712" },

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { StoreProvider } from "../lib/store";
+import { StoreProvider, useStore } from "../lib/store";
+import { fmtPhone } from "../lib/hierarchy";
 import { BottomNav, Toast, type Tab } from "./ui";
 import type { Nav, Route } from "./nav";
 import { Login, Splash } from "./screens/Auth";
@@ -19,6 +20,7 @@ function Shell() {
   const [auth, setAuth] = useState<"splash" | "login" | "in">("splash");
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
   const route = stack[stack.length - 1];
+  const { setPlayer } = useStore();
 
   const nav = useMemo<Nav>(
     () => ({
@@ -33,7 +35,7 @@ function Shell() {
   const splashDone = useCallback(() => setAuth((a) => (a === "splash" ? "login" : a)), []);
 
   if (auth === "splash") return <Splash onDone={splashDone} />;
-  if (auth === "login") return <Login onDone={() => setAuth("in")} />;
+  if (auth === "login") return <Login onDone={(p) => { setPlayer({ id: p.id, name: p.name, first: p.name.split(" ")[0], phone: `+91 ${fmtPhone(p.phone)}` }); setAuth("in"); }} />;
 
   const tab = TAB_OF[route.name];
   let screen: React.ReactNode;
@@ -43,7 +45,7 @@ function Shell() {
     case "lobby": screen = <Lobby nav={nav} gameId={route.game} />; break;
     case "casino": screen = <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
-    case "rummy": screen = <Rummy nav={nav} table={route.table} buyIn={route.buyIn} />; break;
+    case "rummy": screen = <Rummy key={route.table + route.mode} nav={nav} table={route.table} buyIn={route.buyIn} mode={route.mode} deals={route.deals ?? 2} />; break;
     case "board": screen = <BoardGame nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
     case "wallet": screen = <WalletScreen nav={nav} />; break;
     case "addcash": screen = <AddCash nav={nav} />; break;

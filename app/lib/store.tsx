@@ -1,7 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { START_TXNS, START_WALLET, type Txn, type TxnType, type Wallet } from "./data";
+import { START_TXNS, START_WALLET, USER, type Txn, type TxnType, type Wallet } from "./data";
+
+export interface Player { id: string; name: string; first: string; phone: string }
 
 // In-memory wallet + ledger for the demo. Mirrors PRD §5.2:
 // three buckets, debit order Bonus (capped per table) → Deposit → Winning, withdrawals from Winning only.
@@ -22,6 +24,8 @@ interface Store {
   setLimits: (l: { deposit: number; loss: number; session: number }) => void;
   toast: string | null;
   showToast: (msg: string) => void;
+  player: Player;
+  setPlayer: (p: Player) => void;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -44,6 +48,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [hidden, setHidden] = useState(false);
   const [limits, setLimits] = useState({ deposit: 10000, loss: 5000, session: 120 });
   const [toast, setToast] = useState<string | null>(null);
+  const [player, setPlayer] = useState<Player>({ id: USER.id, name: USER.name, first: USER.first, phone: USER.phone });
 
   const add = useCallback((type: TxnType, title: string, sub: string, amount: number, status: Txn["status"] = "Success") => {
     setTxns((t) => [{ id: Math.random().toString(36).slice(2), type, title, sub: `${sub} • ${stamp()}`, amount, status }, ...t]);
@@ -110,8 +115,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setLimits,
       toast,
       showToast,
+      player,
+      setPlayer,
     }),
-    [wallet, txns, hidden, debit, credit, deposit, withdraw, limits, toast, showToast],
+    [wallet, txns, hidden, debit, credit, deposit, withdraw, limits, toast, showToast, player],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

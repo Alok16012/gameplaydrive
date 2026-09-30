@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
-import { MoreVertical, Trophy } from "lucide-react";
-import { AVATARS, BOT_NAMES, deck, gameById, inr, type Card, type GameId } from "../../lib/data";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { MoreVertical } from "lucide-react";
+import { deck, gameById, inr, type Card, type GameId } from "../../lib/data";
+import { pickBots, type Bot } from "../../lib/botpool";
 import { POKER_NAMES, TP_NAMES, compare, pokerScore, teenPattiScore } from "../../lib/hands";
 import { useStore } from "../../lib/store";
-import { Avatar, Header, Money, PlayingCard, Sheet } from "../ui";
-import { TURN_SECS, TimerAvatar, humanDelay, sleep } from "./bots";
+import { Header, Money, PlayingCard } from "../ui";
+import { NEXT_GAME_SECS, ResultSheet, TURN_SECS, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
 import type { Nav } from "../nav";
 
 // Teen Patti (PRD §6.1) and Texas Hold'em demo table. Game logic runs locally against three bots;
@@ -39,13 +40,18 @@ interface G {
   timerEnd: number;
   busy: boolean;
   result: { me: boolean; who: string; hand: string; amount: number } | null;
+  sheet: boolean; // result is out (after the cards have been revealed on the table); next-game countdown runs
+  peek: boolean; // result sheet dismissed to look at the table
+  hand: number; // games played at this table
 }
 
-function fresh(): G {
+const seat = (b: Bot): Seat => ({ ...b, cards: [], packed: false, seen: false });
+
+function fresh(bots: Seat[]): G {
   return {
     phase: "idle",
     me: { cards: [], packed: false, seen: false, paid: 0 },
-    bots: Array.from({ length: BOTS }, (_, i) => ({ name: BOT_NAMES[i], emoji: AVATARS[(i + 1) % AVATARS.length], bal: [980, 1250, 1430, 2210, 760][i], cards: [], packed: false, seen: false })),
+    bots,
     pot: 0,
     stake: 0,
     round: 1,
@@ -55,6 +61,9 @@ function fresh(): G {
     timerEnd: 0,
     busy: false,
     result: null,
+    sheet: false,
+    peek: false,
+    hand: 0,
   };
 }
 
@@ -62,8 +71,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const game = gameById(gameId);
   const poker = gameId === "poker";
   const { total, debit, credit, showToast } = useStore();
-  const g = useRef<G>(fresh());
+  const g = useRef<G>(null as unknown as G);
+  if (!g.current) g.current = fresh(pickBots(BOTS).map(seat));
   const [, bump] = useReducer((x: number) => x + 1, 0);
+  const [lowBal, setLowBal] = useState(false);
   const s = g.current;
   const label = `${game.name} • Table #${table}`;
 
@@ -76,13 +87,33 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     return TP_NAMES[teenPattiScore(cards)[0]];
   };
 
+  // Between games some players leave (or go broke) and new ones sit down, like a real lobby table.
+  const rotateSeats = (bots: Seat[]) => {
+    const out = [...bots];
+    const leaving = out.map((b, i) => (b.bal < buyIn * 4 || Math.random() < 0.12 ? i : -1)).filter((i) => i >= 0).slice(0, 2);
+    if (!leaving.length) return out;
+    const fresh = pickBots(leaving.length, out.map((b) => b.name));
+    leaving.forEach((i, k) => {
+      showToast(`${out[i].name} left • ${fresh[k].name} joined`);
+      out[i] = seat({ ...fresh[k], bal: Math.max(fresh[k].bal, buyIn * 20) });
+    });
+    return out;
+  };
+
   const start = () => {
-    if (!debit(buyIn, `${label} • Boot`)) return showToast("Not enough balance — add cash");
+    if (!debit(buyIn, `${label} • Boot`)) {
+      setLowBal(true);
+      g.current = { ...g.current, phase: "idle", sheet: false, result: null };
+      bump();
+      return showToast("Not enough balance — add cash");
+    }
+    setLowBal(false);
     const dk = deck();
     const n = poker ? 2 : 3;
     const prev = g.current;
-    const next = fresh();
-    next.bots = prev.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined }));
+    const next = fresh(prev.hand ? rotateSeats(prev.bots) : prev.bots);
+    next.hand = prev.hand + 1;
+    next.bots = next.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined }));
     next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn };
     next.community = poker ? dk.splice(0, 5) : [];
     next.pot = buyIn * (BOTS + 1);
@@ -102,7 +133,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     st.result = { me: winner === "me", who: winner === "me" ? "You" : st.bots[winner].name, hand, amount: payout };
     st.phase = "done";
     st.turn = null;
+    st.busy = false;
     bump();
+    // Let the table show the revealed cards and winner for a moment before the result sheet slides up.
+    window.setTimeout(() => { if (g.current === st) { st.sheet = true; bump(); } }, 2200);
   };
 
   const showdown = () => {
@@ -152,7 +186,9 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       if (g.current !== st) return;
     }
     st.busy = false;
-    if (st.bots.every((b) => b.packed)) return finish("me", "Everyone else folded");
+    const alive = st.bots.map((b, i) => (b.packed ? -1 : i)).filter((i) => i >= 0);
+    if (!st.me.packed && !alive.length) return finish("me", poker ? "Everyone else folded" : "Everyone else packed");
+    if (st.me.packed && alive.length === 1) return finish(alive[0], poker ? "Everyone else folded" : "Everyone else packed");
     if (poker) {
       st.stage += 1;
       st.stake = 0;
@@ -163,7 +199,21 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         showToast("Pot limit reached — automatic show");
         return showdown();
       }
+      // You're out: with two players left, one of them eventually asks for a show.
+      if (st.me.packed && alive.length === 2 && st.round >= 3 && Math.random() < 0.5) {
+        const caller = st.bots[alive[1]];
+        caller.action = "Show";
+        st.turn = alive[1];
+        st.pot += st.stake * 2;
+        caller.bal -= st.stake * 2;
+        bump();
+        await sleep(1500);
+        if (g.current !== st) return;
+        return showdown();
+      }
     }
+    // You packed or folded: the rest of the table keeps playing until someone wins.
+    if (st.me.packed) return botsTurn();
     st.turn = "me";
     st.timerEnd = Date.now() + TURN_SECS * 1000;
     bump();
@@ -187,9 +237,9 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     }
     if (kind === "pack") {
       s.me.packed = true;
+      s.turn = null;
       bump();
-      const alive = s.bots.map((b, i) => (b.packed ? -1 : i)).filter((i) => i >= 0);
-      return showdownAmong(alive);
+      return botsTurn();
     }
     if (kind === "raise") s.stake = poker ? Math.max(s.stake * 2, buyIn * 2) : s.stake * 2;
     const amt = poker ? s.stake : s.me.seen ? s.stake * 2 : s.stake;
@@ -247,15 +297,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       bump();
       await sleep(900);
       if (g.current !== st) return;
-      showdownAmong(st.bots.map((b, i) => (b.packed ? -1 : i)).filter((i) => i >= 0));
+      botsTurn();
     }
-  };
-
-  // Pot goes to the best remaining bot once you fold.
-  const showdownAmong = (alive: number[]) => {
-    let best = alive[0];
-    for (const i of alive.slice(1)) if (compare(score(s.bots[i].cards), score(s.bots[best].cards)) > 0) best = i;
-    finish(best, poker ? "You folded" : "You packed");
   };
 
   // Turn timer → auto-play (PRD AUTH-5): pack / fold on timeout.
@@ -271,11 +314,17 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.phase, g.current]);
 
-  useEffect(() => () => { g.current = fresh(); }, []);
+  // Leaving the table invalidates any running bot loop.
+  useEffect(() => () => { g.current = { ...g.current, phase: "idle" }; }, []);
+
+  // Deal automatically: shortly after you sit down, and again after every result.
+  const firstIn = useAutoNext(s.phase === "idle" && !lowBal, 3, start);
+  const nextIn = useAutoNext(s.phase === "done" && s.sheet, NEXT_GAME_SECS, start);
 
   const secs = Math.min(TURN_SECS, Math.max(0, Math.ceil((s.timerEnd - Date.now()) / 1000)));
   const myTurn = s.phase === "playing" && s.turn === "me" && !s.busy;
   const reveal = s.phase === "done";
+  const winnerSeat = s.result && !s.result.me ? s.bots.findIndex((b) => b.name === s.result!.who) : -1;
   const chaalAmt = poker ? s.stake : s.me.seen ? s.stake * 2 : s.stake;
   const activeBots = s.bots.filter((b) => !b.packed).length;
   const stageName = ["Pre-Flop", "Flop", "Turn", "River", "Showdown"][s.stage];
@@ -300,7 +349,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       <div className="px-3 flex-1 flex flex-col">
         <div className="relative mt-12 mx-4 felt" style={{ height: 350, borderRadius: "170px" }}>
           {s.bots.map((b, i) => (
-            <div key={i} className={`absolute ${seatPos[i]} flex flex-col items-center z-10 w-[84px]`}>
+            <div key={b.name} className={`absolute ${seatPos[i]} flex flex-col items-center z-10 w-[84px] ${reveal && winnerSeat === i ? "scale-110 transition-transform" : ""}`}>
               <TimerAvatar emoji={b.emoji} size={40} active={s.phase === "playing" && s.turn === i} left={s.turn === i ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={b.packed} />
               <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
                 <div className="text-[10px] font-medium leading-tight">{b.name}</div>
@@ -308,7 +357,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
               </div>
               {s.phase !== "idle" && (
                 <div className="flex -space-x-3 mt-1">
-                  {b.cards.map((c, j) => <PlayingCard key={j} card={c} faceDown={!(reveal || b.shown)} size="xs" />)}
+                  {b.cards.map((c, j) => <PlayingCard key={j} card={c} faceDown={!((reveal && !b.packed) || b.shown)} size="xs" />)}
                 </div>
               )}
               {b.action && <div className={`mt-1 text-[9px] pill px-1.5 py-0.5 ${b.packed ? "bg-rose-500/30 text-rose-200" : "bg-white/15"}`}>{b.action}</div>}
@@ -319,8 +368,24 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             {s.phase === "idle" ? (
               <div className="text-center">
-                <div className="text-xs text-white/70">Waiting to deal</div>
-                <button onClick={start} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Deal • Boot ₹{buyIn}</button>
+                {lowBal ? (
+                  <>
+                    <div className="text-xs text-white/70">Not enough balance for the ₹{buyIn} boot</div>
+                    <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Add Cash</button>
+                    <button onClick={start} className="block mx-auto text-[11px] text-white/50 mt-2">Try again</button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs text-white/70">Waiting for players…</div>
+                    <div className="text-sm font-semibold mt-1">Dealing in {firstIn}s</div>
+                  </>
+                )}
+              </div>
+            ) : s.phase === "done" && s.result ? (
+              <div className="text-center fadein">
+                <div className="text-sm font-semibold">{s.result.me ? "You win!" : `${s.result.who} wins`}</div>
+                <div className="text-[11px] text-gold-300 font-semibold">{inr(s.result.amount)} • {s.result.hand}</div>
+                {s.sheet && <div className="text-[11px] text-white/60 mt-1">Next game in {nextIn}s</div>}
               </div>
             ) : (
               <>
@@ -345,7 +410,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
           <div className="absolute left-1/2 -translate-x-1/2 -bottom-7 flex flex-col items-center z-10">
             <TimerAvatar size={48} active={myTurn} left={myTurn ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={s.me.packed} />
             <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
-              <div className="text-[10px] font-medium leading-tight">You {!poker && s.phase === "playing" && <span className="text-white/60">• {s.me.seen ? "Seen" : "Blind"}</span>}</div>
+              <div className="text-[10px] font-medium leading-tight">You {s.phase === "playing" && (s.me.packed ? <span className="text-rose-300">• {poker ? "Folded" : "Packed"}</span> : !poker && <span className="text-white/60">• {s.me.seen ? "Seen" : "Blind"}</span>)}</div>
               <div className="text-[10px] text-gold-300 leading-tight">₹{total.toLocaleString("en-IN")}</div>
             </div>
           </div>
@@ -357,13 +422,17 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             <>
               <div className="flex -space-x-3">
                 {s.me.cards.map((c, i) => (
-                  <PlayingCard key={i} card={c} faceDown={!s.me.seen} size="lg" className={s.me.seen ? "flip" : ""} style={{ transform: `rotate(${(i - (s.me.cards.length - 1) / 2) * 8}deg) translateY(${Math.abs(i - (s.me.cards.length - 1) / 2) * 5}px)` }} />
+                  <PlayingCard key={i} card={c} faceDown={!s.me.seen && !s.me.packed} size="lg" className={`${s.me.seen ? "flip" : ""} ${s.me.packed ? "opacity-50" : ""}`} style={{ transform: `rotate(${(i - (s.me.cards.length - 1) / 2) * 8}deg) translateY(${Math.abs(i - (s.me.cards.length - 1) / 2) * 5}px)` }} />
                 ))}
               </div>
-              <div className="mt-2 text-xs text-white/70">{s.me.seen ? <>Your hand: <b className="text-gold-300">{handName(s.me.cards)}</b></> : "Playing blind — tap See to look"}</div>
+              <div className="mt-2 text-xs text-white/70">{s.me.seen || s.me.packed ? <>Your hand: <b className="text-gold-300">{handName(s.me.cards)}</b></> : "Playing blind — tap See to look"}</div>
             </>
           )}
         </div>
+
+        {s.phase === "playing" && s.me.packed && (
+          <div className="text-center text-xs text-white/60 -mt-4 mb-2">You {poker ? "folded" : "packed"} — waiting for this game to finish</div>
+        )}
 
         {/* Actions */}
         {s.phase !== "idle" && (
@@ -400,30 +469,27 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         )}
       </div>
 
-      <Sheet open={s.phase === "done" && !!s.result} onClose={() => { g.current.phase = "idle"; g.current.result = null; bump(); }}>
-        {s.result && (
-          <div className="text-center">
-            <div className="pop inline-grid place-items-center w-20 h-20 rounded-full" style={{ background: s.result.me ? "radial-gradient(circle,#fde68a,#f59e0b)" : "rgba(255,255,255,.08)" }}>
-              {s.result.me ? <Trophy size={40} className="text-amber-900" /> : <span className="text-4xl">😔</span>}
-            </div>
-            <div className="text-2xl font-semibold mt-3">{s.result.me ? `You won ${inr(s.result.amount)}!` : `${s.result.who} wins`}</div>
-            <div className="text-sm text-[var(--ink-soft)] mt-1">{s.result.hand}</div>
-            <div className="flex justify-center gap-6 mt-4">
-              {[{ n: "You", c: s.me.cards }, ...s.bots.filter((b) => !b.packed).map((b) => ({ n: b.name, c: b.cards }))].map((p) => (
-                <div key={p.n} className="flex flex-col items-center gap-1">
-                  <div className="flex -space-x-2">{p.c.map((c, i) => <PlayingCard key={i} card={c} size="sm" />)}</div>
-                  <div className="text-[10px] text-white/60">{p.n}</div>
-                </div>
-              ))}
-            </div>
-            <div className="text-[10px] text-white/40 mt-3">Pot {inr(s.pot)} • Platform fee {RAKE * 100}%</div>
-            <div className="grid grid-cols-2 gap-3 mt-6">
-              <button onClick={nav.back} className="btn-ghost py-3 rounded-2xl">Leave Table</button>
-              <button onClick={start} className="btn-green py-3 rounded-2xl">Play Again</button>
-            </div>
+      {s.result && (
+        <ResultSheet
+          open={s.phase === "done" && s.sheet && !s.peek}
+          won={s.result.me}
+          title={s.result.me ? `You won ${inr(s.result.amount)}!` : `${s.result.who} wins`}
+          sub={s.me.packed && !s.result.me ? `${s.result.hand} • you ${poker ? "folded" : "packed"}` : s.result.hand}
+          left={nextIn}
+          onLeave={nav.back}
+          onClose={() => { g.current.peek = true; bump(); }}
+        >
+          <div className="flex justify-center gap-6 mt-4 flex-wrap">
+            {[{ n: "You", c: s.me.cards }, ...s.bots.filter((b) => !b.packed).map((b) => ({ n: b.name, c: b.cards }))].map((p) => (
+              <div key={p.n} className="flex flex-col items-center gap-1">
+                <div className="flex -space-x-2">{p.c.map((c, i) => <PlayingCard key={i} card={c} size="sm" />)}</div>
+                <div className="text-[10px] text-white/60">{p.n}</div>
+              </div>
+            ))}
           </div>
-        )}
-      </Sheet>
+          <div className="text-[10px] text-white/40 mt-3">Pot {inr(s.pot)} • Platform fee {RAKE * 100}%</div>
+        </ResultSheet>
+      )}
     </div>
   );
 }

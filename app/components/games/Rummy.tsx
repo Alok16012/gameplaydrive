@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, Layers, Trophy } from "lucide-react";
-import { AVATARS, BOT_NAMES, RANKS, SUITS, inr, rankValue, type Card } from "../../lib/data";
+import { ArrowDownUp, Layers } from "lucide-react";
+import { RANKS, SUITS, inr, rankValue, type Card } from "../../lib/data";
+import { pickBots } from "../../lib/botpool";
 import { useStore } from "../../lib/store";
-import { Header, Money, PlayingCard, Sheet } from "../ui";
-import { TURN_SECS, TimerAvatar, humanDelay, sleep } from "./bots";
-import type { Nav } from "../nav";
+import { Header, Money, PlayingCard } from "../ui";
+import { NEXT_GAME_SECS, ResultSheet, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
+import type { Nav, RummyMode } from "../nav";
 
 // 13 Card Rummy demo (PRD §6.1). Two decks; valid declare = 1 pure sequence + 1 more sequence,
 // all remaining cards in valid sets/sequences. The server validates declares in production.
@@ -20,6 +21,16 @@ type GroupKind = "pure" | "impure" | "set" | "invalid";
 const KIND_LABEL: Record<GroupKind, string> = { pure: "Pure Sequence", impure: "Sequence", set: "Set", invalid: "Invalid" };
 
 const BOTS = 5; // 6 players at the table: you + 5
+const TURN = 30; // seconds per move, for every player
+const FEE = 0.1; // platform fee on the prize pool / winnings
+
+export const MODE_LABEL: Record<RummyMode, string> = { points: "Points Rummy", pool101: "Pool 101", pool201: "Pool 201", deals: "Deals Rummy" };
+const POOL_LIMIT: Partial<Record<RummyMode, number>> = { pool101: 101, pool201: 201 };
+/** First drop / middle drop penalties. Pool 201 uses 25/50, everything else 20/40. Full count is 80. */
+const dropPts = (mode: RummyMode, middle: boolean) => (mode === "pool201" ? (middle ? 50 : 25) : middle ? 40 : 20);
+
+interface RBot { name: string; emoji: string; dropped: boolean; middle: boolean; out: boolean; action: string }
+interface DealRow { name: string; pts: number; total: number; note: string; out: boolean; winner: boolean }
 let uid = 0;
 
 function twoDecks(): HC[] {
@@ -65,7 +76,7 @@ function classify(group: HC[], wild: Card["r"]): GroupKind {
   return "invalid";
 }
 
-export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
+export function Rummy({ nav, table, buyIn, mode, deals }: { nav: Nav; table: string; buyIn: number; mode: RummyMode; deals: number }) {
   const { total, debit, credit, showToast } = useStore();
   const [phase, setPhase] = useState<"idle" | "seating" | "play" | "done">("idle");
   const [seated, setSeated] = useState(0);
@@ -84,23 +95,41 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
   const [turn, setTurn] = useState<"me" | number>("me");
   const [turnEnd, setTurnEnd] = useState(0);
   const [now, setNow] = useState(0);
-  const [bots, setBotsState] = useState(() => BOT_NAMES.slice(0, BOTS).map((name, i) => ({ name, emoji: AVATARS[(i + 1) % AVATARS.length], dropped: false, action: "" })));
+  const newBots = (): RBot[] => pickBots(BOTS).map((b) => ({ name: b.name, emoji: b.emoji, dropped: false, middle: false, out: false, action: "" }));
+  const [bots, setBotsState] = useState<RBot[]>(newBots);
   const botsRef = useRef(bots);
-  const setBot = (i: number, patch: Partial<(typeof bots)[number]>) => {
-    botsRef.current = botsRef.current.map((b, j) => (j === i ? { ...b, ...patch } : b));
-    setBotsState(botsRef.current);
+  const setBots = (next: RBot[]) => {
+    botsRef.current = next;
+    setBotsState(next);
   };
+  const setBot = (i: number, patch: Partial<RBot>) => setBots(botsRef.current.map((b, j) => (j === i ? { ...b, ...patch } : b)));
   const botHands = useRef<HC[][]>([]);
   const round = useRef(1);
   const run = useRef(0); // bumps on every deal / leave so stale bot loops stop
-  const [result, setResult] = useState<{ won: boolean; title: string; sub: string } | null>(null);
-  const label = `Rummy • Table #${table}`;
-  const myTurn = phase === "play" && turn === "me";
+  const me = useRef({ dropped: false, middle: false });
+
+  // Match state across deals (Pool / Deals). Index 0 = you, 1..5 = the bots.
+  const [dealNo, setDealNo] = useState(0);
+  const totals = useRef<number[]>(Array(BOTS + 1).fill(0));
+  const [matchOver, setMatchOver] = useState(false);
+  const [lowBal, setLowBal] = useState(false);
+  const [result, setResult] = useState<{ won: boolean; title: string; sub: string; rows: DealRow[] } | null>(null);
+  const [sheet, setSheet] = useState(false);
+  const [peek, setPeek] = useState(false);
+  const matches = useRef(0);
+
+  const pool = POOL_LIMIT[mode];
+  const pv = buyIn; // points mode: rupees per point
+  const hold = mode === "points" ? 80 * pv : buyIn; // points: max loss held as buy-in; others: entry fee
+  const prize = Math.floor(buyIn * (BOTS + 1) * (1 - FEE));
+  const label = `${MODE_LABEL[mode]} • Table #${table}`;
+  const myTurn = phase === "play" && turn === "me" && !me.current.dropped;
 
   const hand = groups.flat();
   const kinds = useMemo(() => groups.map((g) => classify(g, wild.r)), [groups, wild]);
   const invalidPts = groups.reduce((a, g, i) => a + (kinds[i] === "invalid" ? g.reduce((x, h) => x + (h.c.r === wild.r ? 0 : points(h.c)), 0) : 0), 0);
-  const prize = Math.floor(buyIn * (BOTS + 1) * 0.9);
+  const myPts = useRef(0);
+  useEffect(() => { myPts.current = Math.min(invalidPts, 80); });
 
   useEffect(() => () => { run.current++; }, []);
 
@@ -124,14 +153,28 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     return c;
   };
 
-  const deal = async () => {
-    if (!debit(buyIn, `${label} • Entry`)) return showToast("Not enough balance — add cash");
+  // New match: pay the entry / buy-in, some seats change hands, players sit down one by one.
+  const startMatch = async () => {
+    if (!debit(hold, `${label} • ${mode === "points" ? "Buy-in" : "Entry"}`)) {
+      setLowBal(true);
+      setPhase("idle");
+      setSheet(false);
+      return showToast("Not enough balance — add cash");
+    }
+    setLowBal(false);
     const id = ++run.current;
+    if (matches.current++ > 0) {
+      const keep = botsRef.current.filter(() => Math.random() < 0.6);
+      const joined = pickBots(BOTS - keep.length, keep.map((b) => b.name)).map((b) => ({ name: b.name, emoji: b.emoji, dropped: false, middle: false, out: false, action: "" }));
+      setBots([...keep, ...joined].map((b) => ({ ...b, out: false, dropped: false, middle: false, action: "" })));
+    }
+    totals.current = Array(BOTS + 1).fill(0);
+    setMatchOver(false);
+    setDealNo(0);
     setResult(null);
+    setSheet(false);
     setPhase("seating");
     setSeated(0);
-    botsRef.current = botsRef.current.map((b) => ({ ...b, dropped: false, action: "" }));
-    setBotsState(botsRef.current);
     for (let i = 1; i <= BOTS; i++) {
       await sleep(250 + Math.random() * 350);
       if (run.current !== id) return;
@@ -139,6 +182,11 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     }
     await sleep(400);
     if (run.current !== id) return;
+    dealCards();
+  };
+
+  const dealCards = () => {
+    run.current++;
     const d = twoDecks();
     const mine = d.splice(0, 13);
     botHands.current = Array.from({ length: BOTS }, () => d.splice(0, 13));
@@ -149,9 +197,15 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     setGroups([mine]);
     setSel([]);
     setDrawn(false);
+    me.current = { dropped: false, middle: false };
+    setBots(botsRef.current.map((b) => ({ ...b, dropped: b.out, middle: false, action: "" })));
+    setDealNo((n) => n + 1);
+    setResult(null);
+    setSheet(false);
+    setPeek(false);
     round.current = 1;
     setTurn("me");
-    setTurnEnd(Date.now() + TURN_SECS * 1000);
+    setTurnEnd(Date.now() + TURN * 1000);
     setPhase("play");
   };
 
@@ -200,30 +254,114 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     endMyTurn();
   };
 
-  const loseTo = (name: string) => {
-    setResult({ won: false, title: `${name} declared & won`, sub: `Valid declaration by ${name}. You lose with ${Math.min(invalidPts, 80)} points.` });
+  // Deal is over: score it, update the match, and decide whether the match continues.
+  const endDeal = (winner: number, how: string, myWrong = false) => {
+    run.current++;
+    const bs = botsRef.current;
+    const inDeal = [!isOut(0), ...bs.map((b) => !b.out)];
+    const pts = inDeal.map((inPlay, p) => {
+      if (!inPlay || p === winner) return 0;
+      if (p === 0) return myWrong ? 80 : me.current.dropped ? dropPts(mode, me.current.middle) : myPts.current;
+      const b = bs[p - 1];
+      return b.dropped ? dropPts(mode, b.middle) : 10 + Math.floor(Math.random() * Math.random() * 71);
+    });
+    const note = (p: number) => {
+      if (!inDeal[p]) return "Out";
+      if (p === winner) return "Declared";
+      if (p === 0) return myWrong ? "Wrong show" : me.current.dropped ? (me.current.middle ? "Middle drop" : "Drop") : "Lost";
+      const b = bs[p - 1];
+      return b.dropped ? (b.middle ? "Middle drop" : "Drop") : "Lost";
+    };
+    const t = totals.current;
+    if (mode === "deals") {
+      pts.forEach((x, p) => { t[p] -= x; });
+      t[winner] += pts.reduce((a, b) => a + b, 0);
+    } else pts.forEach((x, p) => { t[p] += x; });
+
+    const names = ["You", ...bs.map((b) => b.name)];
+    let over = true;
+    let won = false;
+    let title = "";
+    let sub = "";
+    if (mode === "points") {
+      const pool = pts.reduce((a, b) => a + b, 0);
+      if (winner === 0) {
+        const win = Math.floor(pool * pv * (1 - FEE) * 100) / 100;
+        credit(hold + win, label);
+        won = true;
+        title = `You won ${inr(win)}!`;
+        sub = `${pool} points × ₹${pv}/point`;
+      } else {
+        const loss = Math.round(pts[0] * pv * 100) / 100;
+        if (hold - loss > 0) credit(hold - loss, `${label} • Buy-in refund`, "Buy-in Refund");
+        title = `${names[winner]} ${how}`;
+        sub = `You lose ${pts[0]} points × ₹${pv} = ${inr(loss)}`;
+      }
+    } else if (pool) {
+      const newlyOut = bs.map((b, i) => (!b.out && t[i + 1] >= pool ? i : -1)).filter((i) => i >= 0);
+      if (newlyOut.length) setBots(botsRef.current.map((b, i) => (newlyOut.includes(i) ? { ...b, out: true } : b)));
+      const botsLeft = bs.filter((b, i) => !b.out && !newlyOut.includes(i)).length;
+      if (t[0] >= pool) {
+        title = `You're out at ${t[0]} points`;
+        sub = `${MODE_LABEL[mode]}: crossing ${pool} eliminates you`;
+      } else if (botsLeft === 0) {
+        credit(prize, label);
+        won = true;
+        title = `You won ${inr(prize)}!`;
+        sub = `Last player standing in ${MODE_LABEL[mode]}`;
+      } else {
+        over = false;
+        won = winner === 0;
+        title = winner === 0 ? "You won this deal!" : `${names[winner]} ${how}`;
+        sub = `Deal ${dealNo} • ${botsLeft + 1} players left under ${pool}`;
+      }
+    } else {
+      if (dealNo < deals) {
+        over = false;
+        won = winner === 0;
+        title = winner === 0 ? "You won this deal!" : `${names[winner]} ${how}`;
+        sub = `Deal ${dealNo} of ${deals} • chips carry over`;
+      } else {
+        const best = t.indexOf(Math.max(...t));
+        won = best === 0;
+        if (won) credit(prize, label);
+        title = won ? `You won ${inr(prize)}!` : `${names[best]} wins the match`;
+        sub = `After ${deals} deals • most chips wins`;
+      }
+    }
+    const rows: DealRow[] = names.map((name, p) => ({ name, pts: pts[p], total: t[p], note: note(p), out: pool ? t[p] >= pool : false, winner: p === winner }));
+    setResult({ won, title, sub, rows });
+    setMatchOver(over);
+    setTurn("me");
     setPhase("done");
+    window.setTimeout(() => setSheet(true), 1500);
   };
 
-  // Opponents take their turns one by one, each with its own 15 s clock and a human-ish pace.
+  function isOut(p: number) {
+    return !!pool && totals.current[p] >= pool;
+  }
+
+  // Opponents take their turns one by one, each with a 30 s clock and a human-ish pace.
+  // If you dropped, the rest keep playing until someone declares.
   const botsPlay = async (id: number) => {
     const alive = () => run.current === id;
     for (let i = 0; i < BOTS; i++) {
       const b = botsRef.current[i];
-      if (b.dropped) continue;
-      const delay = humanDelay();
+      if (b.dropped || b.out) continue;
+      const delay = humanDelay(TURN);
       setTurn(i);
-      setTurnEnd(Date.now() + TURN_SECS * 1000);
+      setTurnEnd(Date.now() + TURN * 1000);
       setBot(i, { action: "Thinking…" });
 
       // Drops happen early: first drop in round 1, middle drop in rounds 2-4.
-      const stillIn = botsRef.current.filter((x) => !x.dropped).length;
+      const stillIn = botsRef.current.filter((x) => !x.dropped && !x.out).length + (me.current.dropped ? 0 : 1);
       const dropChance = round.current === 1 ? 0.1 : round.current <= 4 ? 0.05 : 0;
-      if (stillIn > 1 && Math.random() < dropChance) {
+      if (stillIn > 2 && Math.random() < dropChance) {
         await sleep(Math.min(delay, 5) * 1000);
         if (!alive()) return;
-        setBot(i, { dropped: true, action: round.current === 1 ? "Dropped" : "Middle drop" });
-        showToast(`${b.name} ${round.current === 1 ? "dropped" : "middle-dropped"}`);
+        const middle = round.current > 1;
+        setBot(i, { dropped: true, middle, action: middle ? "Middle drop" : "Dropped" });
+        showToast(`${b.name} ${middle ? "middle-dropped" : "dropped"}`);
         await sleep(600);
         if (!alive()) return;
         continue;
@@ -245,30 +383,30 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
       await sleep(delay * 550);
       if (!alive()) return;
 
-      // Late in the game a bot may go out.
-      if (round.current >= 5 && Math.random() < 0.05) {
+      // Later in the deal a bot may go out.
+      const declareChance = round.current >= 5 ? 0.05 + (me.current.dropped ? 0.08 : 0) + (round.current - 5) * 0.01 : 0;
+      if (Math.random() < declareChance) {
         setBot(i, { action: "Declared!" });
-        await sleep(900);
+        showToast(`${b.name} declared`);
+        await sleep(1200);
         if (!alive()) return;
-        return loseTo(b.name);
+        return endDeal(i + 1, "declared & won");
       }
 
       const out = !fromOpen && Math.random() < 0.55 ? hand.length - 1 : Math.floor(Math.random() * (hand.length - 1));
       const [thrown] = hand.splice(out, 1);
       setOpen([thrown, ...openRef.current]);
-      setBot(i, { action: delay >= TURN_SECS ? "Timed out • auto" : `Discarded ${thrown.c.r}${thrown.c.s}` });
+      setBot(i, { action: delay >= TURN ? "Timed out • auto" : `Discarded ${thrown.c.r}${thrown.c.s}` });
       await sleep(350);
       if (!alive()) return;
     }
-    if (botsRef.current.every((b) => b.dropped)) {
-      credit(prize, label);
-      setResult({ won: true, title: `You won ${inr(prize)}!`, sub: "All other players dropped" });
-      setPhase("done");
-      return;
-    }
+    const left = botsRef.current.map((b, i) => (b.dropped || b.out ? -1 : i)).filter((i) => i >= 0);
+    if (!me.current.dropped && !left.length) return endDeal(0, "won", false);
+    if (me.current.dropped && left.length === 1) return endDeal(left[0] + 1, "wins — everyone else dropped");
     round.current += 1;
+    if (me.current.dropped) return botsPlay(id);
     setTurn("me");
-    setTurnEnd(Date.now() + TURN_SECS * 1000);
+    setTurnEnd(Date.now() + TURN * 1000);
   };
 
   // Your turn times out → auto-play (PRD §6.1): draw from closed and throw it back.
@@ -293,20 +431,23 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     const pure = kinds.filter((k) => k === "pure").length;
     const seqs = kinds.filter((k) => k === "pure" || k === "impure").length;
     const valid = pure >= 1 && seqs >= 2 && kinds.every((k) => k !== "invalid");
-    run.current++;
     if (valid) {
-      credit(prize, label);
-      setResult({ won: true, title: `You won ${inr(prize)}!`, sub: "Valid declaration • 0 points" });
-    } else {
-      setResult({ won: false, title: "Wrong declaration", sub: `Needs 1 pure sequence + 1 more sequence, rest in sets/sequences. Penalty: 80 points.` });
+      myPts.current = 0;
+      return endDeal(0, "declared");
     }
-    setPhase("done");
+    // Wrong show: 80 points, and the deal goes to the best remaining player.
+    showToast("Wrong declaration — 80 points");
+    const alive = botsRef.current.map((b, i) => (b.dropped || b.out ? -1 : i)).filter((i) => i >= 0);
+    endDeal((alive[Math.floor(Math.random() * alive.length)] ?? 0) + 1, "wins after your wrong show", true);
   };
 
   const drop = () => {
-    run.current++;
-    setResult({ won: false, title: "You dropped", sub: drawn || round.current > 1 ? "Middle drop • 40 points" : "First drop • 20 points" });
-    setPhase("done");
+    const middle = drawn || round.current > 1;
+    me.current = { dropped: true, middle };
+    setSel([]);
+    setDrawn(false);
+    showToast(`You ${middle ? "middle-dropped" : "dropped"} • ${dropPts(mode, middle)} points`);
+    botsPlay(run.current);
   };
 
   // Demo helper: arrange a guaranteed-valid hand so the client can see a successful declare.
@@ -323,13 +464,20 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
     setDrawn(false);
   };
 
-  const left = Math.min(TURN_SECS, Math.max(0, (turnEnd - now) / 1000));
+  // No "Play Again": the table seats you and deals automatically, and keeps dealing after every result.
+  const firstIn = useAutoNext(phase === "idle" && !lowBal, 3, startMatch);
+  const nextIn = useAutoNext(phase === "done" && sheet, NEXT_GAME_SECS, () => (matchOver ? startMatch() : dealCards()));
+
+  const left = Math.min(TURN, Math.max(0, (turnEnd - now) / 1000));
   const secs = Math.ceil(left);
   const botTurn = phase === "play" && typeof turn === "number" ? bots[turn] : null;
+  const stakeText = mode === "points" ? `₹${pv}/point` : `Entry ₹${buyIn}`;
+  const sub = `${MODE_LABEL[mode]}${mode === "deals" ? ` ×${deals}` : ""}${dealNo && mode !== "points" ? ` • Deal ${dealNo}` : ""} • Table #${table} • ${stakeText}`;
+  const scoreOf = (p: number) => (mode === "points" ? null : mode === "deals" ? `${totals.current[p] >= 0 ? "+" : ""}${totals.current[p]}` : `${totals.current[p]}/${pool}`);
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Rummy" sub={`13 Card • Table #${table} • 6 Players • Entry ₹${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Rummy" sub={sub} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
 
       <div className="px-2">
         <div className="grid grid-cols-5 gap-1">
@@ -338,9 +486,12 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
             const active = phase === "play" && turn === i;
             return (
               <div key={b.name} className={`flex flex-col items-center transition-opacity ${here ? "opacity-100" : "opacity-25"}`}>
-                <TimerAvatar emoji={b.emoji} size={38} active={active} left={active ? left : 0} dim={b.dropped} />
-                <div className={`text-[10px] mt-1.5 font-medium ${active ? "text-neon-400" : ""}`}>{b.name}</div>
-                {b.dropped ? (
+                <TimerAvatar emoji={b.emoji} size={38} active={active} left={active ? left : 0} dim={b.dropped || b.out} total={TURN} />
+                <div className={`text-[10px] mt-1.5 font-medium truncate max-w-full ${active ? "text-neon-400" : ""}`}>{b.name}</div>
+                {here && scoreOf(i + 1) && <div className="text-[8.5px] text-gold-300 leading-tight">{scoreOf(i + 1)}</div>}
+                {b.out ? (
+                  <div className="text-[8px] pill px-1.5 py-0.5 mt-0.5 bg-white/10 text-white/60 font-semibold">OUT</div>
+                ) : b.dropped ? (
                   <div className="text-[8px] pill px-1.5 py-0.5 mt-0.5 bg-rose-500/25 text-rose-200 font-semibold">{b.action.toUpperCase()}</div>
                 ) : (
                   <>
@@ -355,11 +506,27 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
 
         <div className="felt rounded-[36px] mt-4 mx-2 p-4 flex items-center justify-center gap-5" style={{ minHeight: 150 }}>
           {phase === "idle" ? (
-            <button onClick={deal} className="btn-green pill px-6 py-2.5 text-sm">Deal Cards • Entry ₹{buyIn}</button>
+            lowBal ? (
+              <div className="text-center">
+                <div className="text-xs text-white/70">Not enough balance for {mode === "points" ? `the ${inr(hold)} buy-in` : `the ${inr(hold)} entry`}</div>
+                <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Add Cash</button>
+                <button onClick={startMatch} className="block mx-auto text-[11px] text-white/50 mt-2">Try again</button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <div className="text-sm font-semibold">Joining table…</div>
+                <div className="text-xs text-white/70 mt-1">Seating in {firstIn}s</div>
+              </div>
+            )
           ) : phase === "seating" ? (
             <div className="text-center">
               <div className="text-sm font-semibold">Waiting for players…</div>
               <div className="text-xs text-white/70 mt-1">{seated + 1}/6 seated</div>
+            </div>
+          ) : phase === "done" && result ? (
+            <div className="text-center fadein">
+              <div className="text-sm font-semibold">{result.title}</div>
+              <div className="text-[11px] text-white/70 mt-1">{sheet ? `${matchOver ? "Next game" : "Next deal"} in ${nextIn}s` : "Validating cards…"}</div>
             </div>
           ) : (
             <>
@@ -381,7 +548,9 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
 
         {phase === "play" && (
           <div className="mt-2 text-center text-xs h-5">
-            {myTurn ? (
+            {me.current.dropped ? (
+              <span className="text-white/60">You dropped — {botTurn ? `${botTurn.name}'s turn • ${secs}s` : "waiting for this deal to finish"}</span>
+            ) : myTurn ? (
               <span className={secs <= 5 ? "text-rose-400 font-semibold" : "text-neon-400"}>Your turn • {drawn ? "select a card and discard" : "draw from Closed or Open"} • {secs}s</span>
             ) : botTurn ? (
               <span className="text-white/70">{botTurn.name}&apos;s turn • {secs}s</span>
@@ -391,7 +560,7 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
       </div>
 
       {/* Hand, grouped */}
-      <div className="px-2 mt-3 flex flex-wrap gap-x-3 gap-y-5 justify-center min-h-[130px]">
+      <div className={`px-2 mt-3 flex flex-wrap gap-x-3 gap-y-5 justify-center min-h-[130px] ${me.current.dropped && phase === "play" ? "opacity-40" : ""}`}>
         {groups.map((g, gi) => (
           <div key={gi} className="flex flex-col items-center">
             <div className={`text-[9px] pill px-2 py-0.5 mb-2 ${kinds[gi] === "invalid" ? "bg-rose-500/20 text-rose-300" : "bg-neon-400/15 text-neon-400"}`}>
@@ -406,9 +575,12 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
         ))}
       </div>
 
-      {phase === "play" && (
+      {phase === "play" && !me.current.dropped && (
         <div className="px-3 mt-auto pt-4">
-          <div className="text-center text-[11px] text-white/50 mb-2">Points in hand: <b className="text-white">{invalidPts}</b> • {hand.length} cards • Prize {inr(prize)}</div>
+          <div className="text-center text-[11px] text-white/50 mb-2">
+            Points in hand: <b className="text-white">{invalidPts}</b> • {hand.length} cards
+            {mode === "points" ? <> • ₹{pv}/pt</> : pool ? <> • Your score <b className="text-white">{totals.current[0]}/{pool}</b></> : <> • Chips <b className="text-white">{scoreOf(0)}</b></>}
+          </div>
           <div className="grid grid-cols-5 gap-1.5 text-[11px]">
             <button onClick={sortHand} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><ArrowDownUp size={15} />Sort</button>
             <button onClick={makeGroup} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><Layers size={15} />Group</button>
@@ -420,21 +592,26 @@ export function Rummy({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: n
         </div>
       )}
 
-      <Sheet open={phase === "done" && !!result} onClose={() => setPhase("idle")}>
-        {result && (
-          <div className="text-center">
-            <div className="pop inline-grid place-items-center w-20 h-20 rounded-full" style={{ background: result.won ? "radial-gradient(circle,#fde68a,#f59e0b)" : "rgba(255,255,255,.08)" }}>
-              {result.won ? <Trophy size={40} className="text-amber-900" /> : <span className="text-4xl">😔</span>}
+      {result && (
+        <ResultSheet open={phase === "done" && sheet && !peek} won={result.won} title={result.title} sub={result.sub} left={nextIn} nextLabel={matchOver ? undefined : `Deal ${dealNo + 1} starts in`} onLeave={nav.back} onClose={() => setPeek(true)}>
+          <div className="mt-4 rounded-xl bg-white/5 overflow-hidden text-left">
+            <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 text-[10px] text-white/50 border-b border-white/5">
+              <span>Player</span><span className="text-right">{mode === "deals" ? "Deal" : "Points"}</span><span className="text-right w-14">{mode === "points" ? "Result" : mode === "deals" ? "Chips" : "Total"}</span>
             </div>
-            <div className="text-2xl font-semibold mt-3">{result.title}</div>
-            <div className="text-sm text-[var(--ink-soft)] mt-1 px-4">{result.sub}</div>
-            <div className="grid grid-cols-2 gap-3 mt-6">
-              <button onClick={nav.back} className="btn-ghost py-3 rounded-2xl">Leave Table</button>
-              <button onClick={deal} className="btn-green py-3 rounded-2xl">Play Again</button>
-            </div>
+            {result.rows.map((r) => (
+              <div key={r.name} className={`grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 text-xs ${r.name === "You" ? "bg-neon-400/10" : ""}`}>
+                <span className="truncate">{r.winner && "🏆 "}{r.name} <span className="text-[10px] text-white/40">{r.note}</span></span>
+                <span className="text-right tabular-nums">{r.winner ? 0 : mode === "deals" ? `-${r.pts}` : r.pts}</span>
+                <span className={`text-right tabular-nums w-14 ${r.out ? "text-rose-300" : ""}`}>
+                  {mode === "points" ? (r.winner ? "Won" : `-${inr(r.pts * pv)}`) : mode === "deals" ? `${r.total >= 0 ? "+" : ""}${r.total}` : r.out ? `${r.total} out` : r.total}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
-      </Sheet>
+          {!matchOver && <div className="text-[10px] text-white/40 mt-2">Match continues — same table, same players</div>}
+          {mode !== "points" && matchOver && <div className="text-[10px] text-white/40 mt-2">Prize pool {inr(prize)} • Platform fee {FEE * 100}%</div>}
+        </ResultSheet>
+      )}
     </div>
   );
 }

@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
-import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, USER, gameById, type Game, type GameId, type Stake } from "../../lib/data";
+import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
-import type { Nav } from "../nav";
+import type { Nav, RummyMode } from "../nav";
 
 export function openGame(nav: Nav, game: Game) {
   if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
@@ -51,12 +51,13 @@ export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
 }
 
 export function Home({ nav }: { nav: Nav }) {
+  const { player } = useStore();
   const unread = NOTIFICATIONS.filter((n) => n.unread).length;
   return (
     <div className="px-4 pt-6 pb-28 fadein">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-[22px] font-semibold">Hello, {USER.first} 👋</div>
+          <div className="text-[22px] font-semibold">Hello, {player.first} 👋</div>
           <div className="text-sm text-[var(--ink-soft)]">Ready to play?</div>
         </div>
         <div className="flex items-center gap-4">
@@ -145,6 +146,20 @@ export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | 
   );
 }
 
+// Rummy formats and their stake ladders (one value per lobby table row).
+const RUMMY_MODES: Record<RummyMode, { short: string; about: string }> = {
+  points: { short: "Points", about: "One deal. Losers pay their points × the point value to the winner. Max 80 points." },
+  pool101: { short: "Pool 101", about: "Play deal after deal. Reach 101 points and you're out — last player standing takes the prize pool." },
+  pool201: { short: "Pool 201", about: "Like Pool 101 with a 201-point limit, so matches last longer. Drops cost 25 / 50." },
+  deals: { short: "Deals", about: "A fixed number of deals. Each deal's winner collects the others' points as chips; most chips wins." },
+};
+const RUMMY_STAKES: Record<RummyMode, number[]> = {
+  points: [0.1, 0.25, 0.5, 1, 2, 5, 10],
+  pool101: [10, 25, 50, 100, 250, 500, 1000],
+  pool201: [10, 25, 50, 100, 250, 500, 1000],
+  deals: [10, 25, 50, 100, 250, 500, 1000],
+};
+
 const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1 };
 
 export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
@@ -153,13 +168,17 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [priv, setPriv] = useState(false);
   const [code] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
   const m = MULT[gameId] ?? 1;
+  const rummy = gameId === "rummy";
+  const [mode, setMode] = useState<RummyMode>("points");
   const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
   const privEntries = gameId === "rummy" ? [50, 100, 250] : [10 * m, 50 * m, 100 * m];
   const base = gameId === "rummy" ? RUMMY_TABLES.map((t) => ({ ...t, buyIn: t.buyIn / m })) : TABLES;
-  const tables = base.map((t) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: t.buyIn * m })).filter((t) => stake === "All" || t.stake === stake);
+  const tables = base
+    .map((t, i) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: mode === "deals" ? (i % 2 ? 3 : 2) : undefined }))
+    .filter((t) => stake === "All" || t.stake === stake);
 
-  const join = (table: string, buyIn: number) => {
-    if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn });
+  const join = (table: string, buyIn: number, deals?: number) => {
+    if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn, mode, deals });
     else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn });
     else nav.push({ name: "cardtable", game: game.id, table, buyIn });
   };
@@ -174,6 +193,16 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         right={<div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{game.online.toLocaleString("en-IN")}</div>}
       />
       <div className="px-4">
+        {rummy && (
+          <>
+            <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-white/5 mb-2">
+              {(Object.keys(RUMMY_MODES) as RummyMode[]).map((k) => (
+                <button key={k} onClick={() => setMode(k)} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
+              ))}
+            </div>
+            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about}</div>
+          </>
+        )}
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           {(["All", "Low", "Mid", "High"] as const).map((s) => (
             <button key={s} onClick={() => setStake(s)} className={`pill px-3.5 py-1.5 text-xs font-medium whitespace-nowrap ${stake === s ? "btn-green" : "bg-white/5 text-white/80"}`}>
@@ -190,10 +219,12 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                   <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i]} />
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm font-medium">Table {t.id}</div>
-                  <div className="text-[11px] text-[var(--ink-soft)]">{t.seated}/{t.seats} Players • ₹{t.buyIn} {game.id === "rummy" ? "Buy-in" : "Entry"}</div>
+                  <div className="text-sm font-medium">Table {t.id}{rummy && <span className="text-white/50 font-normal"> • {mode === "deals" ? `Best of ${t.deals} deals` : RUMMY_MODES[mode].short}</span>}</div>
+                  <div className="text-[11px] text-[var(--ink-soft)]">
+                    {t.seated}/{t.seats} Players • {rummy && mode === "points" ? `₹${t.buyIn}/point • Buy-in ₹${Math.round(t.buyIn * 80)}` : `₹${t.buyIn} Entry`}
+                  </div>
                 </div>
-                <button disabled={full} onClick={() => join(t.id, t.buyIn)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
+                <button disabled={full} onClick={() => join(t.id, t.buyIn, t.deals)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
                   {full ? "Full" : "Join"}
                 </button>
               </div>
@@ -216,7 +247,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             <div key={b} className="card py-3 text-center text-sm">₹{b}<div className="text-[10px] text-white/50">Entry</div></div>
           ))}
         </div>
-        <button onClick={() => { setPriv(false); join("P-" + code, privEntries[1]); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
+        <button onClick={() => { setPriv(false); join("P-" + code, rummy ? RUMMY_STAKES[mode][2] : privEntries[1], rummy && mode === "deals" ? 2 : undefined); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
       </Sheet>
     </div>
   );

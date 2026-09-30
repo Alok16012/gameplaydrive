@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ShieldCheck } from "lucide-react";
+import { fmtPhone, useAccounts, type Account } from "../../lib/hierarchy";
 
 export function Logo({ size = 1 }: { size?: number }) {
   return (
@@ -79,7 +80,9 @@ export function Splash({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function Login({ onDone }: { onDone: () => void }) {
+export function Login({ onDone }: { onDone: (player: Account) => void }) {
+  const { accounts } = useAccounts();
+  const [err, setErr] = useState("");
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
@@ -102,6 +105,15 @@ export function Login({ onDone }: { onDone: () => void }) {
   };
 
   const complete = otp.every((d) => d);
+  const found = accounts.find((a) => a.role === "player" && a.phone === phone);
+
+  // Players are created by an agent, admin or super admin — there is no self sign-up.
+  const getOtp = () => {
+    if (!found) return setErr("No player account for this number. Ask your agent to create one.");
+    if (found.status !== "Active") return setErr("This account is frozen. Contact your agent.");
+    setStep("otp");
+    setSecs(30);
+  };
 
   return (
     <div className="min-h-dvh flex flex-col px-6 pt-6 pb-10">
@@ -114,39 +126,36 @@ export function Login({ onDone }: { onDone: () => void }) {
 
       {step === "phone" ? (
         <div className="fadein">
-          <h1 className="text-2xl font-semibold">Login / Sign up</h1>
-          <p className="text-sm text-[var(--ink-soft)] mt-1">Enter your mobile number to get an OTP</p>
+          <h1 className="text-2xl font-semibold">Login</h1>
+          <p className="text-sm text-[var(--ink-soft)] mt-1">Enter the mobile number your agent registered</p>
           <div className="mt-6 flex items-center gap-3 card px-4 h-14">
             <span className="text-white/80 font-medium">🇮🇳 +91</span>
             <div className="w-px h-6 bg-white/10" />
             <input
               inputMode="numeric"
               value={phone}
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setErr(""); }}
               placeholder="98765 43210"
               className="flex-1 bg-transparent outline-none text-lg tracking-wide placeholder:text-white/25"
             />
           </div>
+          {err && <div className="mt-3 text-xs text-rose-300">{err}</div>}
           <label className="mt-4 flex items-start gap-2.5 text-xs text-[var(--ink-soft)]">
             <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 accent-green-400" />
             I confirm I am 18+ years old, not from a restricted state, and agree to the Terms & Privacy Policy.
           </label>
-          <button disabled={phone.length !== 10 || !agree} onClick={() => { setStep("otp"); setSecs(30); }} className="btn-green w-full h-13 py-3.5 rounded-2xl mt-6 text-base">
+          <button disabled={phone.length !== 10 || !agree} onClick={getOtp} className="btn-green w-full h-13 py-3.5 rounded-2xl mt-6 text-base">
             Get OTP
           </button>
           <button onClick={() => setPhone("9876543210")} className="w-full text-center text-xs text-white/40 mt-3 border border-dashed border-white/15 rounded-xl py-2">
             Demo: fill sample number
           </button>
-          <div className="flex items-center gap-3 my-6 text-xs text-white/40"><div className="flex-1 h-px bg-white/10" />or<div className="flex-1 h-px bg-white/10" /></div>
-          <button onClick={onDone} className="btn-ghost w-full py-3.5 rounded-2xl flex items-center justify-center gap-3 font-medium">
-            <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
-            Continue with Google
-          </button>
+          <div className="mt-8 text-center text-xs text-white/40">New here? Player accounts are created by your agent.</div>
         </div>
       ) : (
         <div className="fadein">
           <h1 className="text-2xl font-semibold">Verify OTP</h1>
-          <p className="text-sm text-[var(--ink-soft)] mt-1">Sent via SMS & WhatsApp to +91 {phone.slice(0, 5)} {phone.slice(5)}</p>
+          <p className="text-sm text-[var(--ink-soft)] mt-1">Sent via SMS & WhatsApp to +91 {fmtPhone(phone)}</p>
           <div className="mt-6 flex justify-between gap-2">
             {otp.map((d, i) => (
               <input
@@ -163,7 +172,7 @@ export function Login({ onDone }: { onDone: () => void }) {
           <div className="mt-4 text-xs text-[var(--ink-soft)]">
             {secs > 0 ? <>Resend OTP in <span className="text-white">00:{String(secs).padStart(2, "0")}</span></> : <button onClick={() => setSecs(30)} className="text-neon-400 font-medium">Resend OTP</button>}
           </div>
-          <button disabled={!complete} onClick={onDone} className="btn-green w-full py-3.5 rounded-2xl mt-8 text-base">Verify & Continue</button>
+          <button disabled={!complete || !found} onClick={() => found && onDone(found)} className="btn-green w-full py-3.5 rounded-2xl mt-8 text-base">Verify & Continue</button>
           <button onClick={() => setOtp("123456".split(""))} className="w-full text-center text-xs text-white/40 mt-3 border border-dashed border-white/15 rounded-xl py-2">
             Demo: auto-fill OTP (any 6 digits work)
           </button>
