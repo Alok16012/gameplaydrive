@@ -1,32 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
-import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, type Game, type GameId, type Stake } from "../../lib/data";
+import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
+import { errText, supabase } from "../../lib/supabase";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
 import type { Nav, RummyMode } from "../nav";
+
+const SERVER_GAMES: GameId[] = ["teen-patti", "rummy"];
 
 export function openGame(nav: Nav, game: Game) {
   if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
 }
 
-function Bucket({ color, icon, label, n }: { color: string; icon: React.ReactNode; label: string; n: number }) {
-  return (
-    <div className="flex-1 rounded-xl p-2.5 bg-white/[0.04] border border-white/5 min-w-0">
-      <div className="flex items-start gap-1.5 min-h-[26px]">
-        <span className="w-4 h-4 rounded-full grid place-items-center shrink-0" style={{ background: color }}>{icon}</span>
-        <span className="text-[10px] leading-tight" style={{ color }}>{label}</span>
-      </div>
-      <Money n={n} className="block mt-1.5 text-[17px] font-semibold" />
-    </div>
-  );
-}
-
 export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
-  const { wallet, total } = useStore();
+  const { total } = useStore();
   return (
     <div
       className="rounded-[20px] p-4 border border-white/10"
@@ -34,30 +25,36 @@ export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
     >
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-sm text-white/75">Total Balance</div>
+          <div className="text-sm text-white/75">Coin Balance</div>
           <Money n={total} className="block text-[26px] font-semibold mt-0.5" />
         </div>
         <button onClick={onAdd} className="btn-green pill px-4 py-2 text-sm flex items-center gap-1.5">
-          <Plus size={16} strokeWidth={3} /> Add Cash
+          <Plus size={16} strokeWidth={3} /> Get Coins
         </button>
       </div>
-      <div className="flex gap-2 mt-3">
-        <Bucket color="#4ade80" icon={<WalletIcon size={10} color="#052e16" />} label="Deposit Cash" n={wallet.deposit} />
-        <Bucket color="#93c5fd" icon={<Trophy size={10} color="#0b1f4a" />} label="Winning Cash" n={wallet.winning} />
-        <Bucket color="#f0abfc" icon={<Gift size={10} color="#4a044e" />} label="Bonus / Promo" n={wallet.bonus} />
-      </div>
+      <div className="text-[11px] text-white/50 mt-2">Virtual coins • no cash value</div>
     </div>
   );
 }
 
 export function Home({ nav }: { nav: Nav }) {
   const { player } = useStore();
+  // Real players seated at Teen Patti / Rummy tables right now.
+  const [live, setLive] = useState<Record<string, number>>({});
+  useEffect(() => {
+    supabase().rpc("lobby_counts").then(({ data }) => {
+      if (!data) return;
+      const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
+      const d = data as Record<string, Record<string, number>>;
+      setLive({ "teen-patti": sum(d["teen-patti"]), rummy: sum(d.rummy) });
+    });
+  }, []);
   const unread = NOTIFICATIONS.filter((n) => n.unread).length;
   return (
     <div className="px-4 pt-6 pb-28 fadein">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-[22px] font-semibold">Hello, {player.first} 👋</div>
+          <div className="text-[22px] font-semibold">Hello, {player?.first} 👋</div>
           <div className="text-sm text-[var(--ink-soft)]">Ready to play?</div>
         </div>
         <div className="flex items-center gap-4">
@@ -86,15 +83,18 @@ export function Home({ nav }: { nav: Nav }) {
       </button>
 
       <div className="mt-6 flex items-center justify-between">
-        <div className="font-semibold">Live right now</div>
+        <div className="font-semibold">Live multiplayer</div>
         <button onClick={() => nav.reset({ name: "games" })} className="text-xs text-neon-400">See all</button>
       </div>
-      <div className="mt-3 flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4">
-        {[...GAMES].sort((a, b) => b.online - a.online).slice(0, 5).map((g) => (
-          <button key={g.id} onClick={() => openGame(nav, g)} className="card p-2.5 w-36 shrink-0 text-left">
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {SERVER_GAMES.map((id) => gameById(id)).map((g) => (
+          <button key={g.id} onClick={() => openGame(nav, g)} className="card p-2.5 text-left">
             <GameThumb game={g} className="h-20" />
             <div className="mt-2 text-sm font-medium">{g.name}</div>
-            <div className="text-[11px] text-neon-400 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-neon-400" />{g.online.toLocaleString("en-IN")} playing</div>
+            <div className="text-[11px] text-neon-400 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-neon-400" />
+              {live[g.id] ? `${live[g.id]} playing now` : "Real players + labelled bots"}
+            </div>
           </button>
         ))}
       </div>
@@ -154,7 +154,7 @@ const RUMMY_MODES: Record<RummyMode, { short: string; about: string }> = {
   deals: { short: "Deals", about: "A fixed number of deals. Each deal's winner collects the others' points as chips; most chips wins." },
 };
 const RUMMY_STAKES: Record<RummyMode, number[]> = {
-  points: [0.1, 0.25, 0.5, 1, 2, 5, 10],
+  points: [1, 2, 5, 10, 20, 50, 100],
   pool101: [10, 25, 50, 100, 250, 500, 1000],
   pool201: [10, 25, 50, 100, 250, 500, 1000],
   deals: [10, 25, 50, 100, 250, 500, 1000],
@@ -164,23 +164,57 @@ const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, po
 
 export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
+  const { showToast } = useStore();
   const [stake, setStake] = useState<"All" | Stake>("All");
   const [priv, setPriv] = useState(false);
-  const [code] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
+  const [joinCode, setJoinCode] = useState("");
+  const [privStake, setPrivStake] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [localCode] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
   const m = MULT[gameId] ?? 1;
   const rummy = gameId === "rummy";
+  const online = SERVER_GAMES.includes(gameId);
   const [mode, setMode] = useState<RummyMode>("points");
   const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
-  const privEntries = gameId === "rummy" ? [50, 100, 250] : [10 * m, 50 * m, 100 * m];
-  const base = gameId === "rummy" ? RUMMY_TABLES.map((t) => ({ ...t, buyIn: t.buyIn / m })) : TABLES;
+  const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
+  const base = rummy ? RUMMY_TABLES : TABLES;
   const tables = base
-    .map((t, i) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: mode === "deals" ? (i % 2 ? 3 : 2) : undefined }))
+    .map((t, i) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: rummy && mode === "deals" ? (i % 2 ? 3 : 2) : 0 }))
     .filter((t) => stake === "All" || t.stake === stake);
+  const countKey = (buyIn: number, deals: number) => (rummy ? `${mode}:${buyIn}:${deals}` : String(buyIn));
+
+  // Real players seated right now, per table type (server games only).
+  useEffect(() => {
+    if (!online) return;
+    const load = () => supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[gameId] ?? {}));
+    load();
+    const t = setInterval(load, 10000);
+    return () => clearInterval(t);
+  }, [online, gameId]);
 
   const join = (table: string, buyIn: number, deals?: number) => {
     if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn, mode, deals });
     else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn });
     else nav.push({ name: "cardtable", game: game.id, table, buyIn });
+  };
+
+  // Private tables on the server: create one (you get an invite code) or join a friend's by code.
+  const createPrivate = async () => {
+    setBusy(true);
+    const { data, error } = rummy
+      ? await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privEntries[privStake], p_deals: mode === "deals" ? 2 : 0 })
+      : await supabase().rpc("tp_create_private", { p_boot: privEntries[privStake] });
+    setBusy(false);
+    if (error) return showToast(errText(error));
+    setPriv(false);
+    join(`P-${data}`, privEntries[privStake], mode === "deals" ? 2 : 0);
+  };
+  const joinPrivate = () => {
+    const c = joinCode.trim().toUpperCase();
+    if (c.length !== 6) return showToast("Enter the 6-character code");
+    setPriv(false);
+    join(`P-${c}`, 0, 0);
   };
 
   return (
@@ -190,14 +224,16 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         sub={game.meta}
         onBack={nav.back}
         icon={<div className="w-11 h-11 rounded-xl grid place-items-center overflow-hidden scale-90" style={{ background: `linear-gradient(160deg,${game.from},${game.to})` }}><div className="scale-[.6]"><GameIcon id={game.id} /></div></div>}
-        right={<div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{game.online.toLocaleString("en-IN")}</div>}
+        right={online
+          ? <div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{Object.values(counts).reduce((a, b) => a + b, 0)} online</div>
+          : <div className="text-[11px] text-white/50">Practice vs bots</div>}
       />
       <div className="px-4">
         {rummy && (
           <>
             <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-white/5 mb-2">
               {(Object.keys(RUMMY_MODES) as RummyMode[]).map((k) => (
-                <button key={k} onClick={() => setMode(k)} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
+                <button key={k} onClick={() => { setMode(k); setPrivStake(1); }} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
               ))}
             </div>
             <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about}</div>
@@ -212,42 +248,63 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         </div>
         <div className="mt-4 card divide-y divide-white/5">
           {tables.map((t, i) => {
-            const full = t.seated >= t.seats;
+            const real = counts[countKey(t.buyIn, t.deals)] ?? 0;
+            const full = !online && t.seated >= t.seats;
             return (
               <div key={t.id} className="flex items-center gap-3 p-3.5">
-                <div className="relative">
-                  <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i]} />
-                </div>
+                <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i]} />
                 <div className="flex-1">
-                  <div className="text-sm font-medium">Table {t.id}{rummy && <span className="text-white/50 font-normal"> • {mode === "deals" ? `Best of ${t.deals} deals` : RUMMY_MODES[mode].short}</span>}</div>
+                  <div className="text-sm font-medium">
+                    {rummy ? (mode === "points" ? `${inr(t.buyIn)} per point` : `${inr(t.buyIn)} entry`) : online ? `Boot ${inr(t.buyIn)}` : `Table ${t.id}`}
+                    {rummy && <span className="text-white/50 font-normal"> • {mode === "deals" ? `Best of ${t.deals}` : RUMMY_MODES[mode].short}</span>}
+                  </div>
                   <div className="text-[11px] text-[var(--ink-soft)]">
-                    {t.seated}/{t.seats} Players • {rummy && mode === "points" ? `₹${t.buyIn}/point • Buy-in ₹${Math.round(t.buyIn * 80)}` : `₹${t.buyIn} Entry`}
+                    {online
+                      ? <>{real > 0 ? <span className="text-neon-400">{real} playing now</span> : "Be the first"} • bots fill empty seats{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * 80)}` : ""}</>
+                      : <>{t.seated}/{t.seats} Players • {inr(t.buyIn)} Entry</>}
                   </div>
                 </div>
-                <button disabled={full} onClick={() => join(t.id, t.buyIn, t.deals)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
-                  {full ? "Full" : "Join"}
+                <button disabled={full} onClick={() => join(online ? `S-${t.buyIn}` : t.id, t.buyIn, t.deals)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
+                  {full ? "Full" : online ? "Play" : "Join"}
                 </button>
               </div>
             );
           })}
         </div>
-        <div className="mt-3 text-[11px] text-white/40 text-center">Seats are balanced automatically so you don't face the same opponents every game.</div>
+        <div className="mt-3 text-[11px] text-white/40 text-center">
+          {online ? "Real players at the same stake sit together. Cards are dealt by the server; bots are always labelled." : "Practice table: you play against bots on this device."}
+        </div>
       </div>
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] p-4 bg-gradient-to-t from-[#080c26] via-[#080c26] to-transparent">
-        <button onClick={() => setPriv(true)} className="btn-green w-full py-3.5 rounded-2xl flex items-center justify-center gap-2"><Users size={18} /> Create Private Table</button>
+        <button onClick={() => setPriv(true)} className="btn-green w-full py-3.5 rounded-2xl flex items-center justify-center gap-2"><Users size={18} /> Private Table</button>
       </div>
       <Sheet open={priv} onClose={() => setPriv(false)} title="Private Table">
-        <div className="text-sm text-[var(--ink-soft)]">Share this invite code with friends. They can join from the {game.name} lobby.</div>
-        <div className="mt-4 card p-4 flex items-center justify-between">
-          <div className="text-2xl font-bold tracking-[0.3em]">{code}</div>
-          <button onClick={() => navigator.clipboard?.writeText(code)} className="btn-ghost pill px-3 py-1.5 text-xs flex items-center gap-1"><Copy size={14} /> Copy</button>
-        </div>
-        <div className="grid grid-cols-3 gap-2 mt-4">
-          {privEntries.map((b) => (
-            <div key={b} className="card py-3 text-center text-sm">₹{b}<div className="text-[10px] text-white/50">Entry</div></div>
-          ))}
-        </div>
-        <button onClick={() => { setPriv(false); join("P-" + code, rummy ? RUMMY_STAKES[mode][2] : privEntries[1], rummy && mode === "deals" ? 2 : undefined); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
+        {online ? (
+          <>
+            <div className="text-sm text-[var(--ink-soft)]">Play with friends only — no bots. A game starts when at least 2 players are in.</div>
+            <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy ? "Entry" : "Boot"}</div>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              {privEntries.map((b, i) => (
+                <button key={b} onClick={() => setPrivStake(i)} className={`card py-3 text-center text-sm ${privStake === i ? "ring-2 ring-neon-400" : ""}`}>{inr(b)}</button>
+              ))}
+            </div>
+            <button disabled={busy} onClick={createPrivate} className="btn-green w-full py-3.5 rounded-2xl mt-4">{busy ? "Creating…" : "Create & get invite code"}</button>
+            <div className="flex items-center gap-3 my-5 text-xs text-white/40"><div className="flex-1 h-px bg-white/10" />or join a friend<div className="flex-1 h-px bg-white/10" /></div>
+            <div className="flex gap-2">
+              <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="INVITE CODE" className="flex-1 card px-4 py-3 bg-transparent outline-none tracking-[0.3em] font-semibold placeholder:tracking-normal placeholder:font-normal" />
+              <button onClick={joinPrivate} className="btn-ghost rounded-2xl px-5 text-sm">Join</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-sm text-[var(--ink-soft)]">Practice table code. Invite-only multiplayer for {game.name} arrives when it moves to the server.</div>
+            <div className="mt-4 card p-4 flex items-center justify-between">
+              <div className="text-2xl font-bold tracking-[0.3em]">{localCode}</div>
+              <button onClick={() => navigator.clipboard?.writeText(localCode)} className="btn-ghost pill px-3 py-1.5 text-xs flex items-center gap-1"><Copy size={14} /> Copy</button>
+            </div>
+            <button onClick={() => { setPriv(false); join("P-" + localCode, privEntries[1]); }} className="btn-green w-full py-3.5 rounded-2xl mt-5">Start Table</button>
+          </>
+        )}
       </Sheet>
     </div>
   );

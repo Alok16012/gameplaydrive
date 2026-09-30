@@ -7,7 +7,7 @@ import { pickBots, type Bot } from "../../lib/botpool";
 import { POKER_NAMES, TP_NAMES, compare, pokerScore, teenPattiScore } from "../../lib/hands";
 import { useStore } from "../../lib/store";
 import { Header, Money, PlayingCard } from "../ui";
-import { NEXT_GAME_SECS, ResultSheet, TURN_SECS, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
+import { BotTag, NEXT_GAME_SECS, ResultSheet, TURN_SECS, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
 import type { Nav } from "../nav";
 
 // Teen Patti (PRD §6.1) and Texas Hold'em demo table. Game logic runs locally against three bots;
@@ -105,7 +105,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       setLowBal(true);
       g.current = { ...g.current, phase: "idle", sheet: false, result: null };
       bump();
-      return showToast("Not enough balance — add cash");
+      return showToast("Not enough coins — ask your agent");
     }
     setLowBal(false);
     const dk = deck();
@@ -179,7 +179,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         const amt = poker ? st.stake : b.seen ? st.stake * 2 : st.stake;
         b.bal -= amt;
         st.pot += amt;
-        b.action = poker ? (st.stake ? `Call ₹${amt}` : "Check") : `${b.seen ? "Chaal" : "Blind"} ₹${amt}`;
+        b.action = poker ? (st.stake ? `Call 🪙 ${amt}` : "Check") : `${b.seen ? "Chaal" : "Blind"} 🪙 ${amt}`;
       }
       bump();
       await sleep(300);
@@ -341,7 +341,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     <div className="min-h-dvh flex flex-col pb-5 fadein">
       <Header
         title={game.name}
-        sub={`Table #${table} • 6 Players • Boot ₹${buyIn}`}
+        sub={`Table #${table} • 6 Players • Boot 🪙 ${buyIn}`}
         onBack={nav.back}
         right={<div className="flex items-center gap-3"><Money n={total} className="text-sm font-semibold text-neon-400" /><MoreVertical size={20} className="text-white/60" /></div>}
       />
@@ -352,8 +352,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             <div key={b.name} className={`absolute ${seatPos[i]} flex flex-col items-center z-10 w-[84px] ${reveal && winnerSeat === i ? "scale-110 transition-transform" : ""}`}>
               <TimerAvatar emoji={b.emoji} size={40} active={s.phase === "playing" && s.turn === i} left={s.turn === i ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={b.packed} />
               <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
-                <div className="text-[10px] font-medium leading-tight">{b.name}</div>
-                <div className="text-[10px] text-gold-300 leading-tight">₹{b.bal.toLocaleString("en-IN")}</div>
+                <div className="text-[10px] font-medium leading-tight">{b.name}<BotTag /></div>
+                <div className="text-[10px] text-gold-300 leading-tight">🪙 {b.bal.toLocaleString("en-IN")}</div>
               </div>
               {s.phase !== "idle" && (
                 <div className="flex -space-x-3 mt-1">
@@ -370,8 +370,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
               <div className="text-center">
                 {lowBal ? (
                   <>
-                    <div className="text-xs text-white/70">Not enough balance for the ₹{buyIn} boot</div>
-                    <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Add Cash</button>
+                    <div className="text-xs text-white/70">Not enough balance for the 🪙 {buyIn} boot</div>
+                    <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Get Coins</button>
                     <button onClick={start} className="block mx-auto text-[11px] text-white/50 mt-2">Try again</button>
                   </>
                 ) : (
@@ -398,7 +398,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
                   </div>
                 )}
                 <div className="text-sm font-semibold">{poker ? stageName : `Round ${s.round}`}</div>
-                <div className="text-[11px] text-gold-300 font-semibold">Pot ₹{s.pot.toLocaleString("en-IN")}</div>
+                <div className="text-[11px] text-gold-300 font-semibold">Pot 🪙 {s.pot.toLocaleString("en-IN")}</div>
                 <div className="text-lg font-bold mt-0.5">
                   {s.phase === "playing" ? (s.turn === "me" && !s.busy ? `${secs}s` : typeof s.turn === "number" ? <span className="text-xs font-normal text-white/70">{s.bots[s.turn].name}&apos;s turn • {secs}s</span> : "") : ""}
                 </div>
@@ -411,7 +411,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             <TimerAvatar size={48} active={myTurn} left={myTurn ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={s.me.packed} />
             <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
               <div className="text-[10px] font-medium leading-tight">You {s.phase === "playing" && (s.me.packed ? <span className="text-rose-300">• {poker ? "Folded" : "Packed"}</span> : !poker && <span className="text-white/60">• {s.me.seen ? "Seen" : "Blind"}</span>)}</div>
-              <div className="text-[10px] text-gold-300 leading-tight">₹{total.toLocaleString("en-IN")}</div>
+              <div className="text-[10px] text-gold-300 leading-tight">🪙 {total.toLocaleString("en-IN")}</div>
             </div>
           </div>
         </div>
@@ -440,7 +440,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             {poker ? (
               <div className="grid grid-cols-3 gap-2.5">
                 <button disabled={!myTurn} onClick={() => act("pack")} className="rounded-full py-3 text-sm font-semibold bg-[#1b2350] border border-white/10 disabled:opacity-40">Fold</button>
-                <button disabled={!myTurn} onClick={() => act("chaal")} className="rounded-full py-3 text-sm font-semibold bg-sky-500 disabled:opacity-40">{s.stake ? `Call ₹${chaalAmt}` : "Check"}</button>
+                <button disabled={!myTurn} onClick={() => act("chaal")} className="rounded-full py-3 text-sm font-semibold bg-sky-500 disabled:opacity-40">{s.stake ? `Call 🪙 ${chaalAmt}` : "Check"}</button>
                 <button disabled={!myTurn} onClick={() => act("raise")} className="btn-green rounded-full py-3 text-sm">Raise</button>
               </div>
             ) : (
@@ -453,11 +453,11 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
                 <div className="grid grid-cols-[1fr_2fr] gap-2">
                   <button disabled={!myTurn || s.me.seen} onClick={() => act("see")} className="rounded-full py-3 text-sm font-bold tracking-wide bg-sky-500 disabled:opacity-40">{s.me.seen ? "SEEN ✓" : "SEE"}</button>
                   <button disabled={!myTurn} onClick={() => act("chaal")} className="btn-green rounded-full py-3 text-sm font-bold tracking-wide">
-                    CHAAL ₹{chaalAmt}
+                    CHAAL 🪙 {chaalAmt}
                   </button>
                 </div>
                 {myTurn && (
-                  <button onClick={() => act("raise")} className="w-full text-xs text-white/60 py-1">Raise to ₹{chaalAmt * 2} (2×)</button>
+                  <button onClick={() => act("raise")} className="w-full text-xs text-white/60 py-1">Raise to 🪙 {chaalAmt * 2} (2×)</button>
                 )}
                 {myTurn && !canSideShow() && s.me.seen && activeBots >= 2 && (
                   <div className="text-center text-[10px] text-white/40">Side show needs the previous player to be Seen too</div>

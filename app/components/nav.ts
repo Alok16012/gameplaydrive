@@ -12,12 +12,10 @@ export type Route =
   | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number } // buyIn = point value (points) or entry fee
   | { name: "board"; game: GameId; table: string; buyIn: number }
   | { name: "wallet" }
-  | { name: "addcash" }
-  | { name: "withdraw" }
+  | { name: "addcash" } // "Get coins": coins come from your agent
   | { name: "txns" }
   | { name: "more" }
   | { name: "history" }
-  | { name: "kyc" }
   | { name: "rg" }
   | { name: "help" }
   | { name: "settings" }

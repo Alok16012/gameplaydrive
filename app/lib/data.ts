@@ -65,7 +65,7 @@ export const TABLES: Table[] = [
   { id: "722", seated: 1, seats: 6, buyIn: 1000, stake: "High" },
 ];
 
-// Rummy has its own entry ladder (₹50 → ₹5,000).
+// Rummy has its own entry ladder (50 → 5,000 coins).
 export const RUMMY_TABLES: Table[] = [
   { id: "101", seated: 3, seats: 6, buyIn: 50, stake: "Low" },
   { id: "203", seated: 4, seats: 6, buyIn: 100, stake: "Low" },
@@ -137,10 +137,7 @@ export const GAME_HISTORY: HistoryItem[] = [
 ];
 
 export const NOTIFICATIONS = [
-  { title: "₹500 added to wallet", body: "Your UPI deposit was successful.", when: "2m ago", unread: true },
-  { title: "Weekend Cashback 🎉", body: "Get 10% cashback on Teen Patti losses this weekend.", when: "1h ago", unread: true },
-  { title: "You won ₹120 in Rummy", body: "Winnings credited to your Winning Cash.", when: "Yesterday", unread: false },
-  { title: "KYC Verified", body: "You can now withdraw your winnings anytime.", when: "3 days ago", unread: false },
+  { title: "Welcome to GameHub 🎉", body: "Coins are virtual and come from your agent. Pick a game and take a seat!", when: "Now", unread: true },
 ];
 
 export const FAQS = [
@@ -176,8 +173,9 @@ export function deck(): Card[] {
   return d;
 }
 
+/** Format a coin amount (virtual coins — no cash value). Named `inr` for historical reasons. */
 export const inr = (n: number) =>
-  "₹" + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  "🪙 " + Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 export const AVATARS = ["👨🏽", "👩🏻", "🧔🏾", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼"];
 export const BOT_NAMES = ["Arjun", "Priya", "Vikram", "Sneha", "Karan", "Meera"];

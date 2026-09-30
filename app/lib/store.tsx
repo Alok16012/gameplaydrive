@@ -1,124 +1,151 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import { START_TXNS, START_WALLET, USER, type Txn, type TxnType, type Wallet } from "./data";
+import type { Txn, TxnType } from "./data";
+import { errText, supabase } from "./supabase";
 
-export interface Player { id: string; name: string; first: string; phone: string }
+// Player wallet: one virtual-coin balance stored in Supabase (public.wallets), with every change in public.ledger.
+// Games need a synchronous answer to "can I place this bet?", so debits are checked and applied locally first
+// (ref mirror, PRD WAL-3 "lock, then validate") and then confirmed by the database; if the database refuses,
+// the balance is reloaded from the server.
 
-// In-memory wallet + ledger for the demo. Mirrors PRD §5.2:
-// three buckets, debit order Bonus (capped per table) → Deposit → Winning, withdrawals from Winning only.
-
-const BONUS_CAP = 0.1; // bonus can cover at most 10% of any single entry/bet
+export interface Player { id: string; code: string; name: string; first: string; phone: string; agent: string | null }
 
 interface Store {
-  wallet: Wallet;
   total: number;
   txns: Txn[];
   hidden: boolean;
   toggleHidden: () => void;
   debit: (amount: number, game: string) => boolean;
   credit: (amount: number, game: string, label?: string) => void;
-  deposit: (amount: number, method: string, bonus: number) => void;
-  withdraw: (amount: number) => boolean;
   limits: { deposit: number; loss: number; session: number };
   setLimits: (l: { deposit: number; loss: number; session: number }) => void;
   toast: string | null;
   showToast: (msg: string) => void;
-  player: Player;
-  setPlayer: (p: Player) => void;
+  player: Player | null;
+  signIn: (p: Player) => Promise<void>;
+  signOut: () => Promise<void>;
+  refresh: () => Promise<void>;
+  /** Take a balance computed by the game server (and reload history shortly after). */
+  applyBalance: (coins: number) => void;
 }
 
 const Ctx = createContext<Store | null>(null);
 
-function stamp() {
-  const d = new Date();
-  return d.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
+interface LedgerRow { id: number; amount: number; kind: string; note: string | null; created_at: string }
+
+const KIND: Record<string, { type: TxnType; title: string }> = {
+  mint: { type: "deposit", title: "Coins received" },
+  transfer_in: { type: "deposit", title: "Coins received" },
+  burn: { type: "withdraw", title: "Coins removed" },
+  transfer_out: { type: "withdraw", title: "Coins taken back" },
+  bet: { type: "bet", title: "Bet placed" },
+  win: { type: "winning", title: "Winnings" },
+  refund: { type: "bonus", title: "Refund" },
+};
+
+const toTxn = (r: LedgerRow): Txn => ({
+  id: String(r.id),
+  type: KIND[r.kind]?.type ?? "bet",
+  title: KIND[r.kind]?.title ?? r.kind,
+  sub: `${r.note ?? ""} • ${new Date(r.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
+  amount: r.amount,
+  status: "Success",
+});
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [wallet, setWalletState] = useState<Wallet>(START_WALLET);
-  // Ref mirror so debit/withdraw can validate against the latest balance synchronously
-  // (rapid multi-chip bets — PRD WAL-3 "lock, then validate").
-  const walletRef = useRef<Wallet>(START_WALLET);
-  const setWallet = useCallback((fn: (w: Wallet) => Wallet) => {
-    walletRef.current = fn(walletRef.current);
-    setWalletState(walletRef.current);
-  }, []);
-  const [txns, setTxns] = useState<Txn[]>(START_TXNS);
+  const [total, setTotal] = useState(0);
+  const balRef = useRef(0);
+  const setBal = useCallback((n: number) => { balRef.current = n; setTotal(n); }, []);
+  const [txns, setTxns] = useState<Txn[]>([]);
   const [hidden, setHidden] = useState(false);
   const [limits, setLimits] = useState({ deposit: 10000, loss: 5000, session: 120 });
   const [toast, setToast] = useState<string | null>(null);
-  const [player, setPlayer] = useState<Player>({ id: USER.id, name: USER.name, first: USER.first, phone: USER.phone });
-
-  const add = useCallback((type: TxnType, title: string, sub: string, amount: number, status: Txn["status"] = "Success") => {
-    setTxns((t) => [{ id: Math.random().toString(36).slice(2), type, title, sub: `${sub} • ${stamp()}`, amount, status }, ...t]);
-  }, []);
+  const [player, setPlayer] = useState<Player | null>(null);
+  const refreshTimer = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2200);
   }, []);
 
+  const refresh = useCallback(async () => {
+    const sb = supabase();
+    const { data: s } = await sb.auth.getSession();
+    const uid = s.session?.user.id;
+    if (!uid) return;
+    const [{ data: w }, { data: l }] = await Promise.all([
+      sb.from("wallets").select("coins").eq("user_id", uid).maybeSingle(),
+      sb.from("ledger").select("id, amount, kind, note, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(100),
+    ]);
+    if (w) setBal(w.coins);
+    setTxns(((l ?? []) as LedgerRow[]).map(toTxn));
+  }, [setBal]);
+
+  // Batch history reloads while a game fires several bets in a row.
+  const refreshSoon = useCallback(() => {
+    if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(refresh, 1200);
+  }, [refresh]);
+
+  const applyBalance = useCallback((n: number) => {
+    if (n === balRef.current) return;
+    setBal(n);
+    refreshSoon();
+  }, [setBal, refreshSoon]);
+
+  const signIn = useCallback(async (p: Player) => {
+    setPlayer(p);
+    await refresh();
+  }, [refresh]);
+
+  const signOut = useCallback(async () => {
+    await supabase().auth.signOut();
+    setPlayer(null);
+    setBal(0);
+    setTxns([]);
+  }, [setBal]);
+
   const debit = useCallback(
     (amount: number, game: string) => {
-      const w = walletRef.current;
-      const fromBonus = Math.min(w.bonus, Math.floor(amount * BONUS_CAP * 100) / 100);
-      if (w.deposit + w.winning + fromBonus < amount) return false;
-      const fromDeposit = Math.min(w.deposit, amount - fromBonus);
-      const fromWinning = amount - fromBonus - fromDeposit;
-      setWallet(() => ({ bonus: w.bonus - fromBonus, deposit: w.deposit - fromDeposit, winning: w.winning - fromWinning }));
-      add("bet", "Bet Placed", game, -amount);
+      const amt = Math.round(amount);
+      if (amt <= 0) return true;
+      if (balRef.current < amt) return false;
+      setBal(balRef.current - amt);
+      supabase().rpc("game_bet", { amount: amt, p_note: game }).then(({ data, error }) => {
+        if (error) {
+          showToast(errText(error));
+          refresh();
+        } else if (typeof data === "number") refreshSoon();
+      });
       return true;
     },
-    [add, setWallet],
+    [setBal, showToast, refresh, refreshSoon],
   );
 
   const credit = useCallback(
     (amount: number, game: string, label = "Game Winnings") => {
-      setWallet((w) => ({ ...w, winning: w.winning + amount }));
-      add("winning", label, game, amount);
+      const amt = Math.round(amount);
+      if (amt <= 0) return;
+      setBal(balRef.current + amt);
+      const kind = /refund/i.test(label) ? "refund" : "win";
+      supabase().rpc("game_payout", { amount: amt, p_note: game, p_kind: kind }).then(({ error }) => {
+        if (error) {
+          showToast(errText(error));
+          refresh();
+        } else refreshSoon();
+      });
     },
-    [add, setWallet],
-  );
-
-  const deposit = useCallback(
-    (amount: number, method: string, bonus: number) => {
-      setWallet((w) => ({ ...w, deposit: w.deposit + amount, bonus: w.bonus + bonus }));
-      add("deposit", "Added Cash", method, amount);
-      if (bonus) add("bonus", "Deposit Bonus", "Promo", bonus);
-    },
-    [add, setWallet],
-  );
-
-  const withdraw = useCallback(
-    (amount: number) => {
-      if (amount > walletRef.current.winning) return false;
-      setWallet((w) => ({ ...w, winning: w.winning - amount }));
-      add("withdraw", "Withdrawal", "HDFC •••• 4821", -amount, "Pending");
-      return true;
-    },
-    [add, setWallet],
+    [setBal, showToast, refresh, refreshSoon],
   );
 
   const value = useMemo<Store>(
     () => ({
-      wallet,
-      total: wallet.deposit + wallet.winning + wallet.bonus,
-      txns,
-      hidden,
+      total, txns, hidden,
       toggleHidden: () => setHidden((h) => !h),
-      debit,
-      credit,
-      deposit,
-      withdraw,
-      limits,
-      setLimits,
-      toast,
-      showToast,
-      player,
-      setPlayer,
+      debit, credit, limits, setLimits, toast, showToast, player, signIn, signOut, refresh, applyBalance,
     }),
-    [wallet, txns, hidden, debit, credit, deposit, withdraw, limits, toast, showToast, player],
+    [total, txns, hidden, debit, credit, limits, toast, showToast, player, signIn, signOut, refresh, applyBalance],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

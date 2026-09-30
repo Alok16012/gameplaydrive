@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { errText, supabase } from "./supabase";
 
 // Bot opponents. With auto-generate on, every table draws fresh names from an effectively unlimited
 // generator, mixed with any custom bots the Super Admin created in /admin → Bots.
-// Demo build: the config lives in localStorage so /admin and the player app share it.
+// The config lives in Supabase (app_settings.bots_auto + bots table).
 
 export interface BotProfile {
   id: string;
@@ -64,29 +65,46 @@ export function randomName(): string {
 
 export const randomBal = () => Math.round((300 + Math.random() * Math.random() * 24000) / 10) * 10;
 
-const KEY = "gamehub.bots.v1";
 const DEFAULT: BotConfig = { auto: true, custom: [] };
+let cached: BotConfig = DEFAULT;
 
-export function loadBotConfig(): BotConfig {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULT, ...(JSON.parse(raw) as BotConfig) };
-  } catch {}
-  return DEFAULT;
+interface BotRow { id: string; name: string; emoji: string; bal: number; active: boolean; created_at: string }
+const toProfile = (r: BotRow): BotProfile => ({ ...r, created: new Date(r.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) });
+
+/** Fetch the bot settings from Supabase into the in-memory cache that tables seat from. */
+export async function refreshBotConfig(): Promise<BotConfig> {
+  const sb = supabase();
+  const [{ data: auto }, { data: rows }] = await Promise.all([
+    sb.from("app_settings").select("value").eq("key", "bots_auto").maybeSingle(),
+    sb.from("bots").select("*").order("created_at", { ascending: false }),
+  ]);
+  cached = { auto: auto ? auto.value !== false : true, custom: ((rows ?? []) as BotRow[]).map(toProfile) };
+  return cached;
 }
 
-/** Bot config store for /admin. */
+export const loadBotConfig = () => cached;
+
+/** Bot config for /admin → Bots (Super Admin). Every change is written to Supabase and audited. */
 export function useBotConfig() {
-  const [cfg, setCfg] = useState<BotConfig>(DEFAULT);
-  useEffect(() => setCfg(loadBotConfig()), []);
-  const update = useCallback((fn: (c: BotConfig) => BotConfig) => {
-    setCfg((c) => {
-      const next = fn(c);
-      try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {}
-      return next;
-    });
-  }, []);
-  return { cfg, update };
+  const [cfg, setCfg] = useState<BotConfig>(cached);
+  const [err, setErr] = useState("");
+  const reload = useCallback(async () => setCfg({ ...(await refreshBotConfig()) }), []);
+  useEffect(() => { reload(); }, [reload]);
+  const run = useCallback(async (p: PromiseLike<{ error: unknown }>, action?: [string, string, string]) => {
+    const { error } = await p;
+    if (error) return setErr(errText(error));
+    setErr("");
+    if (action) await supabase().rpc("log_action", { p_action: action[0], p_before: action[1], p_after: action[2] });
+    await reload();
+  }, [reload]);
+  const sb = supabase();
+  return {
+    cfg, err,
+    setAuto: (on: boolean) => run(sb.from("app_settings").update({ value: on }).eq("key", "bots_auto"), ["Auto-generate bots", on ? "Off" : "On", on ? "On" : "Off"]),
+    add: (bots: { name: string; emoji: string; bal: number }[], label: string) => run(sb.from("bots").insert(bots), [label, String(cached.custom.length), String(cached.custom.length + bots.length)]),
+    toggle: (b: BotProfile) => run(sb.from("bots").update({ active: !b.active }).eq("id", b.id), [`Bot ${b.name}`, b.active ? "Active" : "Disabled", b.active ? "Disabled" : "Active"]),
+    remove: (b: BotProfile) => run(sb.from("bots").delete().eq("id", b.id), [`Bot deleted • ${b.name}`, "Active", "Deleted"]),
+  };
 }
 
 // Names seated recently, so back-to-back tables don't show the same faces.

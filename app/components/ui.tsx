@@ -1,5 +1,7 @@
 "use client";
 
+import { Component } from "react";
+
 import { ChevronLeft, Gamepad2, Home, Menu, Wallet as WalletIcon } from "lucide-react";
 import type { Card } from "../lib/data";
 import { useStore } from "../lib/store";
@@ -169,7 +171,7 @@ export function Avatar({ emoji = "👨🏽", size = 40, ring = true }: { emoji?:
 
 export function Money({ n, className = "" }: { n: number; className?: string }) {
   const { hidden } = useStore();
-  return <span className={className}>{hidden ? "₹ ••••" : `₹ ${n.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}</span>;
+  return <span className={className}>{hidden ? "🪙 ••••" : `🪙 ${n.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}</span>;
 }
 
 export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -178,4 +180,27 @@ export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) =
       <div className={`w-5 h-5 rounded-full bg-white transition-transform ${on ? "translate-x-5" : ""}`} />
     </button>
   );
+}
+
+/** Keeps one broken screen from blanking the whole app; the player can reload and rejoin their table. */
+export class ScreenBoundary extends Component<{ children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    console.error("Screen crashed", error);
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="min-h-dvh grid place-items-center px-8 text-center">
+        <div>
+          <div className="text-lg font-semibold">Something went wrong</div>
+          <div className="text-sm text-[var(--ink-soft)] mt-1">If you were at a table, you&apos;ll be seated again when you come back.</div>
+          <button onClick={() => location.reload()} className="btn-green pill px-6 py-2.5 mt-5 text-sm">Reload</button>
+        </div>
+      </div>
+    );
+  }
 }

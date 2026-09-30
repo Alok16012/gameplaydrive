@@ -2,59 +2,27 @@
 
 import { useEffect, useState } from "react";
 import {
-  AlertTriangle, BadgeCheck, Ban, BarChart3, Bot as BotIcon, Briefcase, Check, ChevronRight, ClipboardList, Crown, Download, FileCheck2, Gamepad2, LayoutDashboard, LogOut, Network, RotateCcw, Search, ShieldAlert, Snowflake, Sparkles, Trash2, UserPlus, Users, Wallet as WalletIcon, X,
+  Ban, Bot as BotIcon, Briefcase, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
 } from "lucide-react";
-import { GAMES, inr, type GameId } from "../lib/data";
+import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
-import { BOT_AVATARS, randomBal, randomName, useBotConfig, type BotProfile } from "../lib/botpool";
-import { CREATES, ROLE_LABEL, downline, fmtPhone, newId, ownerOptions, today, useAccounts, type Account, type Role } from "../lib/hierarchy";
+import { BOT_AVATARS, randomBal, randomName, useBotConfig } from "../lib/botpool";
+import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, useAccounts, type Account, type Role } from "../lib/hierarchy";
+import { staffEmail } from "../lib/loginEmail";
+import { errText, supabase } from "../lib/supabase";
 
-// Admin & Agency dashboard (PRD §7). Role-based: Super Admin sees everything and creates admins, agents and players;
-// Admin creates agents and players; Agent creates players. Each role only sees its own downline. Demo data only; every action here is simulated and written to the
-// in-memory audit log so the client can see the "before/after" trail the PRD asks for.
+// Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
+// that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
+// downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "admins" | "agents" | "players" | "bots" | "network" | "kyc" | "withdrawals" | "config" | "risk" | "audit";
-
-const KYC_QUEUE = [
-  { id: "K-2291", user: "Arjun Mehta", uid: "GH130877", doc: "PAN + Aadhaar", submitted: "12 min ago", match: 96 },
-  { id: "K-2292", user: "Karan Patel", uid: "GH131220", doc: "PAN + Aadhaar", submitted: "34 min ago", match: 88 },
-  { id: "K-2293", user: "Ritika Das", uid: "GH131498", doc: "PAN + Bank", submitted: "1 hr ago", match: 72 },
-  { id: "K-2294", user: "Imran Khan", uid: "GH131511", doc: "PAN + Aadhaar", submitted: "2 hr ago", match: 99 },
-];
-
-const WITHDRAWALS = [
-  { id: "W-88120", user: "Sneha Iyer", amount: 25000, to: "ICICI •••• 1182", risk: "Low", when: "5 min ago" },
-  { id: "W-88121", user: "Priya Verma", amount: 12000, to: "priya@okaxis", risk: "Low", when: "18 min ago" },
-  { id: "W-88122", user: "Vikram Singh", amount: 48000, to: "SBI •••• 0921", risk: "High", when: "40 min ago" },
-  { id: "W-88123", user: "Meera Nair", amount: 15500, to: "HDFC •••• 7710", risk: "Medium", when: "1 hr ago" },
-];
-
-const RISK = [
-  { sev: "High", type: "Collusion", detail: "3 accounts share device ID and always sit together on Teen Patti Table #412", users: "GH129954, GH129955, GH129961" },
-  { sev: "High", type: "Chip dumping", detail: "Repeated folds with strong hands against one player (Rummy)", users: "GH128870 → GH128871" },
-  { sev: "Medium", type: "Multi-account", detail: "5 accounts registered from same IP in 24 hrs", users: "IP 103.21.x.x" },
-  { sev: "Low", type: "Unusual win rate", detail: "91% win rate over 60 Dragon Tiger rounds", users: "GH130402" },
-];
-
-const GGR: Record<GameId, number> = { "teen-patti": 412000, rummy: 358000, "dragon-tiger": 296000, "andar-bahar": 214000, poker: 188000, ludo: 142000, "lucky-7": 121000, carrom: 38000, chess: 29000 };
-
-interface Audit { who: string; what: string; before: string; after: string; when: string }
+type Section = "dashboard" | "admins" | "agents" | "players" | "bots" | "network" | "config" | "audit";
 
 export default function AdminApp() {
-  const { accounts, ready, update, reset } = useAccounts();
-  const [meId, setMeId] = useState<string | null>(null);
+  const { me, accounts, reload } = useAccounts();
   const [sec, setSec] = useState<Section>("dashboard");
-  const [audit, setAudit] = useState<Audit[]>([
-    { who: "ops@gamehub", what: "Rake % • Teen Patti", before: "4%", after: "5%", when: "Today 10:12" },
-    { who: "finance@gamehub", what: "Withdrawal W-88101 approved", before: "Pending", after: "Approved", when: "Today 09:40" },
-    { who: "risk@gamehub", what: "Account GH129954 frozen", before: "Active", after: "Frozen", when: "Yesterday 22:05" },
-  ]);
-  const me = accounts.find((a) => a.id === meId);
-  const log = (what: string, before: string, after: string) =>
-    setAudit((a) => [{ who: me?.username ?? "admin", what, before, after, when: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) }, ...a]);
 
-  if (!ready) return <div className="min-h-dvh bg-[#070b22]" />;
-  if (!me || me.status !== "Active") return <AdminLogin accounts={accounts} onLogin={(id) => { setMeId(id); setSec("dashboard"); }} />;
+  if (me === undefined) return <div className="min-h-dvh bg-[#070b22]" />;
+  if (!me || me.role === "player" || me.status !== "Active") return <AdminLogin blocked={me ? (me.role === "player" ? "player" : "frozen") : null} />;
 
   const all: { id: Section; label: string; icon: React.ReactNode; roles: Role[] }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
@@ -63,15 +31,12 @@ export default function AdminApp() {
     { id: "players", label: "Players", icon: <Users size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "bots", label: "Bots", icon: <BotIcon size={18} />, roles: ["superadmin"] },
     { id: "network", label: "Network", icon: <Network size={18} />, roles: ["superadmin", "admin"] },
-    { id: "kyc", label: "KYC Queue", icon: <FileCheck2 size={18} />, roles: ["superadmin"] },
-    { id: "withdrawals", label: "Withdrawals", icon: <WalletIcon size={18} />, roles: ["superadmin"] },
     { id: "config", label: "Game Config", icon: <Gamepad2 size={18} />, roles: ["superadmin"] },
-    { id: "risk", label: "Risk & Fair Play", icon: <ShieldAlert size={18} />, roles: ["superadmin"] },
-    { id: "audit", label: "Audit Log", icon: <ClipboardList size={18} />, roles: ["superadmin", "admin"] },
+    { id: "audit", label: "Audit Log", icon: <ClipboardList size={18} />, roles: ["superadmin", "admin", "agent"] },
   ];
   const nav = all.filter((n) => n.roles.includes(me.role));
-  const logout = () => setMeId(null);
-  const ctx: Ctx = { me, accounts, update, log };
+  const logout = () => supabase().auth.signOut();
+  const ctx: Ctx = { me, accounts, reload };
 
   return (
     <div className="min-h-dvh bg-[#070b22] text-white flex">
@@ -86,17 +51,15 @@ export default function AdminApp() {
         </nav>
         <div className="rounded-xl bg-white/5 px-3 py-2.5 mb-2">
           <div className="text-sm font-medium truncate">{me.name}</div>
-          <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.id}</div>
+          <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.code}</div>
+          <div className="text-xs text-gold-300 mt-1">{me.role === "superadmin" ? "Creates coins" : coins(me.coins)}</div>
         </div>
         <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/60"><LogOut size={18} />Logout</button>
-        {me.role === "superadmin" && (
-          <button onClick={() => { if (confirm("Reset all accounts to the demo seed data?")) reset(); }} className="flex items-center gap-3 px-3 py-2 text-xs text-white/40"><RotateCcw size={14} />Reset demo data</button>
-        )}
       </aside>
 
       <main className="flex-1 min-w-0">
         <div className="lg:hidden sticky top-0 z-10 bg-[#0a0f2c]/95 backdrop-blur border-b border-white/5">
-          <div className="px-4 pt-4 flex items-center justify-between"><Brand role={me.role} /><button onClick={logout}><LogOut size={18} /></button></div>
+          <div className="px-4 pt-4 flex items-center justify-between"><Brand role={me.role} /><button onClick={logout} aria-label="Logout"><LogOut size={18} /></button></div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 py-3">
             {nav.map((n) => (
               <button key={n.id} onClick={() => setSec(n.id)} className={`pill px-3 py-1.5 text-xs whitespace-nowrap ${sec === n.id ? "btn-green" : "bg-white/5"}`}>{n.label}</button>
@@ -104,24 +67,21 @@ export default function AdminApp() {
           </div>
         </div>
         <div className="p-4 lg:p-8 max-w-6xl">
-          {sec === "dashboard" && (me.role === "superadmin" ? <><Dashboard go={setSec} /><NetworkStats {...ctx} go={setSec} /></> : <ScopedDashboard {...ctx} go={setSec} />)}
+          {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
           {sec === "agents" && <AccountsView key="agent" role="agent" {...ctx} />}
           {sec === "players" && <AccountsView key="player" role="player" {...ctx} />}
-          {sec === "bots" && <BotsView log={log} />}
+          {sec === "bots" && <BotsView />}
           {sec === "network" && <NetworkView {...ctx} />}
-          {sec === "kyc" && <KycView log={log} />}
-          {sec === "withdrawals" && <WithdrawalsView log={log} />}
-          {sec === "config" && <ConfigView log={log} />}
-          {sec === "risk" && <RiskView log={log} />}
-          {sec === "audit" && <AuditView audit={audit} />}
+          {sec === "config" && <ConfigView />}
+          {sec === "audit" && <AuditView />}
         </div>
       </main>
     </div>
   );
 }
 
-interface Ctx { me: Account; accounts: Account[]; update: (fn: (a: Account[]) => Account[]) => void; log: (w: string, b: string, a: string) => void }
+interface Ctx { me: Account; accounts: Account[]; reload: () => Promise<void> }
 
 function Brand({ role }: { role?: Role }) {
   return (
@@ -132,33 +92,33 @@ function Brand({ role }: { role?: Role }) {
   );
 }
 
-function AdminLogin({ accounts, onLogin }: { accounts: Account[]; onLogin: (id: string) => void }) {
+function AdminLogin({ blocked }: { blocked: "player" | "frozen" | null }) {
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
-  const submit = () => {
-    const a = accounts.find((x) => x.role !== "player" && x.username?.toLowerCase() === user.trim().toLowerCase());
-    if (!a || a.password !== pw) return setErr("Wrong username or password");
-    if (a.status !== "Active") return setErr("This account is frozen. Contact the account that created it.");
-    onLogin(a.id);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!blocked) return;
+    setErr(blocked === "player" ? "Player accounts sign in on the player app." : "This account is frozen. Contact the account that created it.");
+    supabase().auth.signOut();
+  }, [blocked]);
+  const submit = async () => {
+    if (!user.trim() || !pw) return setErr("Enter your username and password");
+    setBusy(true);
+    const { error } = await supabase().auth.signInWithPassword({ email: staffEmail(user), password: pw });
+    setBusy(false);
+    if (error) setErr(/invalid/i.test(error.message) ? "Wrong username or password" : error.message);
   };
-  const demo: [string, string][] = [["superadmin", "Super Admin"], ["admin", "Admin"], ["agent", "Agent"]];
   return (
     <div className="min-h-dvh grid place-items-center bg-[#070b22] px-4">
       <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="w-full max-w-sm card p-6">
         <Brand />
         <div className="text-xl font-semibold mt-6">Sign in</div>
         <div className="text-xs text-white/50 mt-1">Super Admin, Admin and Agent accounts • all actions are audited</div>
-        <input value={user} onChange={(e) => { setUser(e.target.value); setErr(""); }} placeholder="Username" autoComplete="username" className="w-full mt-5 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none" />
+        <input value={user} onChange={(e) => { setUser(e.target.value); setErr(""); }} placeholder="Username" autoComplete="username" autoCapitalize="none" className="w-full mt-5 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none" />
         <input type="password" value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} placeholder="Password" autoComplete="current-password" className="w-full mt-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none" />
         {err && <div className="text-xs text-rose-300 mt-3">{err}</div>}
-        <button type="submit" className="btn-green w-full py-3 rounded-xl mt-5">Sign in</button>
-        <div className="text-[11px] text-white/40 text-center mt-4">Demo: sign in as (password demo1234)</div>
-        <div className="grid grid-cols-3 gap-2 mt-2">
-          {demo.map(([u, l]) => (
-            <button type="button" key={u} onClick={() => { setUser(u); setPw("demo1234"); setErr(""); }} className="text-[11px] text-white/60 border border-dashed border-white/15 rounded-lg py-2">{l}</button>
-          ))}
-        </div>
+        <button type="submit" disabled={busy} className="btn-green w-full py-3 rounded-xl mt-5">{busy ? "Signing in…" : "Sign in"}</button>
       </form>
     </div>
   );
@@ -178,90 +138,28 @@ function Pill({ tone, children }: { tone: "green" | "amber" | "red" | "gray"; ch
   return <span className={`pill px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${c}`}>{children}</span>;
 }
 
-function Dashboard({ go }: { go: (s: Section) => void }) {
-  const kpis = [
-    { l: "Total Deposits (today)", v: "₹18,42,300", d: "+12.4%" },
-    { l: "Withdrawals (today)", v: "₹6,15,800", d: "+4.1%" },
-    { l: "Active Liability", v: "₹42,90,150", d: "wallet balances" },
-    { l: "GGR / Rake (today)", v: "₹1,79,860", d: "+8.9%" },
-    { l: "DAU", v: "38,214", d: "MAU 2.1L" },
-    { l: "Live tables", v: "1,286", d: "avg fill 7.2s" },
-    { l: "Ledger mismatches", v: "0", d: "reconciled 06:00" },
-    { l: "Reconnect success", v: "98.7%", d: "target > 98%" },
-  ];
-  const max = Math.max(...Object.values(GGR));
-  const [hover, setHover] = useState<GameId | null>(null);
-  return (
-    <>
-      <Title t="Dashboard" s="Live financial & platform health" right={<button className="btn-ghost rounded-xl px-3 py-2 text-xs flex items-center gap-1.5"><Download size={14} /> Export CSV</button>} />
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {kpis.map((k) => (
-          <div key={k.l} className="card p-4">
-            <div className="text-[11px] text-white/50">{k.l}</div>
-            <div className="text-xl lg:text-2xl font-semibold mt-1">{k.v}</div>
-            <div className="text-[11px] text-white/50 mt-0.5">{k.d}</div>
-          </div>
-        ))}
-      </div>
+const STATES = ["Maharashtra", "Karnataka", "Delhi", "Tamil Nadu", "Punjab", "Gujarat", "Kerala", "Uttar Pradesh", "West Bengal", "Rajasthan", "Madhya Pradesh", "Bihar", "Haryana", "Goa", "Telangana", "Andhra Pradesh", "Odisha", "Assam"];
 
-      <div className="grid lg:grid-cols-3 gap-4 mt-4">
-        <div className="card p-5 lg:col-span-2">
-          <div className="flex items-center gap-2 font-medium"><BarChart3 size={18} className="text-white/60" /> GGR by game • last 7 days</div>
-          <div className="mt-6 flex items-end gap-2 h-52 border-b border-white/10 relative">
-            {GAMES.map((g) => (
-              <div key={g.id} className="flex-1 h-full flex flex-col justify-end items-center relative" onMouseEnter={() => setHover(g.id)} onMouseLeave={() => setHover(null)}>
-                {hover === g.id && (
-                  <div className="absolute -top-2 z-10 whitespace-nowrap bg-white text-slate-900 text-[11px] rounded-lg px-2 py-1 shadow-lg -translate-y-full">
-                    {g.name}: <b>{inr(GGR[g.id])}</b>
-                  </div>
-                )}
-                <div className="w-full max-w-9 rounded-t-[4px] transition-opacity" style={{ height: `${(GGR[g.id] / max) * 100}%`, background: "#4ade80", opacity: hover && hover !== g.id ? 0.45 : 1 }} />
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-2 mt-2">
-            {GAMES.map((g) => <div key={g.id} className="flex-1 text-center text-[10px] text-white/50 truncate">{g.name.split(" ")[0]}</div>)}
-          </div>
-        </div>
-        <div className="card p-5">
-          <div className="font-medium">Needs attention</div>
-          <div className="mt-4 space-y-2">
-            {[
-              { l: "KYC reviews pending", n: KYC_QUEUE.length, s: "kyc" as Section },
-              { l: "Large withdrawals", n: WITHDRAWALS.length, s: "withdrawals" as Section },
-              { l: "Risk flags (high)", n: RISK.filter((r) => r.sev === "High").length, s: "risk" as Section },
-            ].map((x) => (
-              <button key={x.l} onClick={() => go(x.s)} className="w-full flex items-center justify-between rounded-xl bg-white/5 px-4 py-3 text-sm hover:bg-white/10">
-                {x.l}<span className="pill bg-amber-400 text-slate-900 text-xs font-bold px-2 py-0.5">{x.n}</span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-5 text-[11px] text-white/40">Daily reconciliation job ran at 06:00 — deposits, withdrawals and game ledgers match to the rupee.</div>
-        </div>
-      </div>
-    </>
-  );
-}
+/** Accounts visible to `me` (row-level security already limits the list to its downline). */
+const scopeOf = (accounts: Account[], me: Account) => accounts.filter((a) => a.id !== me.id);
 
-const STATES = ["Maharashtra", "Karnataka", "Delhi", "Tamil Nadu", "Punjab", "Gujarat", "Kerala", "Uttar Pradesh", "West Bengal", "Rajasthan", "Madhya Pradesh", "Bihar", "Haryana", "Goa"];
-
-/** Accounts visible to `me`: Super Admin sees everything, everyone else only their downline. */
-const scopeOf = (accounts: Account[], me: Account) => (me.role === "superadmin" ? accounts.filter((a) => a.id !== me.id) : downline(accounts, me.id));
-
-function NetworkStats({ me, accounts, go, heading = true }: Ctx & { go: (s: Section) => void; heading?: boolean }) {
+function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
   const scope = scopeOf(accounts, me);
   const players = scope.filter((a) => a.role === "player");
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const recent = [...players].reverse().slice(0, 6);
   const cards: { l: string; v: string; d: string; s?: Section; show: boolean }[] = [
-    { l: "Admins", v: String(scope.filter((a) => a.role === "admin").length), d: "created by Super Admin", s: "admins", show: me.role === "superadmin" },
+    { l: "Admins", v: String(scope.filter((a) => a.role === "admin").length), d: "in your network", s: "admins", show: me.role === "superadmin" },
     { l: "Agents", v: String(scope.filter((a) => a.role === "agent").length), d: `${scope.filter((a) => a.role === "agent" && a.status === "Frozen").length} frozen`, s: "agents", show: me.role !== "agent" },
     { l: "Players", v: String(players.length), d: `${players.filter((p) => p.status === "Active").length} active`, s: "players", show: true },
-    { l: "Player balances", v: inr(players.reduce((t, p) => t + (p.bal ?? 0), 0)), d: "across your players", show: true },
-    { l: "KYC pending", v: String(players.filter((p) => p.kyc === "Pending").length), d: "players to verify", show: me.role === "agent" },
+    { l: "Coins with players", v: coins(players.reduce((t, p) => t + p.coins, 0)), d: "current balances", show: true },
+    { l: "Coins with staff", v: coins(scope.filter((a) => a.role !== "player").reduce((t, p) => t + p.coins, 0)), d: "admins & agents", show: me.role !== "agent" },
+    { l: "Your coins", v: me.role === "superadmin" ? "∞" : coins(me.coins), d: me.role === "superadmin" ? "you create coins" : "available to hand out", show: true },
   ];
   return (
-    <div className={heading ? "mt-6" : ""}>
-      {heading && <div className="font-medium mb-3 flex items-center gap-2"><Network size={18} className="text-white/60" /> Network</div>}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <>
+      <Title t={`Welcome, ${me.name}`} s={me.role === "superadmin" ? "Your whole network" : me.role === "admin" ? "Your agents and their players" : "Players you manage"} />
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.filter((c) => c.show).map((c) => (
           <button key={c.l} disabled={!c.s} onClick={() => c.s && go(c.s)} className="card p-4 text-left enabled:hover:bg-white/[.07]">
             <div className="text-[11px] text-white/50">{c.l}</div>
@@ -270,18 +168,6 @@ function NetworkStats({ me, accounts, go, heading = true }: Ctx & { go: (s: Sect
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-function ScopedDashboard(props: Ctx & { go: (s: Section) => void }) {
-  const { me, accounts, go } = props;
-  const recent = scopeOf(accounts, me).filter((a) => a.role === "player").slice(-5).reverse();
-  const byId = new Map(accounts.map((a) => [a.id, a]));
-  return (
-    <>
-      <Title t={`Welcome, ${me.name}`} s={me.role === "admin" ? "Your agents and their players" : "Players you manage"} />
-      <NetworkStats {...props} heading={false} />
       <div className="card p-5 mt-4">
         <div className="flex items-center justify-between">
           <div className="font-medium">Latest players</div>
@@ -290,8 +176,8 @@ function ScopedDashboard(props: Ctx & { go: (s: Section) => void }) {
         <div className="mt-3 divide-y divide-white/5">
           {recent.map((p) => (
             <div key={p.id} className="flex items-center justify-between py-2.5 text-sm">
-              <div><div className="font-medium">{p.name}</div><div className="text-[11px] text-white/50">{p.id} • via {byId.get(p.parentId ?? "")?.name}</div></div>
-              <Pill tone={p.status === "Active" ? "green" : "red"}>{p.status}</Pill>
+              <div><div className="font-medium">{p.name}</div><div className="text-[11px] text-white/50">{p.code} • via {byId.get(p.parentId ?? "")?.name ?? "—"}</div></div>
+              <div className="flex items-center gap-3"><span className="text-xs text-gold-300 tabular-nums">{coins(p.coins)}</span><Pill tone={p.status === "Active" ? "green" : "red"}>{p.status}</Pill></div>
             </div>
           ))}
           {recent.length === 0 && <div className="text-sm text-white/50 py-4">No players yet. Create one from the Players tab.</div>}
@@ -301,21 +187,25 @@ function ScopedDashboard(props: Ctx & { go: (s: Section) => void }) {
   );
 }
 
-function AccountsView({ role, me, accounts, update, log }: Ctx & { role: Role }) {
+function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
+  const [coinsFor, setCoinsFor] = useState<Account | null>(null);
+  const [err, setErr] = useState("");
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
-  const list = rows.filter((u) => (u.name + u.id + u.phone + (u.username ?? "")).toLowerCase().includes(q.toLowerCase()));
+  const list = rows.filter((u) => (u.name + u.code + (u.phone ?? "") + (u.username ?? "")).toLowerCase().includes(q.toLowerCase()));
   const canCreate = CREATES[me.role].includes(role);
-  const toggle = (u: Account) => {
-    const next = u.status === "Frozen" ? "Active" : "Frozen";
-    update((all) => all.map((a) => (a.id === u.id ? { ...a, status: next } : a)));
-    log(`${ROLE_LABEL[u.role]} ${u.id}`, u.status, next);
+  const toggle = async (u: Account) => {
+    try {
+      await setStatus(u.id, u.status === "Frozen" ? "Active" : "Frozen");
+      setErr("");
+      await reload();
+    } catch (e) { setErr(errText(e)); }
   };
   const owner = (u: Account) => {
     const p = byId.get(u.parentId ?? "");
-    return p ? <><div>{p.name}</div><div className="text-[11px] text-white/50">{ROLE_LABEL[p.role]}</div></> : "—";
+    return p ? <><div>{p.id === me.id ? "You" : p.name}</div><div className="text-[11px] text-white/50">{ROLE_LABEL[p.role]}</div></> : "—";
   };
   const plural = { admin: "Admins", agent: "Agents", player: "Players", superadmin: "Super Admins" }[role];
   const sub = {
@@ -325,8 +215,8 @@ function AccountsView({ role, me, accounts, update, log }: Ctx & { role: Role })
     superadmin: "",
   }[role];
   const head = role === "player"
-    ? ["Player", "Phone", "Created by", "State", "KYC", "Balance", "Games", "Status", ""]
-    : ["Name", "Username", "Phone", "Reports to", role === "admin" ? "Agents" : "Players", "Created", "Status", ""];
+    ? ["Player", "Phone", "Created by", "State", "Coins", "Status", ""]
+    : ["Name", "Username", "Phone", "Reports to", role === "admin" ? "Agents" : "Players", "Coins", "Status", ""];
 
   return (
     <>
@@ -334,21 +224,19 @@ function AccountsView({ role, me, accounts, update, log }: Ctx & { role: Role })
         <button onClick={() => setCreating(true)} className="btn-green rounded-xl px-3.5 py-2 text-sm flex items-center gap-1.5 whitespace-nowrap"><UserPlus size={16} />New {ROLE_LABEL[role]}</button>
       )} />
       <div className="card flex items-center gap-2 px-4 py-2.5 mb-4"><Search size={16} className="text-white/40" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, ID or phone" className="bg-transparent outline-none text-sm flex-1" /></div>
+      {err && <div className="text-xs text-rose-300 mb-3">{err}</div>}
       <div className="card overflow-x-auto">
         <table className="w-full text-sm min-w-[820px]">
           <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{head.map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
           <tbody>
             {list.map((u) => (
               <tr key={u.id} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-3"><div className="font-medium">{u.name}</div><div className="text-[11px] text-white/50">{u.id}</div></td>
+                <td className="px-4 py-3"><div className="font-medium">{u.name}</div><div className="text-[11px] text-white/50">{u.code} • {u.created}</div></td>
                 {role === "player" ? (
                   <>
                     <td className="px-4 py-3 text-white/70 whitespace-nowrap">{fmtPhone(u.phone)}</td>
                     <td className="px-4 py-3 text-white/70">{owner(u)}</td>
-                    <td className="px-4 py-3 text-white/70">{u.state}</td>
-                    <td className="px-4 py-3"><Pill tone={u.kyc === "Verified" ? "green" : u.kyc === "Pending" ? "amber" : "red"}>{u.kyc}</Pill></td>
-                    <td className="px-4 py-3 tabular-nums">{inr(u.bal ?? 0)}</td>
-                    <td className="px-4 py-3 tabular-nums">{u.games ?? 0}</td>
+                    <td className="px-4 py-3 text-white/70">{u.state ?? "—"}</td>
                   </>
                 ) : (
                   <>
@@ -356,13 +244,13 @@ function AccountsView({ role, me, accounts, update, log }: Ctx & { role: Role })
                     <td className="px-4 py-3 text-white/70 whitespace-nowrap">{fmtPhone(u.phone)}</td>
                     <td className="px-4 py-3 text-white/70">{owner(u)}</td>
                     <td className="px-4 py-3 tabular-nums">{downline(accounts, u.id).filter((a) => a.role === (role === "admin" ? "agent" : "player")).length}</td>
-                    <td className="px-4 py-3 text-white/70 whitespace-nowrap">{u.created}</td>
                   </>
                 )}
+                <td className="px-4 py-3 tabular-nums text-gold-300 whitespace-nowrap">{coins(u.coins)}</td>
                 <td className="px-4 py-3"><Pill tone={u.status === "Active" ? "green" : "red"}>{u.status}</Pill></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Snowflake size={13} />{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
-                  {role === "player" && <button onClick={() => log(`Device/IP ban ${u.id}`, "Allowed", "Banned")} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Ban size={13} />Ban</button>}
+                  <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
+                  <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2">{u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
                 </td>
               </tr>
             ))}
@@ -370,85 +258,139 @@ function AccountsView({ role, me, accounts, update, log }: Ctx & { role: Role })
           </tbody>
         </table>
       </div>
-      {creating && <CreateModal role={role} me={me} accounts={accounts} update={update} log={log} onClose={() => setCreating(false)} />}
+      {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} />}
+      {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
     </>
   );
 }
 
-function CreateModal({ role, me, accounts, update, log, onClose }: Ctx & { role: Role; onClose: () => void }) {
-  const owners = ownerOptions(accounts, me, role);
-  const [f, setF] = useState({ name: "", phone: "", username: "", password: "", state: STATES[0], owner: owners[0]?.id ?? me.id });
-  const [err, setErr] = useState("");
-  const [done, setDone] = useState<Account | null>(null);
-  const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
-  const staff = role !== "player";
+const inputCls = "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-neon-400";
 
-  const submit = () => {
-    if (!f.name.trim()) return setErr("Enter a name");
-    if (!/^\d{10}$/.test(f.phone)) return setErr("Enter a 10-digit mobile number");
-    if (accounts.some((a) => a.phone === f.phone)) return setErr("An account with this mobile number already exists");
-    if (staff) {
-      if (!/^[a-z0-9._]{3,}$/i.test(f.username)) return setErr("Username: at least 3 letters, numbers, dots or underscores");
-      if (accounts.some((a) => a.username?.toLowerCase() === f.username.toLowerCase())) return setErr("Username is taken");
-      if (f.password.length < 6) return setErr("Password must be at least 6 characters");
-    }
-    const acc: Account = {
-      id: newId(accounts, role), role, name: f.name.trim(), phone: f.phone, parentId: f.owner, status: "Active", created: today(),
-      ...(staff ? { username: f.username.trim(), password: f.password } : { state: f.state, kyc: "Pending", bal: 0, games: 0 }),
-    };
-    update((all) => [...all, acc]);
-    log(`${ROLE_LABEL[role]} ${acc.id} created under ${accounts.find((a) => a.id === f.owner)?.name}`, "—", acc.name);
-    setDone(acc);
-  };
-
-  const input = "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-neon-400";
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick={onClose}>
       <div className="card w-full max-w-md p-6 bg-[#0d1335]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <div className="text-lg font-semibold">{done ? `${ROLE_LABEL[role]} created` : `New ${ROLE_LABEL[role]}`}</div>
-          <button onClick={onClose} className="text-white/50"><X size={18} /></button>
+          <div className="text-lg font-semibold">{title}</div>
+          <button onClick={onClose} className="text-white/50" aria-label="Close"><X size={18} /></button>
         </div>
-        {done ? (
-          <>
-            <div className="mt-4 rounded-xl bg-neon-400/10 border border-neon-400/20 p-4 text-sm space-y-1.5">
-              <div className="flex justify-between"><span className="text-white/60">ID</span><b>{done.id}</b></div>
-              <div className="flex justify-between"><span className="text-white/60">Name</span><span>{done.name}</span></div>
-              <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(done.phone)}</span></div>
-              {staff && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{done.username}</span></div>}
-            </div>
-            <div className="text-xs text-white/50 mt-3">
-              {staff ? `They can sign in to this console with their username and password as ${ROLE_LABEL[role]}.` : "The player can now sign in to the player app with this mobile number and an OTP."}
-            </div>
-            <button onClick={onClose} className="btn-green w-full py-2.5 rounded-xl mt-5 text-sm">Done</button>
-          </>
-        ) : (
-          <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3">
-            <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${input} mt-1`} /></label>
-            <label className="block text-xs text-white/60">Mobile number
-              <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={input} /></div>
-            </label>
-            {staff ? (
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block text-xs text-white/60">Username<input value={f.username} onChange={(e) => set("username", e.target.value)} autoComplete="off" className={`${input} mt-1`} /></label>
-                <label className="block text-xs text-white/60">Password<input type="password" value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" className={`${input} mt-1`} /></label>
-              </div>
-            ) : (
-              <label className="block text-xs text-white/60">State<select value={f.state} onChange={(e) => set("state", e.target.value)} className={`${input} mt-1`}>{STATES.map((s) => <option key={s} className="bg-[#0d1335]">{s}</option>)}</select></label>
-            )}
-            {owners.length > 1 && (
-              <label className="block text-xs text-white/60">Reports to
-                <select value={f.owner} onChange={(e) => set("owner", e.target.value)} className={`${input} mt-1`}>
-                  {owners.map((o) => <option key={o.id} value={o.id} className="bg-[#0d1335]">{o.id === me.id ? `Me (${o.name})` : `${o.name} — ${ROLE_LABEL[o.role]}`}</option>)}
-                </select>
-              </label>
-            )}
-            {err && <div className="text-xs text-rose-300">{err}</div>}
-            <button type="submit" className="btn-green w-full py-2.5 rounded-xl text-sm !mt-5">Create {ROLE_LABEL[role]}</button>
-          </form>
-        )}
+        {children}
       </div>
     </div>
+  );
+}
+
+function CreateModal({ role, me, accounts, reload, onClose }: Ctx & { role: Role; onClose: () => void }) {
+  const owners = ownerOptions(accounts, me, role);
+  const [f, setF] = useState({ name: "", phone: "", username: "", password: "", state: STATES[0], owner: owners[0]?.id ?? me.id });
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<Account | null>(null);
+  const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
+  const staff = role !== "player";
+
+  const submit = async () => {
+    if (!f.name.trim()) return setErr("Enter a name");
+    if (!/^\d{10}$/.test(f.phone) && (!staff || f.phone)) return setErr("Enter a 10-digit mobile number");
+    if (staff && !/^[a-z0-9._]{3,}$/i.test(f.username)) return setErr("Username: at least 3 letters, numbers, dots or underscores");
+    if (f.password.length < 6) return setErr("Password must be at least 6 characters");
+    setBusy(true);
+    try {
+      const acc = await createAccount({ role, name: f.name.trim(), phone: f.phone, username: staff ? f.username : undefined, password: f.password, parentId: f.owner, state: staff ? undefined : f.state });
+      await reload();
+      setDone(acc);
+    } catch (e) {
+      setErr(errText(e));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Modal title={done ? `${ROLE_LABEL[role]} created` : `New ${ROLE_LABEL[role]}`} onClose={onClose}>
+      {done ? (
+        <>
+          <div className="mt-4 rounded-xl bg-neon-400/10 border border-neon-400/20 p-4 text-sm space-y-1.5">
+            <div className="flex justify-between"><span className="text-white/60">ID</span><b>{done.code}</b></div>
+            <div className="flex justify-between"><span className="text-white/60">Name</span><span>{done.name}</span></div>
+            {done.phone && <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(done.phone)}</span></div>}
+            {staff && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{done.username}</span></div>}
+          </div>
+          <div className="text-xs text-white/50 mt-3">
+            {staff ? `They sign in to this console with their username and the password you set.` : "They sign in to the player app with this mobile number and the password you set. Give them coins from the Players list."}
+          </div>
+          <button onClick={onClose} className="btn-green w-full py-2.5 rounded-xl mt-5 text-sm">Done</button>
+        </>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3">
+          <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
+          <label className="block text-xs text-white/60">Mobile number{staff && <span className="text-white/40"> (optional)</span>}
+            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            {staff ? (
+              <label className="block text-xs text-white/60">Username<input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+            ) : (
+              <label className="block text-xs text-white/60">State<select value={f.state} onChange={(e) => set("state", e.target.value)} className={`${inputCls} mt-1`}>{STATES.map((s) => <option key={s} className="bg-[#0d1335]">{s}</option>)}</select></label>
+            )}
+            <label className="block text-xs text-white/60">Password<input type="password" value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" className={`${inputCls} mt-1`} /></label>
+          </div>
+          {owners.length > 1 && (
+            <label className="block text-xs text-white/60">Reports to
+              <select value={f.owner} onChange={(e) => set("owner", e.target.value)} className={`${inputCls} mt-1`}>
+                {owners.map((o) => <option key={o.id} value={o.id} className="bg-[#0d1335]">{o.id === me.id ? `Me (${o.name})` : `${o.name} — ${ROLE_LABEL[o.role]}`}</option>)}
+              </select>
+            </label>
+          )}
+          {err && <div className="text-xs text-rose-300">{err}</div>}
+          <button type="submit" disabled={busy} className="btn-green w-full py-2.5 rounded-xl text-sm !mt-5">{busy ? "Creating…" : `Create ${ROLE_LABEL[role]}`}</button>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+function CoinsModal({ target, me, reload, onClose }: Ctx & { target: Account; onClose: () => void }) {
+  const [dir, setDir] = useState<"give" | "take">("give");
+  const [amt, setAmt] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const sa = me.role === "superadmin";
+  const n = Number(amt);
+  const submit = async () => {
+    if (!Number.isInteger(n) || n <= 0) return setErr("Enter a whole number of coins");
+    if (dir === "give" && !sa && n > me.coins) return setErr(`You only have ${coins(me.coins)}`);
+    if (dir === "take" && n > target.coins) return setErr(`${target.name} only has ${coins(target.coins)}`);
+    setBusy(true);
+    try {
+      await transferCoins(target.id, dir === "give" ? n : -n);
+      await reload();
+      onClose();
+    } catch (e) {
+      setErr(errText(e));
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title={`Coins • ${target.name}`} onClose={onClose}>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-xl bg-white/5 p-3"><div className="text-[11px] text-white/50">{target.name}</div><div className="font-semibold text-gold-300">{coins(target.coins)}</div></div>
+        <div className="rounded-xl bg-white/5 p-3"><div className="text-[11px] text-white/50">You</div><div className="font-semibold text-gold-300">{sa ? "Unlimited" : coins(me.coins)}</div></div>
+      </div>
+      <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white/5 mt-4">
+        {(["give", "take"] as const).map((d) => (
+          <button key={d} onClick={() => { setDir(d); setErr(""); }} className={`rounded-lg py-2 text-xs font-medium ${dir === d ? "btn-green" : "text-white/70"}`}>{d === "give" ? (sa ? "Create & give" : "Give coins") : "Take back"}</button>
+        ))}
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
+        <input autoFocus inputMode="numeric" value={amt} onChange={(e) => { setAmt(e.target.value.replace(/\D/g, "")); setErr(""); }} placeholder="Amount" className={`${inputCls} mt-3 text-lg`} />
+        <div className="flex gap-2 mt-2">{[100, 500, 1000, 5000].map((v) => <button type="button" key={v} onClick={() => setAmt(String(v))} className="pill bg-white/5 px-3 py-1 text-xs">{v.toLocaleString("en-IN")}</button>)}</div>
+        <div className="text-[11px] text-white/50 mt-3">
+          {dir === "give" ? (sa ? "New coins are created and added to their balance." : "Coins move from your balance to theirs.") : sa ? "Coins are removed from their balance." : "Coins move from their balance back to yours."}
+        </div>
+        {err && <div className="text-xs text-rose-300 mt-2">{err}</div>}
+        <button type="submit" disabled={busy} className="btn-green w-full py-2.5 rounded-xl text-sm mt-4">{busy ? "Saving…" : dir === "give" ? "Give coins" : "Take back coins"}</button>
+      </form>
+    </Modal>
   );
 }
 
@@ -461,7 +403,7 @@ function NetworkNode({ a, depth, accounts }: { a: Account; depth: number; accoun
       <button onClick={() => setOpen(!open)} disabled={!kids.length} className="w-full flex items-center gap-2 py-2 text-left text-sm hover:bg-white/[.03] rounded-lg" style={{ paddingLeft: depth * 22 + 8 }}>
         <ChevronRight size={14} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""} ${kids.length ? "text-white/50" : "opacity-0"}`} />
         <span className={`font-medium ${a.status === "Frozen" ? "text-white/40 line-through" : ""}`}>{a.name}</span>
-        <span className="text-[11px] text-white/40">{a.id}</span>
+        <span className="text-[11px] text-white/40">{a.code}</span>
         {a.role !== "superadmin" && <Pill tone={tone}>{ROLE_LABEL[a.role]}</Pill>}
         {kids.length > 0 && <span className="text-[11px] text-white/40 ml-auto pr-2">{kids.length} direct</span>}
       </button>
@@ -479,8 +421,8 @@ function NetworkView({ me, accounts }: Ctx) {
   );
 }
 
-function BotsView({ log }: { log: (w: string, b: string, a: string) => void }) {
-  const { cfg, update } = useBotConfig();
+function BotsView() {
+  const { cfg, err: saveErr, setAuto: saveAuto, add: saveAdd, toggle, remove } = useBotConfig();
   const [sample, setSample] = useState<string[]>([]);
   const [form, setForm] = useState<{ name: string; emoji: string; bal: string } | null>(null);
   const [err, setErr] = useState("");
@@ -489,46 +431,31 @@ function BotsView({ log }: { log: (w: string, b: string, a: string) => void }) {
   useEffect(() => setSample(Array.from({ length: 10 }, randomName)), []);
   const active = cfg.custom.filter((b) => b.active).length;
   const list = cfg.custom.filter((b) => b.name.toLowerCase().includes(q.toLowerCase()));
-  const mk = (name: string, emoji: string, bal: number): BotProfile => ({ id: "BOT-" + Math.random().toString(36).slice(2, 8).toUpperCase(), name, emoji, bal, active: true, created: today() });
-
-  const setAuto = (on: boolean) => {
-    update((c) => ({ ...c, auto: on }));
-    log("Auto-generate bots", on ? "Off" : "On", on ? "On" : "Off");
-  };
+  const setAuto = (on: boolean) => saveAuto(on);
   const add = () => {
     if (!form) return;
     const name = form.name.trim();
     if (name.length < 3) return setErr("Name needs at least 3 characters");
     if (cfg.custom.some((b) => b.name.toLowerCase() === name.toLowerCase())) return setErr("A bot with this name already exists");
-    update((c) => ({ ...c, custom: [mk(name, form.emoji, Number(form.bal) || randomBal()), ...c.custom] }));
-    log(`Bot created • ${name}`, "—", "Active");
+    saveAdd([{ name, emoji: form.emoji, bal: Number(form.bal) || randomBal() }], `Bot created • ${name}`);
     setForm(null);
   };
   const generate = () => {
     const taken = new Set(cfg.custom.map((b) => b.name.toLowerCase()));
-    const made: BotProfile[] = [];
+    const made: { name: string; emoji: string; bal: number }[] = [];
     for (let guard = 0; made.length < bulk && guard < bulk * 20; guard++) {
       const name = randomName();
       if (taken.has(name.toLowerCase())) continue;
       taken.add(name.toLowerCase());
-      made.push(mk(name, BOT_AVATARS[Math.floor(Math.random() * BOT_AVATARS.length)], randomBal()));
+      made.push({ name, emoji: BOT_AVATARS[Math.floor(Math.random() * BOT_AVATARS.length)], bal: randomBal() });
     }
-    update((c) => ({ ...c, custom: [...made, ...c.custom] }));
-    log(`Generated ${made.length} bots`, String(cfg.custom.length), String(cfg.custom.length + made.length));
-  };
-  const toggle = (b: BotProfile) => {
-    update((c) => ({ ...c, custom: c.custom.map((x) => (x.id === b.id ? { ...x, active: !x.active } : x)) }));
-    log(`Bot ${b.name}`, b.active ? "Active" : "Disabled", b.active ? "Disabled" : "Active");
-  };
-  const remove = (b: BotProfile) => {
-    update((c) => ({ ...c, custom: c.custom.filter((x) => x.id !== b.id) }));
-    log(`Bot deleted • ${b.name}`, "Active", "Deleted");
+    saveAdd(made, `Generated ${made.length} bots`);
   };
   const input = "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-neon-400";
 
   return (
     <>
-      <Title t="Bots" s="Opponents that fill seats at every table" right={
+      <Title t="Bots" s="Opponents that fill seats at every table • always shown with a BOT label" right={
         <button onClick={() => { setForm({ name: "", emoji: BOT_AVATARS[0], bal: "" }); setErr(""); }} className="btn-green rounded-xl px-3.5 py-2 text-sm flex items-center gap-1.5 whitespace-nowrap"><UserPlus size={16} />New Bot</button>
       } />
 
@@ -552,6 +479,7 @@ function BotsView({ log }: { log: (w: string, b: string, a: string) => void }) {
             <button onClick={() => setSample(Array.from({ length: 10 }, randomName))} className="text-[11px] text-neon-400 flex items-center gap-1"><RotateCcw size={12} />Shuffle</button>
           </div>
           <div className="flex flex-wrap gap-1.5 mt-2">{sample.map((n, i) => <span key={i} className="pill bg-white/5 px-2.5 py-1 text-xs">{n}</span>)}</div>
+          {saveErr && <div className="mt-3 text-xs text-rose-300">{saveErr}</div>}
           {!cfg.auto && active < 5 && <div className="mt-3 text-xs text-amber-300">Only {active} active custom bots — tables need 5, so generated names will fill the rest.</div>}
         </div>
         <div className="card p-5">
@@ -576,7 +504,7 @@ function BotsView({ log }: { log: (w: string, b: string, a: string) => void }) {
             {list.slice(0, 200).map((b) => (
               <tr key={b.id} className="border-b border-white/5 last:border-0">
                 <td className="px-4 py-2.5"><div className="flex items-center gap-2.5"><span className="text-xl">{b.emoji}</span><div><div className="font-medium">{b.name}</div><div className="text-[11px] text-white/50">{b.id}</div></div></div></td>
-                <td className="px-4 py-2.5 tabular-nums">{inr(b.bal)}</td>
+                <td className="px-4 py-2.5 tabular-nums">{coins(b.bal)}</td>
                 <td className="px-4 py-2.5 text-white/70">{b.created}</td>
                 <td className="px-4 py-2.5"><Pill tone={b.active ? "green" : "gray"}>{b.active ? "Active" : "Disabled"}</Pill></td>
                 <td className="px-4 py-2.5 text-right whitespace-nowrap">
@@ -605,7 +533,7 @@ function BotsView({ log }: { log: (w: string, b: string, a: string) => void }) {
             <div className="grid grid-cols-8 gap-1.5 mt-1">
               {BOT_AVATARS.map((e) => <button type="button" key={e} onClick={() => setForm({ ...form, emoji: e })} className={`text-xl rounded-lg py-1 ${form.emoji === e ? "bg-neon-400/25 ring-1 ring-neon-400" : "bg-white/5"}`}>{e}</button>)}
             </div>
-            <label className="block text-xs text-white/60 mt-3">Table balance shown (₹) <span className="text-white/40">— blank for random</span>
+            <label className="block text-xs text-white/60 mt-3">Table balance shown (coins) <span className="text-white/40">— blank for random</span>
               <input inputMode="numeric" value={form.bal} onChange={(e) => setForm({ ...form, bal: e.target.value.replace(/\D/g, "") })} className={`${input} mt-1`} />
             </label>
             {err && <div className="text-xs text-rose-300 mt-3">{err}</div>}
@@ -617,174 +545,111 @@ function BotsView({ log }: { log: (w: string, b: string, a: string) => void }) {
   );
 }
 
-function KycView({ log }: { log: (w: string, b: string, a: string) => void }) {
-  const [q, setQ] = useState(KYC_QUEUE);
-  const decide = (id: string, ok: boolean) => {
-    setQ((x) => x.filter((k) => k.id !== id));
-    log(`KYC ${id}`, "Pending", ok ? "Approved" : "Rejected");
-  };
-  return (
-    <>
-      <Title t="KYC Review Queue" s="PAN, Aadhaar (age 18+) and bank verification" />
-      <div className="grid md:grid-cols-2 gap-3">
-        {q.map((k) => (
-          <div key={k.id} className="card p-4">
-            <div className="flex items-center justify-between"><div className="font-medium">{k.user}</div><span className="text-[11px] text-white/50">{k.submitted}</span></div>
-            <div className="text-[11px] text-white/50">{k.uid} • {k.doc}</div>
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              {["PAN", "Aadhaar"].map((d) => <div key={d} className="h-20 rounded-lg bg-white/5 border border-dashed border-white/15 grid place-items-center text-xs text-white/40">{d} image</div>)}
-            </div>
-            <div className="flex items-center justify-between mt-3 text-xs"><span className="text-white/60">Name match score</span><Pill tone={k.match > 90 ? "green" : k.match > 80 ? "amber" : "red"}>{k.match}%</Pill></div>
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              <button onClick={() => decide(k.id, false)} className="btn-ghost rounded-lg py-2 text-xs flex items-center justify-center gap-1"><X size={14} />Reject</button>
-              <button onClick={() => decide(k.id, true)} className="btn-green rounded-lg py-2 text-xs flex items-center justify-center gap-1"><Check size={14} />Approve</button>
-            </div>
-          </div>
-        ))}
-        {q.length === 0 && <div className="card p-10 text-center text-white/50 md:col-span-2"><BadgeCheck className="mx-auto text-neon-400 mb-2" />Queue is clear</div>}
-      </div>
-    </>
-  );
-}
+type GameCfg = { enabled: boolean; rake: number; turn: number };
+const SERVER_GAMES: { id: GameId; note: string }[] = [
+  { id: "teen-patti", note: "Platform fee is taken from each pot" },
+  { id: "rummy", note: "Fee on Points winnings and on Pool/Deals prize pools" },
+];
 
-function WithdrawalsView({ log }: { log: (w: string, b: string, a: string) => void }) {
-  const [rows, setRows] = useState(WITHDRAWALS.map((w) => ({ ...w, status: "Pending" })));
-  const set = (id: string, status: string) => {
-    setRows((r) => r.map((w) => (w.id === id ? { ...w, status } : w)));
-    log(`Withdrawal ${id}`, "Pending", status);
+function ConfigView() {
+  const [cfg, setCfg] = useState<Record<string, GameCfg> | null>(null);
+  const [draft, setDraft] = useState<Record<string, GameCfg>>({});
+  const [msg, setMsg] = useState<Record<string, string>>({});
+  const [tables, setTables] = useState<{ tp: number; rm: number } | null>(null);
+  const load = async () => {
+    const sb = supabase();
+    const { data } = await sb.from("app_settings").select("value").eq("key", "games").maybeSingle();
+    const v = (data?.value ?? {}) as Record<string, GameCfg>;
+    setCfg(v);
+    setDraft(v);
+    const [{ data: lc }] = await Promise.all([sb.rpc("lobby_counts")]);
+    const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
+    setTables({ tp: sum(lc?.["teen-patti"]), rm: sum(lc?.rummy) });
   };
-  return (
-    <>
-      <Title t="Withdrawal Approvals" s="Withdrawals above ₹10,000 need manual approval" />
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
-          <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Request", "Player", "Amount", "To", "Risk", "Status", ""].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
-          <tbody>
-            {rows.map((w) => (
-              <tr key={w.id} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-3"><div>{w.id}</div><div className="text-[11px] text-white/50">{w.when}</div></td>
-                <td className="px-4 py-3">{w.user}</td>
-                <td className="px-4 py-3 font-semibold tabular-nums">{inr(w.amount)}</td>
-                <td className="px-4 py-3 text-white/70">{w.to}</td>
-                <td className="px-4 py-3"><Pill tone={w.risk === "Low" ? "green" : w.risk === "Medium" ? "amber" : "red"}>{w.risk}</Pill></td>
-                <td className="px-4 py-3"><Pill tone={w.status === "Approved" ? "green" : w.status === "Rejected" ? "red" : "gray"}>{w.status}</Pill></td>
-                <td className="px-4 py-3 text-right whitespace-nowrap">
-                  {w.status === "Pending" && (
-                    <>
-                      <button onClick={() => set(w.id, "Rejected")} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs">Reject</button>
-                      <button onClick={() => set(w.id, "Approved")} className="btn-green rounded-lg px-2.5 py-1.5 text-xs ml-2">Approve</button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
+  useEffect(() => { load(); }, []);
+  const save = async (id: string) => {
+    const d = draft[id];
+    const { error } = await supabase().rpc("set_game_config", { p_game: id, p_enabled: d.enabled, p_rake: d.rake, p_turn: d.turn });
+    setMsg((m) => ({ ...m, [id]: error ? errText(error) : "Saved — applies from the next hand" }));
+    if (!error) load();
+  };
+  const set = (id: string, patch: Partial<GameCfg>) => setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
 
-function ConfigView({ log }: { log: (w: string, b: string, a: string) => void }) {
-  const [cfg, setCfg] = useState(() =>
-    Object.fromEntries(GAMES.map((g) => [g.id, { on: true, rake: g.kind === "casino" ? 0 : 5, boot: 10, timer: g.kind === "casino" ? 15 : g.id === "rummy" ? 30 : 20 }])) as Record<GameId, { on: boolean; rake: number; boot: number; timer: number }>,
-  );
-  const [blocked, setBlocked] = useState(["Andhra Pradesh", "Assam", "Nagaland", "Odisha", "Sikkim", "Telangana"]);
-  const upd = (id: GameId, k: "on" | "rake" | "boot" | "timer", v: number | boolean) => {
-    const g = GAMES.find((x) => x.id === id)!;
-    log(`${k === "on" ? "Module" : k} • ${g.name}`, String(cfg[id][k]), String(v));
-    setCfg((c) => ({ ...c, [id]: { ...c[id], [k]: v } }));
-  };
   return (
     <>
-      <Title t="Game Config" s="Boot amounts, rake %, timers and module switches — changes apply after the current round" />
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm min-w-[720px]">
-          <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Game", "Phase", "Min boot (₹)", "Rake %", "Timer (s)", "Enabled"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
-          <tbody>
-            {GAMES.map((g) => (
-              <tr key={g.id} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg grid place-items-center overflow-hidden" style={{ background: `linear-gradient(160deg,${g.from},${g.to})` }}><div className="scale-[.45]"><GameIcon id={g.id} /></div></div>
-                    {g.name}
-                  </div>
-                </td>
-                <td className="px-4 py-2.5"><Pill tone="gray">Phase {g.phase}</Pill></td>
-                {(["boot", "rake", "timer"] as const).map((k) => (
-                  <td key={k} className="px-4 py-2.5">
-                    <input type="number" defaultValue={cfg[g.id][k]} onBlur={(e) => Number(e.target.value) !== cfg[g.id][k] && upd(g.id, k, Number(e.target.value))} className="w-20 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 outline-none" />
-                  </td>
-                ))}
-                <td className="px-4 py-2.5">
-                  <button onClick={() => upd(g.id, "on", !cfg[g.id].on)} className={`w-11 h-6 rounded-full p-0.5 transition-colors ${cfg[g.id].on ? "bg-neon-500" : "bg-white/15"}`}>
-                    <div className={`w-5 h-5 rounded-full bg-white transition-transform ${cfg[g.id].on ? "translate-x-5" : ""}`} />
+      <Title t="Game Config" s="Settings the game server uses for every table" />
+      <div className="grid md:grid-cols-2 gap-4">
+        {SERVER_GAMES.map(({ id, note }) => {
+          const g = GAMES.find((x) => x.id === id)!;
+          const d = draft[id];
+          const dirty = cfg && d && JSON.stringify(cfg[id]) !== JSON.stringify(d);
+          return (
+            <div key={id} className="card p-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg grid place-items-center overflow-hidden" style={{ background: `linear-gradient(160deg,${g.from},${g.to})` }}><div className="scale-[.5]"><GameIcon id={g.id} /></div></div>
+                <div className="flex-1">
+                  <div className="font-medium">{g.name}</div>
+                  <div className="text-[11px] text-white/50">{tables ? `${id === "rummy" ? tables.rm : tables.tp} real players at tables now` : "…"}</div>
+                </div>
+                {d && (
+                  <button onClick={() => set(id, { enabled: !d.enabled })} className={`w-11 h-6 rounded-full p-0.5 transition-colors ${d.enabled ? "bg-neon-500" : "bg-white/15"}`} aria-label="Enabled">
+                    <div className={`w-5 h-5 rounded-full bg-white transition-transform ${d.enabled ? "translate-x-5" : ""}`} />
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                )}
+              </div>
+              {d ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3 mt-4">
+                    <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} value={d.rake} onChange={(e) => set(id, { rake: Number(e.target.value) })} className={`${inputCls} mt-1`} /></label>
+                    <label className="text-xs text-white/60">Turn time (seconds)<input type="number" min={10} max={90} value={d.turn} onChange={(e) => set(id, { turn: Number(e.target.value) })} className={`${inputCls} mt-1`} /></label>
+                  </div>
+                  <div className="text-[11px] text-white/40 mt-2">{note}. {d.enabled ? "" : "Disabled: players can't join new tables."}</div>
+                  <div className="flex items-center justify-between mt-3">
+                    <span className={`text-xs ${msg[id]?.startsWith("Saved") ? "text-neon-400" : "text-rose-300"}`}>{msg[id]}</span>
+                    <button disabled={!dirty} onClick={() => save(id)} className="btn-green rounded-xl px-4 py-2 text-sm">Save</button>
+                  </div>
+                </>
+              ) : <div className="text-sm text-white/50 mt-4">Loading…</div>}
+            </div>
+          );
+        })}
       </div>
       <div className="card p-5 mt-4">
-        <div className="font-medium">Geo-blocked states</div>
-        <div className="text-xs text-white/50 mt-0.5">Players from these states can't sign in to real-money modes (configurable per legal advice).</div>
+        <div className="font-medium">Other games</div>
+        <div className="text-xs text-white/50 mt-1">These still run on the player&apos;s device against bots (practice). Server-side payouts are capped at 100× recent stakes until they move to the game server.</div>
         <div className="flex flex-wrap gap-2 mt-3">
-          {blocked.map((s) => (
-            <span key={s} className="pill bg-rose-500/15 text-rose-200 text-xs pl-3 pr-1.5 py-1 flex items-center gap-1">{s}
-              <button onClick={() => { setBlocked((b) => b.filter((x) => x !== s)); log(`Geo-block ${s}`, "Blocked", "Allowed"); }}><X size={13} /></button>
-            </span>
-          ))}
+          {GAMES.filter((g) => !SERVER_GAMES.some((x) => x.id === g.id)).map((g) => <Pill key={g.id} tone="gray">{g.name}</Pill>)}
         </div>
       </div>
     </>
   );
 }
 
-function RiskView({ log }: { log: (w: string, b: string, a: string) => void }) {
-  const [rows, setRows] = useState(RISK.map((r) => ({ ...r, state: "Open" })));
-  return (
-    <>
-      <Title t="Risk & Fair Play" s="Collusion, multi-account clusters and unusual win-rate flags" />
-      <div className="space-y-3">
-        {rows.map((r, i) => (
-          <div key={i} className="card p-4 flex flex-col md:flex-row md:items-center gap-3">
-            <AlertTriangle className={r.sev === "High" ? "text-rose-400" : r.sev === "Medium" ? "text-amber-300" : "text-white/50"} />
-            <div className="flex-1">
-              <div className="flex items-center gap-2"><span className="font-medium">{r.type}</span><Pill tone={r.sev === "High" ? "red" : r.sev === "Medium" ? "amber" : "gray"}>{r.sev}</Pill>{r.state !== "Open" && <Pill tone="green">{r.state}</Pill>}</div>
-              <div className="text-sm text-white/70 mt-0.5">{r.detail}</div>
-              <div className="text-[11px] text-white/40 mt-0.5">{r.users}</div>
-            </div>
-            {r.state === "Open" && (
-              <div className="flex gap-2">
-                <button onClick={() => { setRows((x) => x.map((y, j) => (j === i ? { ...y, state: "Dismissed" } : y))); log(`Risk flag • ${r.type}`, "Open", "Dismissed"); }} className="btn-ghost rounded-lg px-3 py-1.5 text-xs">Dismiss</button>
-                <button onClick={() => { setRows((x) => x.map((y, j) => (j === i ? { ...y, state: "Accounts frozen" } : y))); log(`Risk flag • ${r.type}`, "Open", "Accounts frozen"); }} className="rounded-lg px-3 py-1.5 text-xs bg-rose-500 font-medium">Freeze accounts</button>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
+interface AuditRow { id: number; actor_name: string | null; action: string; before: string | null; after: string | null; created_at: string }
 
-function AuditView({ audit }: { audit: Audit[] }) {
+function AuditView() {
+  const [rows, setRows] = useState<AuditRow[] | null>(null);
+  useEffect(() => {
+    supabase().from("audit_log").select("*").order("created_at", { ascending: false }).limit(200).then(({ data }) => setRows((data ?? []) as AuditRow[]));
+  }, []);
   return (
     <>
-      <Title t="Audit Log" s="Every admin action with user, time and before/after values" />
+      <Title t="Audit Log" s="Every action with who did it, when, and before/after values" />
       <div className="card overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
-          <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["When", "Admin", "Action", "Before", "After"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
+          <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["When", "By", "Action", "Before", "After"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
           <tbody>
-            {audit.map((a, i) => (
-              <tr key={i} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-3 text-white/60 whitespace-nowrap">{a.when}</td>
-                <td className="px-4 py-3">{a.who}</td>
-                <td className="px-4 py-3">{a.what}</td>
+            {(rows ?? []).map((a) => (
+              <tr key={a.id} className="border-b border-white/5 last:border-0">
+                <td className="px-4 py-3 text-white/60 whitespace-nowrap">{new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                <td className="px-4 py-3">{a.actor_name}</td>
+                <td className="px-4 py-3">{a.action}</td>
                 <td className="px-4 py-3 text-rose-300">{a.before}</td>
                 <td className="px-4 py-3 text-neon-400">{a.after}</td>
               </tr>
             ))}
+            {rows && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Nothing yet.</td></tr>}
+            {!rows && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Loading…</td></tr>}
           </tbody>
         </table>
       </div>

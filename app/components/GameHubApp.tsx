@@ -2,16 +2,19 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
-import { fmtPhone } from "../lib/hierarchy";
-import { BottomNav, Toast, type Tab } from "./ui";
+import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
+import { refreshBotConfig } from "../lib/botpool";
+import { supabase } from "../lib/supabase";
+import { BottomNav, ScreenBoundary, Toast, type Tab } from "./ui";
 import type { Nav, Route } from "./nav";
 import { Login, Splash } from "./screens/Auth";
 import { Games, Home, Lobby, Notifications } from "./screens/Main";
-import { AddCash, Transactions, WalletScreen, Withdraw } from "./screens/WalletScreens";
-import { GameHistory, Help, Kyc, More, ResponsibleGaming, Settings } from "./screens/Account";
+import { AddCash, Transactions, WalletScreen } from "./screens/WalletScreens";
+import { GameHistory, Help, More, ResponsibleGaming, Settings } from "./screens/Account";
 import { Casino } from "./games/Casino";
 import { CardTable } from "./games/CardTable";
-import { Rummy } from "./games/Rummy";
+import { TeenPattiOnline } from "./games/TeenPattiOnline";
+import { RummyOnline } from "./games/RummyOnline";
 import { BoardGame } from "./games/Board";
 
 const TAB_OF: Partial<Record<Route["name"], Tab>> = { home: "home", games: "games", wallet: "wallet", more: "more" };
@@ -20,22 +23,37 @@ function Shell() {
   const [auth, setAuth] = useState<"splash" | "login" | "in">("splash");
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
   const route = stack[stack.length - 1];
-  const { setPlayer } = useStore();
+  const { signIn, signOut } = useStore();
+
+  const enter = useCallback(async (p: Account) => {
+    const { data: agent } = await supabase().from("profiles").select("name").eq("id", p.parentId ?? "").maybeSingle();
+    await Promise.all([
+      signIn({ id: p.id, code: p.code, name: p.name, first: p.name.split(" ")[0], phone: `+91 ${fmtPhone(p.phone)}`, agent: agent?.name ?? null }),
+      refreshBotConfig(),
+    ]);
+    setAuth("in");
+  }, [signIn]);
 
   const nav = useMemo<Nav>(
     () => ({
       push: (r) => { setStack((s) => [...s, r]); window.scrollTo(0, 0); },
       back: () => { setStack((s) => (s.length > 1 ? s.slice(0, -1) : [{ name: "home" }])); window.scrollTo(0, 0); },
       reset: (r) => { setStack([r]); window.scrollTo(0, 0); },
-      logout: () => { setStack([{ name: "home" }]); setAuth("login"); },
+      logout: () => { setStack([{ name: "home" }]); setAuth("login"); signOut(); },
     }),
-    [],
+    [signOut],
   );
 
-  const splashDone = useCallback(() => setAuth((a) => (a === "splash" ? "login" : a)), []);
+  // After the splash, resume a saved session if it belongs to an active player.
+  const splashDone = useCallback(async () => {
+    const me = await loadMe().catch(() => null);
+    if (me && me.role === "player" && me.status === "Active") return enter(me);
+    if (me) await supabase().auth.signOut();
+    setAuth((a) => (a === "splash" ? "login" : a));
+  }, [enter]);
 
   if (auth === "splash") return <Splash onDone={splashDone} />;
-  if (auth === "login") return <Login onDone={(p) => { setPlayer({ id: p.id, name: p.name, first: p.name.split(" ")[0], phone: `+91 ${fmtPhone(p.phone)}` }); setAuth("in"); }} />;
+  if (auth === "login") return <Login onDone={enter} />;
 
   const tab = TAB_OF[route.name];
   let screen: React.ReactNode;
@@ -44,16 +62,16 @@ function Shell() {
     case "games": screen = <Games nav={nav} initial={route.category} />; break;
     case "lobby": screen = <Lobby nav={nav} gameId={route.game} />; break;
     case "casino": screen = <Casino key={route.game} nav={nav} gameId={route.game} />; break;
-    case "cardtable": screen = <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
-    case "rummy": screen = <Rummy key={route.table + route.mode} nav={nav} table={route.table} buyIn={route.buyIn} mode={route.mode} deals={route.deals ?? 2} />; break;
+    case "cardtable": screen = route.game === "teen-patti"
+      ? <TeenPattiOnline key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
+      : <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
+    case "rummy": screen = <RummyOnline key={route.table + route.mode + route.buyIn} nav={nav} mode={route.mode} stake={route.buyIn} deals={route.deals ?? 2} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />; break;
     case "board": screen = <BoardGame nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
     case "wallet": screen = <WalletScreen nav={nav} />; break;
     case "addcash": screen = <AddCash nav={nav} />; break;
-    case "withdraw": screen = <Withdraw nav={nav} />; break;
     case "txns": screen = <Transactions nav={nav} />; break;
     case "more": screen = <More nav={nav} />; break;
     case "history": screen = <GameHistory nav={nav} />; break;
-    case "kyc": screen = <Kyc nav={nav} />; break;
     case "rg": screen = <ResponsibleGaming nav={nav} />; break;
     case "help": screen = <Help nav={nav} />; break;
     case "settings": screen = <Settings nav={nav} />; break;
@@ -62,7 +80,7 @@ function Shell() {
 
   return (
     <>
-      <div key={stack.length + route.name}>{screen}</div>
+      <ScreenBoundary key={stack.length + route.name}><div>{screen}</div></ScreenBoundary>
       {tab && <BottomNav tab={tab} onTab={(t) => nav.reset({ name: t })} />}
     </>
   );

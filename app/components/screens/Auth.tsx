@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ShieldCheck } from "lucide-react";
-import { fmtPhone, useAccounts, type Account } from "../../lib/hierarchy";
+import { useEffect, useState } from "react";
+import { ShieldCheck } from "lucide-react";
+import { loadMe, type Account } from "../../lib/hierarchy";
+import { playerEmail } from "../../lib/loginEmail";
+import { supabase } from "../../lib/supabase";
 
 export function Logo({ size = 1 }: { size?: number }) {
   return (
@@ -81,104 +83,68 @@ export function Splash({ onDone }: { onDone: () => void }) {
 }
 
 export function Login({ onDone }: { onDone: (player: Account) => void }) {
-  const { accounts } = useAccounts();
-  const [err, setErr] = useState("");
-  const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [pw, setPw] = useState("");
   const [agree, setAgree] = useState(true);
-  const [secs, setSecs] = useState(30);
-  const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (step !== "otp" || secs <= 0) return;
-    const t = setTimeout(() => setSecs((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [step, secs]);
-
-  const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, "").slice(-1);
-    const next = [...otp];
-    next[i] = d;
-    setOtp(next);
-    if (d && i < 5) refs.current[i + 1]?.focus();
-  };
-
-  const complete = otp.every((d) => d);
-  const found = accounts.find((a) => a.role === "player" && a.phone === phone);
-
-  // Players are created by an agent, admin or super admin — there is no self sign-up.
-  const getOtp = () => {
-    if (!found) return setErr("No player account for this number. Ask your agent to create one.");
-    if (found.status !== "Active") return setErr("This account is frozen. Contact your agent.");
-    setStep("otp");
-    setSecs(30);
+  // Players are created by an agent, admin or super admin, who also sets their password. No self sign-up.
+  const submit = async () => {
+    setBusy(true);
+    setErr("");
+    const sb = supabase();
+    const { error } = await sb.auth.signInWithPassword({ email: playerEmail(phone), password: pw });
+    if (error) {
+      setBusy(false);
+      return setErr(/invalid/i.test(error.message) ? "Wrong mobile number or password. New here? Ask your agent to create your account." : error.message);
+    }
+    const me = await loadMe();
+    setBusy(false);
+    if (!me || me.role !== "player") {
+      await sb.auth.signOut();
+      return setErr("This number isn't registered as a player.");
+    }
+    if (me.status !== "Active") {
+      await sb.auth.signOut();
+      return setErr("This account is frozen. Contact your agent.");
+    }
+    onDone(me);
   };
 
   return (
     <div className="min-h-dvh flex flex-col px-6 pt-6 pb-10">
-      {step === "otp" ? (
-        <button onClick={() => setStep("phone")} className="w-9 h-9 -ml-2 grid place-items-center"><ChevronLeft /></button>
-      ) : (
-        <div className="h-9" />
-      )}
+      <div className="h-9" />
       <div className="mt-6 mb-10"><Logo size={0.8} /></div>
-
-      {step === "phone" ? (
-        <div className="fadein">
-          <h1 className="text-2xl font-semibold">Login</h1>
-          <p className="text-sm text-[var(--ink-soft)] mt-1">Enter the mobile number your agent registered</p>
-          <div className="mt-6 flex items-center gap-3 card px-4 h-14">
-            <span className="text-white/80 font-medium">🇮🇳 +91</span>
-            <div className="w-px h-6 bg-white/10" />
-            <input
-              inputMode="numeric"
-              value={phone}
-              onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setErr(""); }}
-              placeholder="98765 43210"
-              className="flex-1 bg-transparent outline-none text-lg tracking-wide placeholder:text-white/25"
-            />
-          </div>
-          {err && <div className="mt-3 text-xs text-rose-300">{err}</div>}
-          <label className="mt-4 flex items-start gap-2.5 text-xs text-[var(--ink-soft)]">
-            <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 accent-green-400" />
-            I confirm I am 18+ years old, not from a restricted state, and agree to the Terms & Privacy Policy.
-          </label>
-          <button disabled={phone.length !== 10 || !agree} onClick={getOtp} className="btn-green w-full h-13 py-3.5 rounded-2xl mt-6 text-base">
-            Get OTP
-          </button>
-          <button onClick={() => setPhone("9876543210")} className="w-full text-center text-xs text-white/40 mt-3 border border-dashed border-white/15 rounded-xl py-2">
-            Demo: fill sample number
-          </button>
-          <div className="mt-8 text-center text-xs text-white/40">New here? Player accounts are created by your agent.</div>
+      <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="fadein">
+        <h1 className="text-2xl font-semibold">Login</h1>
+        <p className="text-sm text-[var(--ink-soft)] mt-1">Use the mobile number and password your agent gave you</p>
+        <div className="mt-6 flex items-center gap-3 card px-4 h-14">
+          <span className="text-white/80 font-medium">🇮🇳 +91</span>
+          <div className="w-px h-6 bg-white/10" />
+          <input
+            inputMode="numeric"
+            autoComplete="username"
+            value={phone}
+            onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setErr(""); }}
+            placeholder="98765 43210"
+            className="flex-1 bg-transparent outline-none text-lg tracking-wide placeholder:text-white/25"
+          />
         </div>
-      ) : (
-        <div className="fadein">
-          <h1 className="text-2xl font-semibold">Verify OTP</h1>
-          <p className="text-sm text-[var(--ink-soft)] mt-1">Sent via SMS & WhatsApp to +91 {fmtPhone(phone)}</p>
-          <div className="mt-6 flex justify-between gap-2">
-            {otp.map((d, i) => (
-              <input
-                key={i}
-                ref={(el) => { refs.current[i] = el; }}
-                value={d}
-                inputMode="numeric"
-                onChange={(e) => setDigit(i, e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Backspace" && !otp[i] && i > 0) refs.current[i - 1]?.focus(); }}
-                className={`w-12 h-14 text-center text-xl font-semibold rounded-xl bg-white/5 border outline-none ${d ? "border-neon-400" : "border-white/10"} focus:border-neon-400`}
-              />
-            ))}
-          </div>
-          <div className="mt-4 text-xs text-[var(--ink-soft)]">
-            {secs > 0 ? <>Resend OTP in <span className="text-white">00:{String(secs).padStart(2, "0")}</span></> : <button onClick={() => setSecs(30)} className="text-neon-400 font-medium">Resend OTP</button>}
-          </div>
-          <button disabled={!complete || !found} onClick={() => found && onDone(found)} className="btn-green w-full py-3.5 rounded-2xl mt-8 text-base">Verify & Continue</button>
-          <button onClick={() => setOtp("123456".split(""))} className="w-full text-center text-xs text-white/40 mt-3 border border-dashed border-white/15 rounded-xl py-2">
-            Demo: auto-fill OTP (any 6 digits work)
-          </button>
-          <div className="mt-8 flex items-center gap-2 text-[11px] text-white/40 justify-center"><ShieldCheck size={14} /> One account per verified mobile number</div>
+        <div className="mt-3 card px-4 h-14 flex items-center">
+          <input type="password" autoComplete="current-password" value={pw} onChange={(e) => { setPw(e.target.value); setErr(""); }} placeholder="Password" className="flex-1 bg-transparent outline-none text-lg placeholder:text-white/25" />
         </div>
-      )}
+        {err && <div className="mt-3 text-xs text-rose-300">{err}</div>}
+        <label className="mt-4 flex items-start gap-2.5 text-xs text-[var(--ink-soft)]">
+          <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 accent-green-400" />
+          I confirm I am 18+ years old and agree to the Terms & Privacy Policy. Coins are virtual and have no cash value.
+        </label>
+        <button type="submit" disabled={phone.length !== 10 || !pw || !agree || busy} className="btn-green w-full py-3.5 rounded-2xl mt-6 text-base">
+          {busy ? "Signing in…" : "Login"}
+        </button>
+        <div className="mt-8 text-center text-xs text-white/40">New here? Player accounts are created by your agent.</div>
+        <div className="mt-8 flex items-center gap-2 text-[11px] text-white/40 justify-center"><ShieldCheck size={14} /> One account per mobile number</div>
+      </form>
     </div>
   );
 }

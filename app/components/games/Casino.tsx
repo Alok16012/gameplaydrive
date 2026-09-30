@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { History, RotateCcw, Repeat, Undo2, Users } from "lucide-react";
 import { deck, gameById, inr, rankValue, randomCard, type Card, type GameId } from "../../lib/data";
 import { useStore } from "../../lib/store";
+import { errText, supabase } from "../../lib/supabase";
 import { Chip, Header, Money, PlayingCard } from "../ui";
 import type { Nav } from "../nav";
 
@@ -81,7 +82,8 @@ const SHORT: Record<string, string> = { dragon: "D", tiger: "T", tie: "=", andar
 export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
   const sides = SIDES[gameId];
-  const { total, debit, credit, showToast } = useStore();
+  const { total, showToast, applyBalance } = useStore();
+  const payout = useRef(0); // this round's payout, as settled by the server
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
   const [now, setNow] = useState(() => Date.now());
@@ -122,24 +124,35 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     if (phase === "betting") {
       const placed = betsRef.current;
       const stake = placed.reduce((a, b) => a + b.v, 0);
-      if (stake > 0 && !debit(stake, `${game.name} • Round #${roundNo}`)) {
-        showToast("Insufficient balance — bets cancelled");
-        setBets([]);
-      }
-      if (stake > 0) setLastBets(placed);
-      setRound(playRound(gameId));
+      const dealMs = gameId === "andar-bahar" ? 3500 : 2500;
+      payout.current = 0;
       setPhase("dealing");
-      setEndsAt(Date.now() + (gameId === "andar-bahar" ? 3500 : 2500));
+      if (stake > 0) {
+        // With bets on the table, the server deals, decides and settles the round.
+        setLastBets(placed);
+        setEndsAt(Number.MAX_SAFE_INTEGER);
+        supabase()
+          .rpc("casino_round", { p_game: gameId, p_bets: placed, p_round: String(roundNo) })
+          .then(({ data, error }) => {
+            if (error) {
+              showToast(errText(error));
+              setBets([]);
+              setRound(playRound(gameId));
+            } else {
+              const r = data as { cards: Round["cards"]; winner: string; payout: number; balance: number };
+              payout.current = r.payout;
+              applyBalance(r.balance);
+              setRound({ cards: r.cards, winner: r.winner });
+            }
+            setEndsAt(Date.now() + dealMs);
+          });
+      } else {
+        setRound(playRound(gameId)); // nothing staked: a display-only round
+        setEndsAt(Date.now() + dealMs);
+      }
     } else if (phase === "dealing" && round) {
       const placed = betsRef.current;
-      let ret = 0;
-      for (const b of placed) {
-        const s = sides.find((x) => x.id === b.side)!;
-        if (b.side === round.winner) ret += b.v * s.pay;
-        else if (gameId === "dragon-tiger" && round.winner === "tie" && b.side !== "tie") ret += b.v / 2; // 50% refund on tie
-      }
-      if (ret > 0) credit(ret, `${game.name} • Round #${roundNo}`, round.winner === "tie" && !placed.some((b) => b.side === "tie") ? "Tie Refund" : "Game Winnings");
-      setWon(placed.length ? ret : null);
+      setWon(placed.length ? payout.current : null);
       setHist((h) => [round.winner, ...h].slice(0, 20));
       setPhase("result");
       setEndsAt(Date.now() + 3500);
@@ -152,11 +165,11 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
     }
-  }, [now, endsAt, phase, round, gameId, game.name, roundNo, sides, debit, credit, showToast]);
+  }, [now, endsAt, phase, round, gameId, roundNo, showToast, applyBalance]);
 
   const place = (side: string, v = chip) => {
     if (phase !== "betting") return;
-    if (pending + v > total) return showToast("Not enough balance — add cash");
+    if (pending + v > total) return showToast("Not enough coins — ask your agent");
     setBets((b) => [...b, { side, v }]);
   };
 
@@ -167,7 +180,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     <div className="pb-6 fadein min-h-dvh flex flex-col">
       <Header
         title={game.name}
-        sub={`Round #${roundNo} • Min ₹10 • Max ₹10,000`}
+        sub={`Round #${roundNo} • Min 🪙 10 • Max 🪙 10,000`}
         onBack={nav.back}
         right={
           <div className="text-right">

@@ -9,42 +9,69 @@ Client demo built from the *Unified Multiplayer Gaming Hub PRD v3.0*: 9 games, 1
 
 Built with Next.js 16, React 19, Tailwind 4, Poppins and lucide icons. All game art is CSS/emoji, so there are no image assets.
 
-> **Demo build.** Everything uses sample data in `app/lib/data.ts` and lives in memory, so a refresh resets it. The OTP accepts any 6 digits, the admin login accepts any password, and payments are simulated. Opponents are bots, and all game logic runs in the browser. In production the server owns shuffles, rolls, timers and payouts (PRD §4). Dashed **Demo:** buttons skip ahead (fill number/OTP, arrange a winning Rummy hand, finish a Ludo game).
+> **Virtual coins only.** Coins have no cash value and can't be bought or withdrawn. Accounts, wallets, the coin ledger, bots and the audit log live in Supabase.
 
 ## Tables & bots
 
-Every table deals by itself: a short countdown when you sit down, then the result shows and the next game (or next deal in Pool/Deals Rummy) starts automatically — there is no "Play Again". Opponents are drawn from `app/lib/botpool.ts`: with auto-generate on, every table gets fresh names and avatars, and some seats change between games. Super Admin manages this in **/admin → Bots** (auto-generate switch, custom bots, bulk generate).
+Every table deals by itself: a short countdown when you sit down, then the result shows and the next game (or next deal in Pool/Deals Rummy) starts automatically — there is no "Play Again". Opponents are drawn from `app/lib/botpool.ts` and always carry a **BOT** label: with auto-generate on, every table gets fresh names and avatars, and some seats change between games. Super Admin manages this in **/admin → Bots** (auto-generate switch, custom bots, bulk generate).
 
 ## Roles
 
 | Role | Signs in | Can create | Sees |
 |---|---|---|---|
-| Super Admin | `/admin` (`superadmin`) | Admins, agents, players | Everything: dashboard, network, KYC, withdrawals, game config, risk, audit |
-| Admin | `/admin` (`admin`, `admin2`) | Agents, players | Own agents and their players, network, audit |
-| Agent | `/admin` (`agent`, `agent2`, `agent3`) | Players | Own players |
-| Player | `/` with mobile + OTP | — | Plays games |
+| Super Admin | `/admin` | Admins, agents, players + creates coins | Everything: dashboard, network, bots, game config, audit |
+| Admin | `/admin` | Agents, players | Own agents and their players, network, audit |
+| Agent | `/admin` | Players | Own players, audit |
+| Player | `/` with mobile + password | — | Plays games |
 
-Demo password for every staff account is `demo1234`. There is no self sign-up: a player can only sign in with a mobile number that an agent, admin or super admin registered (for example `9876543210`). Freezing an account blocks its sign-in. Accounts live in `app/lib/hierarchy.ts` and are saved in the browser's localStorage so `/admin` and `/` share them; Super Admin has **Reset demo data** in the sidebar.
+There is no self sign-up. Freezing an account blocks its sign-in and all coin/game actions.
 
 ## What's playable
 
 - **Dragon Tiger, Andar Bahar, Lucky 7**: 15 s betting timer, chips, undo/rebet/double, deal, payouts (Tie 8:1 with 50% refund, Exactly 7 = 11:1), and the last 20 results.
-- **Teen Patti**: blind/seen, chaal, raise, pack, show, side show, full hand ranking, pot limit, and auto-pack on timeout. After you pack, the rest of the table plays on until someone wins.
+- **Teen Patti** (server): blind/seen, chaal, raise, pack, show, side show, pot limit, auto-pack on timeout. After you pack, the rest of the table plays on until someone wins.
 - **Poker (Hold'em)**: pre-flop → flop → turn → river → showdown, with best-5-of-7 evaluation.
-- **13 Card Rummy**: Points, Pool 101, Pool 201 and Deals (best of 2/3) formats; 30 s per move for every player; 2 decks + wild joker, draw/discard, sort, group, drop, and declare validation (pure sequence / sequence / set); per-deal scoreboard.
+- **13 Card Rummy** (server): Points, Pool 101, Pool 201 and Deals (best of 2/3); 30 s per move; sort, group, drop, declare; per-deal scoreboard with the winning hand.
 - **Ludo**: 4 players, 52-step track + home column, safe squares, captures, 6 bonus roll, three-sixes rule.
 - **Chess, Carrom**: preview boards.
-- **Wallet**: Deposit / Winning / Bonus buckets. Debits use Bonus first (capped at 10%), then Deposit, then Winning. Withdrawals come from Winning only. Add Cash and Withdraw flows, full transaction ledger.
-- **Account**: KYC, game history, responsible gaming limits and self-exclusion, help/FAQ, settings.
+- **Wallet**: one virtual-coin balance from Supabase and the full coin history (received, bets, winnings, refunds). "Get Coins" points players to their agent.
+- **Account**: game history (from the coin ledger), responsible gaming limits and self-exclusion, help/FAQ, settings.
 
-## Run locally
+## Setup
 
-```bash
-npm install
-npm run dev
-```
+1. **Database:** in Supabase → SQL Editor, run [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql), then [`002_game_server.sql`](supabase/migrations/002_game_server.sql), then [`003_teen_patti_rummy.sql`](supabase/migrations/003_teen_patti_rummy.sql), once each.
+2. **Auth settings:** Supabase → Authentication → Sign In / Providers → turn **off** "Allow new users to sign up" (accounts are only created from the admin console).
+3. **Env vars:** copy `.env.example` to `.env.local` and fill in the project URL, anon key and service-role key. On Netlify add the same three under Site configuration → Environment variables. The service-role key is server-only.
+4. **First login:** create the Super Admin once:
+   ```bash
+   node --env-file=.env.local scripts/create-superadmin.mjs <username> <password> "<Full name>"
+   ```
+5. Run it:
+   ```bash
+   npm install
+   npm run dev
+   ```
+   Player app: http://localhost:3000 • Admin console: http://localhost:3000/admin
 
-Open http://localhost:3000 (use a phone-width window) and http://localhost:3000/admin.
+## Game server (Supabase)
+
+Games that run on the server — the database shuffles, deals, times turns, plays the bots and moves coins:
+
+| Game | How |
+|---|---|
+| Teen Patti | Shared multiplayer tables in `tp_tables`: blind/seen, chaal, raise, pack, show, side show, pot limit. Real players at the same boot sit together; labelled bots fill the rest. Private tables by invite code (friends only, no bots). |
+| 13 Card Rummy | `rm_tables`: Points, Pool 101, Pool 201, Deals ×2/×3. Two decks + wild joker, 30 s turns, drop/middle drop, server-validated declarations, wrong-show penalty, losers scored by the better of their own arrangement and the server's best grouping. Bots play honestly (they can only declare a truly valid hand). Private tables by invite code. |
+| Dragon Tiger, Andar Bahar, Lucky 7 | `casino_round()` deals and settles each round you bet on. |
+
+Each player only ever receives their own cards. Clients follow tables through Supabase Realtime and call `tp_tick()` / `rm_tick()` when a deadline passes (turn timeout, bot move, next deal). Platform fee, turn time and on/off per game are set by the Super Admin in **Admin → Game Config**.
+
+Still on-device practice (payouts capped server-side at 100× recent stakes): Poker, Ludo, Chess, Carrom. Moving to a dedicated Node server (e.g. Railway) later keeps the same tables and rules.
+
+## Coins & accounts
+
+- **Super Admin** is the only account that can create coins. Admins and agents can only pass on coins they hold, and can take coins back from their own downline.
+- Staff sign in with username + password; players sign in with their mobile number + the password their agent set.
+- Every account only sees itself and its downline (Postgres row-level security); every change is written to `audit_log`.
 
 ## Where things live
 

@@ -6,7 +6,7 @@ import { inr, type GameId } from "../../lib/data";
 import { pickBots, type Bot } from "../../lib/botpool";
 import { useStore } from "../../lib/store";
 import { Avatar, Header, Money } from "../ui";
-import { NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
+import { BotTag, NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
 import type { Nav } from "../nav";
 
 export function BoardGame({ nav, gameId, table, buyIn }: { nav: Nav; gameId: GameId; table: string; buyIn: number }) {
@@ -212,7 +212,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       setLowBal(true);
       setStarted(false);
       setWinner(null);
-      return showToast("Not enough balance — add cash");
+      return showToast("Not enough coins — ask your agent");
     }
     setLowBal(false);
     if (games.current++ > 0) setNames(["You", ...pickBots(3, names).map((b) => b.name)]);
@@ -233,14 +233,14 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Ludo" sub={`Table #${table} • 4 Players • Entry ₹${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Ludo" sub={`Table #${table} • 4 Players • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
         <div className="grid grid-cols-4 gap-1.5 mb-3">
           {LPLAYERS.map((pl, p) => (
             <div key={p} className={`rounded-xl px-1.5 py-1.5 flex items-center gap-1.5 border ${turn === p && started ? "border-white/60 bg-white/10" : "border-white/5 bg-white/[0.03]"}`}>
               <span className="w-3 h-3 rounded-full shrink-0" style={{ background: pl.color }} />
               <div className="min-w-0">
-                <div className="text-[10px] font-medium truncate">{names[p]}</div>
+                <div className="text-[10px] font-medium truncate">{names[p]}{p > 0 && <BotTag />}</div>
                 <div className="text-[9px] text-white/50">{tokens[p].filter((x) => x === 56).length}/4 home</div>
               </div>
             </div>
@@ -326,12 +326,12 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
   );
 }
 
-/** Overlay shown before a game: matchmaking countdown, or an Add Cash prompt when the entry can't be paid. */
+/** Overlay shown before a game: matchmaking countdown, or a Get Coins prompt when the entry can't be paid. */
 function Waiting({ lowBal, left, onRetry, onAddCash }: { lowBal: boolean; left: number; onRetry: () => void; onAddCash: () => void }) {
   return lowBal ? (
     <div className="text-center">
       <div className="text-xs text-white/80">Not enough balance for the entry</div>
-      <button onClick={onAddCash} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Add Cash</button>
+      <button onClick={onAddCash} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Get Coins</button>
       <button onClick={onRetry} className="block mx-auto text-[11px] text-white/60 mt-2">Try again</button>
     </div>
   ) : (
@@ -431,7 +431,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
       setLowBal(true);
       setStarted(false);
       setDone(null);
-      return showToast("Not enough balance — add cash");
+      return showToast("Not enough coins — ask your agent");
     }
     setLowBal(false);
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
@@ -448,9 +448,9 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Chess" sub={`Table #${table} • Blitz 10 min • Entry ₹${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Chess" sub={`Table #${table} • Blitz 10 min • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <PlayerBar name={opp.name} emoji={opp.emoji} time={fmt(clock[1])} active={started && !white} />
+        <PlayerBar name={opp.name} bot emoji={opp.emoji} time={fmt(clock[1])} active={started && !white} />
         <div className="relative mt-2 grid grid-cols-8 rounded-xl overflow-hidden shadow-2xl border-4 border-[#3b2412]">
           {board.map((row, r) =>
             row.map((p, c) => {
@@ -477,11 +477,11 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   );
 }
 
-function PlayerBar({ name, emoji, time, active }: { name: string; emoji: string; time: string; active: boolean }) {
+function PlayerBar({ name, emoji, time, active, bot }: { name: string; emoji: string; time: string; active: boolean; bot?: boolean }) {
   return (
     <div className="flex items-center gap-3 card px-3 py-2">
       <Avatar emoji={emoji} size={34} />
-      <div className="flex-1 text-sm font-medium">{name}</div>
+      <div className="flex-1 text-sm font-medium">{name}{bot && <BotTag />}</div>
       <div className={`font-mono text-sm px-2.5 py-1 rounded-lg ${active ? "bg-white text-slate-900" : "bg-white/10 text-white/60"}`}>{time}</div>
     </div>
   );
@@ -539,7 +539,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
       setLowBal(true);
       setStarted(false);
       setDone(null);
-      return showToast("Not enough balance — add cash");
+      return showToast("Not enough coins — ask your agent");
     }
     setLowBal(false);
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
@@ -553,12 +553,12 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Carrom" sub={`Table #${table} • First to 5 • Entry ₹${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Carrom" sub={`Table #${table} • First to 5 • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
         <div className="flex items-center justify-between card px-4 py-2.5">
           <div className="flex items-center gap-2"><Avatar size={30} /><span className="text-sm">You</span><b className="text-neon-400 ml-1">{score[0]}</b></div>
           <div className="text-xs text-white/50">vs</div>
-          <div className="flex items-center gap-2"><b className="text-rose-400 mr-1">{score[1]}</b><span className="text-sm">{opp.name}</span><Avatar emoji={opp.emoji} size={30} /></div>
+          <div className="flex items-center gap-2"><b className="text-rose-400 mr-1">{score[1]}</b><span className="text-sm">{opp.name}<BotTag /></span><Avatar emoji={opp.emoji} size={30} /></div>
         </div>
         <div className="relative mt-3 aspect-square rounded-2xl p-[5%] shadow-2xl" style={{ background: "linear-gradient(135deg,#5b3417,#3b2412)" }}>
           <div className="relative w-full h-full rounded-md overflow-hidden" style={{ background: "radial-gradient(circle,#f6d8a8,#e9bf82)" }}>

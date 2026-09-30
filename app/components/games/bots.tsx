@@ -94,3 +94,8 @@ export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, o
     </Sheet>
   );
 }
+
+/** Every computer-controlled opponent is labelled. */
+export function BotTag() {
+  return <span className="ml-1 align-middle text-[8px] leading-none px-1 py-[2px] rounded bg-sky-500/30 text-sky-200 font-bold tracking-wide">BOT</span>;
+}
