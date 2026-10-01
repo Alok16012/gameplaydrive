@@ -26,6 +26,24 @@ interface View {
 
 // Other seats, clockwise from your left, around an oval with you at the bottom.
 const SEAT_POS = ["-left-2 top-[50%]", "left-1 top-[6%]", "left-1/2 -translate-x-1/2 -top-6", "right-1 top-[6%]", "-right-2 top-[50%]"];
+// Where coins leave from / land at, as % of the felt: the same five seats, then you, then the pot.
+const SEAT_XY: [number, number][] = [[10, 62], [16, 18], [50, 6], [84, 18], [90, 62]];
+const ME_XY: [number, number] = [50, 96];
+const POT_XY: [number, number] = [50, 34];
+
+interface Fly { id: number; from: [number, number]; to: [number, number]; amt: number }
+
+/** Neat stack of coins that grows a little as the pot grows. */
+function PotStack({ pot, boot }: { pot: number; boot: number }) {
+  const n = Math.max(1, Math.min(7, Math.ceil(Math.log2(Math.max(1, pot / Math.max(1, boot))))));
+  return (
+    <div className="relative mx-auto mb-1" style={{ width: 30, height: 14 + n * 4 }}>
+      {Array.from({ length: n }, (_, i) => (
+        <div key={i} className="coin absolute left-0" style={{ width: 30, height: 12, bottom: i * 4, borderRadius: "50%" }} />
+      ))}
+    </div>
+  );
+}
 
 export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; code?: string }) {
   const { total, showToast, applyBalance } = useStore();
@@ -38,9 +56,37 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   const tableId = useRef<string | null>(null);
   const offset = useRef(0); // server clock − local clock
   const ticking = useRef(false);
+  const [flies, setFlies] = useState<Fly[]>([]);
+  const lastSeen = useRef<{ hand: number; status: string; bals: number[] } | null>(null);
+  const flyId = useRef(0);
 
   const take = useCallback((view: View) => {
     offset.current = new Date(view.server_now).getTime() - Date.now();
+    // Animate coins: a seat whose balance dropped put coins in the pot; when a hand ends the pot goes to the winner.
+    const n = view.seats.length;
+    const xy = (seat: number): [number, number] => {
+      if (view.me === null) return SEAT_XY[seat % 5];
+      if (seat === view.me) return ME_XY;
+      return SEAT_XY[(seat - view.me - 1 + n) % n] ?? POT_XY;
+    };
+    const prev = lastSeen.current;
+    const bals = view.seats.map((s) => s.bal);
+    const add: Fly[] = [];
+    if (prev && prev.hand === view.hand_no && view.status !== "waiting") {
+      view.seats.forEach((s, i) => {
+        const d = (prev.bals[i] ?? s.bal) - s.bal;
+        if (d > 0 && s.playing) add.push({ id: ++flyId.current, from: xy(i), to: POT_XY, amt: d });
+      });
+      if (prev.status === "playing" && view.status === "done" && view.result) {
+        add.push({ id: ++flyId.current, from: POT_XY, to: xy(view.result.seat), amt: view.result.amount });
+      }
+    }
+    lastSeen.current = { hand: view.hand_no, status: view.status, bals };
+    if (add.length) {
+      setFlies((f) => [...f, ...add]);
+      const ids = new Set(add.map((a) => a.id));
+      setTimeout(() => setFlies((f) => f.filter((x) => !ids.has(x.id))), 950);
+    }
     setV(view);
     const mine = view.me !== null ? view.seats[view.me] : null;
     if (mine && !mine.bot) applyBalance(mine.bal);
@@ -214,8 +260,9 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               </div>
             ) : (
               <>
-                <div className="text-sm font-semibold">Round {v.round}</div>
-                <div className="text-[13px] text-gold-300 font-semibold">Pot {inr(v.pot)}</div>
+                <PotStack pot={v.pot} boot={v.boot} />
+                <div className="text-[15px] text-gold-300 font-bold">Pot {inr(v.pot)}</div>
+                <div className="text-[12px] text-white/60">Round {v.round}</div>
                 {pending && <div className="text-[13px] text-fuchsia-300 mt-1">{pending.from === me ? "You" : v.seats[pending.from]?.name} asked {pending.to === me ? "you" : v.seats[pending.to]?.name} for a side show</div>}
                 <div className="text-lg font-bold mt-0.5">
                   {pending ? <span className="text-sm font-normal text-white/70">{Math.ceil(secsTo(pending.ends))}s</span> : myTurn ? `${Math.ceil(secsTo(v.turn_ends))}s` : v.turn !== null && <span className="text-sm font-normal text-white/70">{v.seats[v.turn]?.name}&apos;s turn • {Math.ceil(secsTo(v.turn_ends))}s</span>}
@@ -223,6 +270,13 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               </>
             )}
           </div>
+
+          {flies.map((f) => (
+            <div key={f.id} className="coin-fly flex flex-col items-center" style={{ ["--sx" as string]: `${f.from[0]}%`, ["--sy" as string]: `${f.from[1]}%`, ["--ex" as string]: `${f.to[0]}%`, ["--ey" as string]: `${f.to[1]}%` } as React.CSSProperties}>
+              <div className="coin" style={{ width: 20, height: 20 }} />
+              <div className="mt-0.5 px-1.5 rounded bg-black/60 text-[11px] font-semibold text-gold-300 whitespace-nowrap">{inr(f.amt)}</div>
+            </div>
+          ))}
 
           {/* You */}
           <div className="absolute left-1/2 -translate-x-1/2 -bottom-7 flex flex-col items-center z-10">

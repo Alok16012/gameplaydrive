@@ -77,6 +77,42 @@ function playRound(game: GameId): Round {
   return { cards: { joker, andar, bahar }, winner: side };
 }
 
+// Dragon Tiger side bets. Odds are the total return per coin staked (stake included), like the main table.
+const DT_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"] as const;
+const DT_PAIR = 12;
+const DT_RANK_PAY = 12;
+const DT_SIDE_BETS: { key: string; label: React.ReactNode; pay: number }[] = [
+  { key: "even", label: "Even", pay: 2.1 },
+  { key: "odd", label: "Odd", pay: 1.79 },
+  { key: "black", label: <span className="text-base leading-none">♠ ♣</span>, pay: 1.95 },
+  { key: "red", label: <span className="text-base leading-none text-red-400">♥ ♦</span>, pay: 1.95 },
+];
+
+/** Did a Dragon Tiger side bet win? (Display only — the server settles every bet.) */
+function dtSideWins(id: string, round: Round | null): boolean {
+  const d = round?.cards.dragon as Card | undefined, t = round?.cards.tiger as Card | undefined;
+  if (!d || !t) return false;
+  if (id === "pair") return d.r === t.r;
+  const c = id.startsWith("d_") ? d : t;
+  const key = id.slice(2);
+  const v = rankValue(c.r);
+  if (key === "even") return v % 2 === 0;
+  if (key === "odd") return v % 2 === 1;
+  if (key === "black") return c.s === "♠" || c.s === "♣";
+  if (key === "red") return c.s === "♥" || c.s === "♦";
+  return key === c.r;
+}
+
+// Andar Bahar deals one card at a time: a steady pace for the first cards, quicker once the deal runs long.
+const AB_FIRST = 900;
+const abCardMs = (k: number) => (k < 8 ? 650 : 380);
+function abDealMs(round: Round) {
+  const n = ((round.cards.andar as Card[]) ?? []).length + ((round.cards.bahar as Card[]) ?? []).length;
+  let ms = AB_FIRST;
+  for (let k = 0; k < n; k++) ms += abCardMs(k);
+  return ms + 1200;
+}
+
 const SHORT: Record<string, string> = { dragon: "D", tiger: "T", tie: "=", andar: "A", bahar: "B", below: "↓", seven: "7", above: "↑" };
 
 export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
@@ -124,7 +160,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     if (phase === "betting") {
       const placed = betsRef.current;
       const stake = placed.reduce((a, b) => a + b.v, 0);
-      const dealMs = gameId === "andar-bahar" ? 3500 : 2500;
+      const dealMs = (r: Round) => (gameId === "andar-bahar" ? abDealMs(r) : 2500);
       payout.current = 0;
       setPhase("dealing");
       if (stake > 0) {
@@ -134,21 +170,24 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         supabase()
           .rpc("casino_round", { p_game: gameId, p_bets: placed, p_round: String(roundNo) })
           .then(({ data, error }) => {
+            let next: Round;
             if (error) {
               showToast(errText(error));
               setBets([]);
-              setRound(playRound(gameId));
+              next = playRound(gameId);
             } else {
               const r = data as { cards: Round["cards"]; winner: string; payout: number; balance: number };
               payout.current = r.payout;
               applyBalance(r.balance);
-              setRound({ cards: r.cards, winner: r.winner });
+              next = { cards: r.cards, winner: r.winner };
             }
-            setEndsAt(Date.now() + dealMs);
+            setRound(next);
+            setEndsAt(Date.now() + dealMs(next));
           });
       } else {
-        setRound(playRound(gameId)); // nothing staked: a display-only round
-        setEndsAt(Date.now() + dealMs);
+        const next = playRound(gameId); // nothing staked: a display-only round
+        setRound(next);
+        setEndsAt(Date.now() + dealMs(next));
       }
     } else if (phase === "dealing" && round) {
       const placed = betsRef.current;
@@ -311,6 +350,54 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             <span className={`pop inline-block font-semibold ${won > 0 ? "text-neon-400" : "text-rose-400"}`}>{won > 0 ? `🎉 You won ${inr(won)}!` : "Better luck next round"}</span>
           )}
         </div>
+
+        {gameId === "dragon-tiger" && (
+          <div className="mt-2 space-y-5">
+            <SideBox
+              label="Pair"
+              hint="Dragon & Tiger same rank"
+              pay={DT_PAIR}
+              mine={mine("pair")}
+              win={phase === "result" && dtSideWins("pair", round)}
+              disabled={phase !== "betting"}
+              onClick={() => place("pair")}
+              className="w-full border-sky-500/60 bg-sky-500/10"
+            />
+            {(["d", "t"] as const).map((who) => (
+              <div key={who}>
+                <div className={`text-sm font-semibold mb-2 ${who === "d" ? "text-red-400" : "text-amber-400"}`}>{who === "d" ? "🐉 Dragon" : "🐯 Tiger"}</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {DT_SIDE_BETS.map((b) => {
+                    const id = `${who}_${b.key}`;
+                    return <SideBox key={id} label={b.label} pay={b.pay} mine={mine(id)} win={phase === "result" && dtSideWins(id, round)} disabled={phase !== "betting"} onClick={() => place(id)} />;
+                  })}
+                </div>
+                <div className="mt-2 rounded-2xl border border-white/10 bg-white/[0.03] p-2.5">
+                  <div className="text-center text-[11px] text-white/50 mb-2">Exact card • ×{DT_RANK_PAY}</div>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {DT_RANKS.map((r) => {
+                      const id = `${who}_${r}`;
+                      const my = mine(id);
+                      const win = phase === "result" && dtSideWins(id, round);
+                      return (
+                        <button
+                          key={id}
+                          disabled={phase !== "betting"}
+                          onClick={() => place(id)}
+                          className={`relative h-12 rounded-md bg-white text-slate-900 font-bold text-base leading-none flex flex-col items-center justify-center transition-transform active:scale-95 ${win ? "ring-4 ring-gold-300 scale-105" : ""}`}
+                        >
+                          {r}
+                          <span className="text-[9px] mt-0.5"><span>♠</span><span className="text-red-600">♥</span></span>
+                          {my > 0 && <span className="absolute -top-2 -right-1.5 pill px-1 text-[9px] font-bold bg-gold-400 text-slate-900 shadow">{my >= 1000 ? `${Math.round(my / 100) / 10}K` : my}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -335,26 +422,63 @@ function AndarBaharTable({ round, phase }: { round: Round | null; phase: Phase }
   const joker = round?.cards.joker as Card | undefined;
   const andar = (round?.cards.andar as Card[] | undefined) ?? [];
   const bahar = (round?.cards.bahar as Card[] | undefined) ?? [];
+  const total = andar.length + bahar.length;
+  // Cards come out one by one, alternating Andar → Bahar, so the deal can be followed.
+  const [dealt, setDealt] = useState(0);
+  useEffect(() => {
+    setDealt(0);
+    if (!round) return;
+    let k = 0;
+    let t = setTimeout(function step() {
+      k += 1;
+      setDealt(k);
+      if (k < total) t = setTimeout(step, abCardMs(k));
+    }, AB_FIRST);
+    return () => clearTimeout(t);
+  }, [round, total]);
+  const shown = phase === "result" ? total : Math.min(dealt, total);
+  const showA = andar.slice(0, Math.ceil(shown / 2));
+  const showB = bahar.slice(0, Math.floor(shown / 2));
+  const done = phase === "result" || (total > 0 && shown >= total);
   const row = (label: string, cards: Card[], win: boolean) => (
     <div className="flex items-center gap-2">
-      <div className={`w-14 text-xs font-semibold ${win ? "text-gold-300" : "text-white/70"}`}>{label}</div>
+      <div className={`w-14 text-sm font-semibold ${win ? "text-gold-300" : "text-white/70"}`}>{label}</div>
       <div className="flex-1 flex -space-x-5 overflow-hidden">
-        {cards.slice(-6).map((c, i) => <PlayingCard key={i} card={c} size="sm" className="flip" style={{ animationDelay: `${i * 0.08}s` }} />)}
-        {cards.length === 0 && <div className="h-12 text-[10px] text-white/30 grid place-items-center">—</div>}
+        {cards.slice(-6).map((c, i, arr) => <PlayingCard key={cards.length - arr.length + i} card={c} size="sm" className="flip" />)}
+        {cards.length === 0 && <div className="h-12 text-[11px] text-white/30 grid place-items-center">—</div>}
       </div>
-      <div className="text-[10px] text-white/50 w-6 text-right">{cards.length}</div>
+      <div className="text-xs text-white/50 w-6 text-right">{cards.length}</div>
     </div>
   );
   return (
     <div className="w-full flex items-center gap-3">
       <div className="flex flex-col items-center gap-1.5">
-        <div className="text-[10px] text-white/70 font-semibold">JOKER</div>
+        <div className="text-[11px] text-white/70 font-semibold">JOKER</div>
         {joker ? <PlayingCard card={joker} size="md" className="flip ring-2 ring-gold-300" /> : <PlayingCard faceDown size="md" />}
       </div>
       <div className="flex-1 space-y-2">
-        {row("Andar", andar, phase === "result" && round?.winner === "andar")}
-        {row("Bahar", bahar, phase === "result" && round?.winner === "bahar")}
+        {row("Andar", showA, done && round?.winner === "andar")}
+        {row("Bahar", showB, done && round?.winner === "bahar")}
       </div>
     </div>
+  );
+}
+
+function SideBox({ label, hint, pay, mine, win, disabled, onClick, className = "" }: {
+  label: React.ReactNode; hint?: string; pay: number; mine: number; win: boolean; disabled: boolean; onClick: () => void; className?: string;
+}) {
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className={`relative rounded-xl border-2 py-2.5 px-2 text-center transition-all active:scale-95 ${win ? "border-gold-300 shadow-[0_0_18px_rgba(253,224,71,.45)] scale-105" : "border-sky-400/50 bg-[#1b2a4a]"} ${className}`}
+    >
+      <div className="text-[11px] text-white/55">×{pay}</div>
+      <div className="font-semibold text-sm mt-0.5">{label}</div>
+      {hint && <div className="text-[10px] text-white/45 mt-0.5">{hint}</div>}
+      {mine > 0 && (
+        <span className="absolute -top-2.5 -right-2 pop pill px-2 py-0.5 text-[11px] font-bold bg-gold-400 text-slate-900 shadow">{inr(mine)}</span>
+      )}
+    </button>
   );
 }
