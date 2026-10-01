@@ -8,7 +8,7 @@ import { errText, supabase } from "../../lib/supabase";
 import { Chip, Header, Money, PlayingCard } from "../ui";
 import type { Nav } from "../nav";
 
-// Timer-sync casino games (PRD §6.2). In production the round clock, deal and result all come from the
+// Timer-sync casino games (PRD §6.2): Dragon Tiger and Andar Bahar. Lucky 7 has its own board (LuckySeven.tsx). In production the round clock, deal and result all come from the
 // server; here a local loop simulates it: 15 s betting → deal → result → payout → next round.
 
 const BET_SECS = 15;
@@ -38,11 +38,6 @@ const SIDES: Record<string, Side[]> = {
     { id: "andar", label: "Andar", odds: "1:1", pay: 2, color: "#2563eb" },
     { id: "bahar", label: "Bahar", odds: "1:1", pay: 2, color: "#dc2626" },
   ],
-  "lucky-7": [
-    { id: "below", label: "Below 7", odds: "1:1", pay: 2, color: "#2563eb" },
-    { id: "seven", label: "Exactly 7", odds: "11:1", pay: 12, color: "#d97706" },
-    { id: "above", label: "Above 7", odds: "1:1", pay: 2, color: "#dc2626" },
-  ],
 };
 
 type Phase = "betting" | "dealing" | "result";
@@ -57,11 +52,6 @@ function playRound(game: GameId): Round {
     const d = randomCard(), t = randomCard();
     const w = rankValue(d.r) === rankValue(t.r) ? "tie" : rankValue(d.r) > rankValue(t.r) ? "dragon" : "tiger";
     return { cards: { dragon: d, tiger: t }, winner: w };
-  }
-  if (game === "lucky-7") {
-    const c = randomCard();
-    const v = rankValue(c.r);
-    return { cards: { card: c }, winner: v < 7 ? "below" : v === 7 ? "seven" : "above" };
   }
   // Andar Bahar: centre joker, deal alternately (Andar first) until a card matches the joker's rank.
   const dk = deck();
@@ -113,7 +103,7 @@ function abDealMs(round: Round) {
   return ms + 1200;
 }
 
-const SHORT: Record<string, string> = { dragon: "D", tiger: "T", tie: "=", andar: "A", bahar: "B", below: "↓", seven: "7", above: "↑" };
+const SHORT: Record<string, string> = { dragon: "D", tiger: "T", tie: "=", andar: "A", bahar: "B" };
 
 export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
@@ -256,7 +246,6 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                 <Slot label="🐯 Tiger" card={round?.cards.tiger as Card | undefined} win={phase === "result" && round?.winner === "tiger"} delay />
               </>
             )}
-            {gameId === "lucky-7" && <Slot label="Lucky Card" card={round?.cards.card as Card | undefined} win={phase === "result"} />}
             {gameId === "andar-bahar" && <AndarBaharTable round={round} phase={phase} />}
           </div>
           {phase === "result" && round && (

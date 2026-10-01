@@ -84,6 +84,18 @@ export async function createAccount(body: { role: Role; name: string; phone: str
   return toAccount({ ...j.profile, wallets: { coins: 0 } });
 }
 
+/** Edit an account's details (and optionally set a new password). The server checks the editor may do this. */
+export async function updateAccount(body: { id: string; name: string; phone: string; username?: string; state?: string; password?: string }): Promise<void> {
+  const { data: s } = await supabase().auth.getSession();
+  const r = await fetch("/api/accounts", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    body: JSON.stringify(body),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error ?? "Could not save");
+}
+
 export async function setStatus(id: string, status: "Active" | "Frozen") {
   const { error } = await supabase().rpc("set_account_status", { target: id, new_status: status.toLowerCase() });
   if (error) throw new Error(errText(error));

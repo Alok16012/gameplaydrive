@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import {
-  Ban, Bot as BotIcon, Briefcase, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
+  Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
 import { BOT_AVATARS, randomBal, randomName, useBotConfig } from "../lib/botpool";
-import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, useAccounts, type Account, type Role } from "../lib/hierarchy";
+import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, updateAccount, useAccounts, type Account, type Role } from "../lib/hierarchy";
 import { staffEmail } from "../lib/loginEmail";
 import { errText, supabase } from "../lib/supabase";
 
@@ -191,6 +191,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
   const [coinsFor, setCoinsFor] = useState<Account | null>(null);
+  const [editing, setEditing] = useState<Account | null>(null);
   const [err, setErr] = useState("");
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
@@ -249,6 +250,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                 <td className="px-4 py-3 tabular-nums text-gold-300 whitespace-nowrap">{coins(u.coins)}</td>
                 <td className="px-4 py-3"><Pill tone={u.status === "Active" ? "green" : "red"}>{u.status}</Pill></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
+                  <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Pencil size={13} />Edit</button>
                   <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
                   <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2">{u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
                 </td>
@@ -260,6 +262,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       </div>
       {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} />}
       {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
+      {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
     </>
   );
 }
@@ -277,6 +280,85 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         {children}
       </div>
     </div>
+  );
+}
+
+/** Edit name / mobile / username or state, and optionally set a new password. Changing a player's mobile number or a
+ *  staff username changes what they sign in with — the form says so. */
+function EditModal({ target, accounts, reload, onClose }: { target: Account; accounts: Account[]; reload: () => Promise<void>; onClose: () => void }) {
+  const staff = target.role !== "player";
+  const [f, setF] = useState({ name: target.name, phone: target.phone ?? "", username: target.username ?? "", state: target.state ?? "", password: "" });
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
+  const owner = accounts.find((a) => a.id === target.parentId);
+  const loginChanged = staff ? f.username.trim().toLowerCase() !== (target.username ?? "") : f.phone !== (target.phone ?? "");
+  const dirty = f.name.trim() !== target.name || f.phone !== (target.phone ?? "") || f.username.trim().toLowerCase() !== (target.username ?? "") || f.state !== (target.state ?? "") || f.password !== "";
+
+  const submit = async () => {
+    if (!f.name.trim()) return setErr("Enter a name");
+    if (f.phone && !/^\d{10}$/.test(f.phone)) return setErr("Enter a 10-digit mobile number");
+    if (!staff && !f.phone) return setErr("Players need a mobile number to sign in");
+    if (staff && !/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
+    if (f.password && f.password.length < 6) return setErr("Password must be at least 6 characters");
+    setBusy(true);
+    try {
+      await updateAccount({ id: target.id, name: f.name.trim(), phone: f.phone, username: staff ? f.username.trim().toLowerCase() : undefined, state: staff ? undefined : f.state, password: f.password || undefined });
+      await reload();
+      setSaved(true);
+    } catch (e) {
+      setErr(errText(e));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Modal title={saved ? "Changes saved" : `Edit ${ROLE_LABEL[target.role]}`} onClose={onClose}>
+      {saved ? (
+        <>
+          <div className="mt-4 rounded-xl bg-neon-400/10 border border-neon-400/20 p-4 text-sm space-y-1.5">
+            <div className="flex justify-between"><span className="text-white/60">ID</span><b>{target.code}</b></div>
+            <div className="flex justify-between"><span className="text-white/60">Name</span><span>{f.name.trim()}</span></div>
+            {f.phone && <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(f.phone)}</span></div>}
+            {staff && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{f.username.trim().toLowerCase()}</span></div>}
+          </div>
+          {(loginChanged || f.password) && (
+            <div className="text-xs text-amber-200 mt-3">
+              {loginChanged && <>They now sign in with their new {staff ? "username" : "mobile number"}. </>}
+              {f.password && <>Share the new password with them.</>}
+            </div>
+          )}
+          <button onClick={onClose} className="btn-green w-full py-2.5 rounded-xl mt-5 text-sm">Done</button>
+        </>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3">
+          <div className="rounded-xl bg-white/5 px-3 py-2 text-xs text-white/60 flex justify-between">
+            <span>{target.code} • {target.status}</span><span>Reports to {owner?.name ?? "—"}</span>
+          </div>
+          <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
+          <label className="block text-xs text-white/60">Mobile number{staff && <span className="text-white/40"> (optional)</span>}
+            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
+          </label>
+          {staff ? (
+            <label className="block text-xs text-white/60">Username<input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+          ) : (
+            <label className="block text-xs text-white/60">State
+              <select value={f.state} onChange={(e) => set("state", e.target.value)} className={`${inputCls} mt-1`}>
+                <option value="" className="bg-[#0d1335]">—</option>
+                {STATES.map((st) => <option key={st} className="bg-[#0d1335]">{st}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="block text-xs text-white/60">New password <span className="text-white/40">(leave blank to keep the current one)</span>
+            <input type="password" value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" className={`${inputCls} mt-1`} />
+          </label>
+          {loginChanged && <div className="text-[11px] text-amber-200">This changes what they sign in with.</div>}
+          {err && <div className="text-xs text-rose-300">{err}</div>}
+          <button type="submit" disabled={busy || !dirty} className="btn-green w-full py-2.5 rounded-xl text-sm !mt-5">{busy ? "Saving…" : "Save changes"}</button>
+        </form>
+      )}
+    </Modal>
   );
 }
 

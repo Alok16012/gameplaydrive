@@ -31,6 +31,14 @@ export const deleteAuthUser = (id: string) => call<unknown>(`/auth/v1/admin/user
 export const updateAuthPassword = (id: string, password: string) =>
   call<unknown>(`/auth/v1/admin/users/${id}`, { method: "PUT", headers: headers(), body: JSON.stringify({ password }) });
 
+/** Change a login's email (the internal sign-in name) and/or password. */
+export const updateAuthUser = (id: string, patch: { email?: string; password?: string }) =>
+  call<unknown>(`/auth/v1/admin/users/${id}`, { method: "PUT", headers: headers(), body: JSON.stringify({ ...patch, ...(patch.email ? { email_confirm: true } : {}) }) });
+
+/** Write straight to a table row (service role — bypasses row-level security). */
+export const patchRow = (table: string, query: string, body: Record<string, unknown>) =>
+  call<unknown>(`/rest/v1/${table}?${query}`, { method: "PATCH", headers: headers(), body: JSON.stringify(body) });
+
 export const rpc = <T>(fn: string, args: Record<string, unknown>) =>
   call<T>(`/rest/v1/rpc/${fn}`, { method: "POST", headers: headers(), body: JSON.stringify(args) });
 
