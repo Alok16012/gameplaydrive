@@ -95,7 +95,7 @@ export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, o
   );
 }
 
-/** Every computer-controlled opponent is labelled. */
+/** Opponent label. Hidden on the tables — coins are virtual, so computer seats play like any other seat. */
 export function BotTag() {
-  return <span className="ml-1 align-middle text-[8px] leading-none px-1 py-[2px] rounded bg-sky-500/30 text-sky-200 font-bold tracking-wide">BOT</span>;
+  return null;
 }

@@ -224,11 +224,11 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         title="Rummy"
         sub={`${MODE_LABEL[mode]}${mode === "deals" ? ` ×${deals}` : ""}${v?.deal_no && mode !== "points" ? ` • Deal ${v.deal_no}` : ""} • ${stakeText}`}
         onBack={leave}
-        right={<div className="flex items-center gap-2"><Money n={total} className="text-sm font-semibold text-neon-400" /><Users size={16} className="text-white/60" /><span className="text-xs text-white/60">{humans}</span></div>}
+        right={<div className="flex items-center gap-2"><Money n={total} className="text-sm font-semibold text-neon-400" /><Users size={16} className="text-white/60" /><span className="text-sm text-white/60">{humans}</span></div>}
       />
 
       {v?.code && (
-        <div className="mx-3 mb-2 rounded-xl bg-white/5 px-3 py-2 text-xs flex items-center justify-between">
+        <div className="mx-3 mb-2 rounded-xl bg-white/5 px-3 py-2 text-sm flex items-center justify-between">
           <span>Private table • code <b className="tracking-widest text-gold-300">{v.code}</b></span>
           <button onClick={() => { navigator.clipboard?.writeText(v.code!); showToast("Code copied"); }} className="text-neon-400">Copy</button>
         </div>
@@ -244,17 +244,17 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             return (
               <div key={si + (b.uid ?? b.name)} className="flex flex-col items-center min-w-0">
                 <TimerAvatar emoji={b.emoji} size={38} active={active} left={active ? secsTo(v.turn_ends) : 0} dim={outOfDeal || b.left} total={turnSecs} />
-                <div className={`text-[10px] mt-1.5 font-medium truncate max-w-full ${active ? "text-neon-400" : ""}`}>{b.name}</div>
+                <div className={`text-[12px] mt-1.5 font-medium truncate max-w-full ${active ? "text-neon-400" : ""}`}>{b.name}</div>
                 {b.bot && <BotTag />}
-                {scoreText(b) && <div className="text-[8.5px] text-gold-300 leading-tight">{scoreText(b)}</div>}
+                {scoreText(b) && <div className="text-[10.5px] text-gold-300 leading-tight">{scoreText(b)}</div>}
                 {b.out ? (
-                  <div className="text-[8px] pill px-1.5 py-0.5 mt-0.5 bg-white/10 text-white/60 font-semibold">OUT</div>
+                  <div className="text-[10px] pill px-1.5 py-0.5 mt-0.5 bg-white/10 text-white/60 font-semibold">OUT</div>
                 ) : b.dropped || b.wrong ? (
-                  <div className="text-[8px] pill px-1.5 py-0.5 mt-0.5 bg-rose-500/25 text-rose-200 font-semibold">{(b.action ?? "Dropped").toUpperCase()}</div>
+                  <div className="text-[10px] pill px-1.5 py-0.5 mt-0.5 bg-rose-500/25 text-rose-200 font-semibold">{(b.action ?? "Dropped").toUpperCase()}</div>
                 ) : (
                   <>
                     <div className="flex -space-x-4 mt-0.5 scale-[.6] origin-top h-5">{b.playing && playing && Array.from({ length: 4 }, (_, j) => <PlayingCard key={j} faceDown size="xs" />)}</div>
-                    <div className={`text-[8.5px] leading-tight text-center h-5 ${active ? "text-white" : "text-white/45"}`}>{playing ? b.action ?? "" : ""}</div>
+                    <div className={`text-[10.5px] leading-tight text-center h-5 ${active ? "text-white" : "text-white/45"}`}>{playing ? b.action ?? "" : ""}</div>
                   </>
                 )}
               </div>
@@ -266,30 +266,30 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           {!v || v.status === "waiting" ? (
             <div className="text-center">
               <div className="text-sm font-semibold">{v?.code ? "Waiting for friends…" : "Finding players…"}</div>
-              <div className="text-xs text-white/70 mt-1">
+              <div className="text-sm text-white/70 mt-1">
                 {v?.next_at ? `Dealing in ${Math.ceil(secsTo(v.next_at))}s` : v?.code ? "A private table starts when 2 players are in" : ""}
               </div>
             </div>
           ) : v.status === "dealdone" && res ? (
             <div className="text-center fadein">
               <div className="text-sm font-semibold">{iWonDeal ? "You declared!" : `${res.winner_name} ${res.rows.find((r) => r.seat === res.winner)?.note === "Declared" ? "declared" : "wins"}`}</div>
-              {res.match_over && mode !== "points" && <div className="text-[11px] text-gold-300 mt-0.5">{iWonMatch ? "You win the match!" : `${res.champion_name} wins the match`}</div>}
-              <div className="text-[11px] text-white/70 mt-1">{res.match_over ? "Next game" : `Deal ${v.deal_no + 1}`} in {Math.ceil(secsTo(v.next_at))}s</div>
+              {res.match_over && mode !== "points" && <div className="text-[13px] text-gold-300 mt-0.5">{iWonMatch ? "You win the match!" : `${res.champion_name} wins the match`}</div>}
+              <div className="text-[13px] text-white/70 mt-1">{res.match_over ? "Next game" : `Deal ${v.deal_no + 1}`} in {Math.ceil(secsTo(v.next_at))}s</div>
             </div>
           ) : (
             <>
               <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => act("draw_stock")} className="flex flex-col items-center gap-1">
                 <div className={`relative ${myTurn && v.phase === "draw" ? "ring-2 ring-neon-400 rounded-lg" : ""}`}><PlayingCard faceDown size="md" /><PlayingCard faceDown size="md" className="absolute -top-1 -left-1" /></div>
-                <span className="text-[10px] text-white/70">Closed ({v.stock_count})</span>
+                <span className="text-[12px] text-white/70">Closed ({v.stock_count})</span>
               </button>
               <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || v.open_top.r === wild} onClick={() => act("draw_open")} className="flex flex-col items-center gap-1">
                 {v.open_top ? <PlayingCard key={v.open_top.id} card={v.open_top} size="md" className="flip" /> : <div className="w-12 h-[68px] rounded-lg border-2 border-dashed border-white/30" />}
-                <span className="text-[10px] text-white/70">Open</span>
+                <span className="text-[12px] text-white/70">Open</span>
               </button>
               {v.wild && (
                 <div className="flex flex-col items-center gap-1">
                   <PlayingCard card={v.wild} size="sm" className="ring-2 ring-gold-300" />
-                  <span className="text-[10px] text-gold-300">Wild Joker</span>
+                  <span className="text-[12px] text-gold-300">Wild Joker</span>
                 </div>
               )}
             </>
@@ -297,7 +297,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         </div>
 
         {playing && v && (
-          <div className="mt-2 text-center text-xs h-5">
+          <div className="mt-2 text-center text-sm h-5">
             {!inDeal ? (
               <span className="text-white/60">{mySeat?.out ? "You're out of this match — watching" : mySeat?.dropped ? "You dropped — waiting for this deal to finish" : mySeat?.wrong ? "Wrong show (80 points) — waiting for this deal to finish" : v.queued ? "You'll join from the next game" : "Watching"}</span>
             ) : myTurn ? (
@@ -314,14 +314,14 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
       {/* My hand */}
       {v && mySeat && !mySeat.playing && v.status !== "waiting" && mySeat.action === "Not enough coins" ? (
         <div className="text-center mt-8">
-          <div className="text-xs text-white/70">You need {inr(mode === "points" ? stake * 80 : stake)} to play this table</div>
+          <div className="text-sm text-white/70">You need {inr(mode === "points" ? stake * 80 : stake)} to play this table</div>
           <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Get Coins</button>
         </div>
       ) : (
         <div className={`px-2 mt-3 flex flex-wrap gap-x-3 gap-y-5 justify-center min-h-[130px] ${!inDeal && playing ? "opacity-40" : ""}`}>
           {v?.status !== "waiting" && mySeat?.playing && cardGroups.map((g, gi) => (
             <div key={gi} className="flex flex-col items-center">
-              <div className={`text-[9px] pill px-2 py-0.5 mb-2 ${sc.kinds[gi] === "invalid" ? "bg-rose-500/20 text-rose-300" : "bg-neon-400/15 text-neon-400"}`}>
+              <div className={`text-[11px] pill px-2 py-0.5 mb-2 ${sc.kinds[gi] === "invalid" ? "bg-rose-500/20 text-rose-300" : "bg-neon-400/15 text-neon-400"}`}>
                 {KIND_LABEL[sc.kinds[gi]]}{sc.kinds[gi] !== "invalid" ? " ✓" : ` • ${g.reduce((a, c) => a + cardPoints(c, wild), 0)}`}
               </div>
               <div className="flex pl-6">
@@ -336,21 +336,21 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 
       {inDeal && v && (
         <div className="px-3 mt-auto pt-4">
-          <div className="text-center text-[11px] text-white/50 mb-2">
+          <div className="text-center text-[13px] text-white/50 mb-2">
             Points in hand: <b className="text-white">{sc.points}</b>{sc.valid && <b className="text-neon-400"> • ready to declare</b>} • {v.my_cards?.length ?? 0} cards
             {pool ? <> • You {mySeat?.score ?? 0}/{pool}</> : mode === "deals" ? <> • Chips {scoreText(mySeat!)}</> : <> • {inr(stake)}/pt</>}
           </div>
-          <div className="grid grid-cols-5 gap-1.5 text-[11px]">
+          <div className="grid grid-cols-5 gap-1.5 text-[13px]">
             <button onClick={sortHand} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><ArrowDownUp size={15} />Sort</button>
             <button onClick={makeGroup} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><Layers size={15} />Group</button>
             <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => act("discard", sel[0])} className="rounded-xl py-2.5 bg-sky-500 font-semibold disabled:opacity-40">Discard</button>
             <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => setConfirm("drop")} className="rounded-xl py-2.5 bg-[#1b2350] border border-white/10 disabled:opacity-40">Drop</button>
             <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => setConfirm("declare")} className="btn-green rounded-xl py-2.5">Declare</button>
           </div>
-          {myTurn && v.phase === "discard" && <div className="text-center text-[10px] text-white/40 mt-2">To declare: arrange your groups, select the one card to put aside, then tap Declare.</div>}
+          {myTurn && v.phase === "discard" && <div className="text-center text-[12px] text-white/40 mt-2">To declare: arrange your groups, select the one card to put aside, then tap Declare.</div>}
         </div>
       )}
-      <button onClick={leave} className="mx-auto mt-3 text-[11px] text-white/50 flex items-center gap-1"><LogOut size={12} /> Leave table{mode !== "points" && inDeal ? " (counts as a drop and forfeits the match)" : ""}</button>
+      <button onClick={leave} className="mx-auto mt-3 text-[13px] text-white/50 flex items-center gap-1"><LogOut size={12} /> Leave table{mode !== "points" && inDeal ? " (counts as a drop and forfeits the match)" : ""}</button>
 
       <Sheet open={confirm !== null} onClose={() => setConfirm(null)} title={confirm === "drop" ? "Drop this deal?" : "Declare?"}>
         {confirm === null ? null : confirm === "drop" ? (
@@ -393,12 +393,12 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           onClose={() => setPeek(true)}
         >
           <div className="mt-4 rounded-xl bg-white/5 overflow-hidden text-left">
-            <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 text-[10px] text-white/50 border-b border-white/5">
+            <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 text-[12px] text-white/50 border-b border-white/5">
               <span>Player</span><span className="text-right">Points</span><span className="text-right w-16">{mode === "points" ? "Coins" : mode === "deals" ? "Chips" : "Total"}</span>
             </div>
             {res.rows.map((r) => (
-              <div key={r.seat} className={`grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 text-xs ${r.seat === me ? "bg-neon-400/10" : ""}`}>
-                <span className="truncate">{r.seat === res.winner && "🏆 "}{r.seat === me ? "You" : r.name}{r.bot && <BotTag />} <span className="text-[10px] text-white/40">{r.note}</span></span>
+              <div key={r.seat} className={`grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 text-sm ${r.seat === me ? "bg-neon-400/10" : ""}`}>
+                <span className="truncate">{r.seat === res.winner && "🏆 "}{r.seat === me ? "You" : r.name}{r.bot && <BotTag />} <span className="text-[12px] text-white/40">{r.note}</span></span>
                 <span className="text-right tabular-nums">{r.pts ?? "—"}</span>
                 <span className={`text-right tabular-nums w-16 ${r.out ? "text-rose-300" : ""}`}>
                   {mode === "points" ? (r.coins === null ? "—" : `${r.coins >= 0 ? "+" : "-"}${inr(r.coins)}`) : mode === "deals" ? `${r.score >= 0 ? "+" : ""}${r.score}` : r.out ? `${r.score} out` : r.score}
@@ -408,7 +408,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </div>
           {res.rows.find((r) => r.seat === res.winner)?.hand && (
             <div className="mt-3">
-              <div className="text-[10px] text-white/50 mb-1">{res.winner === me ? "Your" : `${res.winner_name}'s`} hand</div>
+              <div className="text-[12px] text-white/50 mb-1">{res.winner === me ? "Your" : `${res.winner_name}'s`} hand</div>
               <div className="flex flex-wrap gap-2 justify-center">
                 {res.rows.find((r) => r.seat === res.winner)!.hand!.map((g, i) => (
                   <div key={i} className="flex -space-x-3">{g.map((c) => <PlayingCard key={c.id} card={c} size="xs" />)}</div>
@@ -416,7 +416,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               </div>
             </div>
           )}
-          <div className="text-[10px] text-white/40 mt-2">Platform fee {res.rake}%</div>
+          <div className="text-[12px] text-white/40 mt-2">Platform fee {res.rake}%</div>
         </ResultSheet>
       )}
     </div>

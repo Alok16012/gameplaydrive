@@ -260,7 +260,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                   </div>
                   <div className="text-[11px] text-[var(--ink-soft)]">
                     {online
-                      ? <>{real > 0 ? <span className="text-neon-400">{real} playing now</span> : "Be the first"} • bots fill empty seats{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * 80)}` : ""}</>
+                      ? <>{real > 0 ? <span className="text-neon-400">{real} playing now</span> : "Be the first"}{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * 80)}` : ""}</>
                       : <>{t.seated}/{t.seats} Players • {inr(t.buyIn)} Entry</>}
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
 import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
 import { refreshBotConfig } from "../lib/botpool";
@@ -43,6 +43,19 @@ function Shell() {
     }),
     [signOut],
   );
+
+  // If the session ends while playing (expired, or signed out elsewhere), go back to the login screen
+  // instead of leaving the player on a table whose requests would all be rejected.
+  useEffect(() => {
+    if (auth !== "in") return;
+    const { data } = supabase().auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || !session) {
+        setStack([{ name: "home" }]);
+        setAuth("login");
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, [auth]);
 
   // After the splash, resume a saved session if it belongs to an active player.
   const splashDone = useCallback(async () => {

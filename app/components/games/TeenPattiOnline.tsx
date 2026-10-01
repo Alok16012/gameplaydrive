@@ -170,7 +170,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
       />
 
       {v?.code && (
-        <div className="mx-3 rounded-xl bg-white/5 px-3 py-2 text-xs flex items-center justify-between">
+        <div className="mx-3 rounded-xl bg-white/5 px-3 py-2 text-sm flex items-center justify-between">
           <span>Private table • code <b className="tracking-widest text-gold-300">{v.code}</b></span>
           <button onClick={() => { navigator.clipboard?.writeText(v.code!); showToast("Code copied"); }} className="text-neon-400">Copy</button>
         </div>
@@ -186,16 +186,16 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               <div key={si + (b.uid ?? b.name)} className={`absolute ${SEAT_POS[k]} flex flex-col items-center z-10 w-[84px] ${res && res.seat === si && v.status === "done" ? "scale-110 transition-transform" : ""}`}>
                 <TimerAvatar emoji={b.emoji} size={40} active={turn} left={turn ? secsTo(v.turn_ends) : 0} dim={b.packed || !b.playing || b.left} total={TURN_SECS} />
                 <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center max-w-full">
-                  <div className="text-[10px] font-medium leading-tight truncate">{b.name}{b.bot && <BotTag />}</div>
-                  <div className="text-[10px] text-gold-300 leading-tight">{inr(b.bal)}</div>
+                  <div className="text-[12px] font-medium leading-tight truncate">{b.name}{b.bot && <BotTag />}</div>
+                  <div className="text-[12px] text-gold-300 leading-tight">{inr(b.bal)}</div>
                 </div>
                 {v.status !== "waiting" && b.playing && (
                   <div className="flex -space-x-3 mt-1">
                     {(shown?.cards ?? [0, 1, 2]).map((c, j) => <PlayingCard key={j} card={typeof c === "number" ? undefined : c} faceDown={!shown} size="xs" />)}
                   </div>
                 )}
-                {b.action && <div className={`mt-1 text-[9px] pill px-1.5 py-0.5 ${b.packed ? "bg-rose-500/30 text-rose-200" : "bg-white/15"}`}>{b.action}</div>}
-                {playing && b.playing && !b.packed && !b.action && <div className="mt-1 text-[9px] text-white/60">{b.seen ? "Seen" : "Blind"}</div>}
+                {b.action && <div className={`mt-1 text-[11px] pill px-1.5 py-0.5 ${b.packed ? "bg-rose-500/30 text-rose-200" : "bg-white/15"}`}>{b.action}</div>}
+                {playing && b.playing && !b.packed && !b.action && <div className="mt-1 text-[11px] text-white/60">{b.seen ? "Seen" : "Blind"}</div>}
               </div>
             );
           })}
@@ -203,22 +203,22 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-16">
             {!v || v.status === "waiting" ? (
               <>
-                <div className="text-xs text-white/70">{v?.code ? "Waiting for friends — a private table needs 2 players" : v?.queued || !v ? "Finding a table…" : "Waiting for players…"}</div>
+                <div className="text-sm text-white/70">{v?.code ? "Waiting for friends — a private table needs 2 players" : v?.queued || !v ? "Finding a table…" : "Waiting for players…"}</div>
                 {v?.next_hand_at && <div className="text-sm font-semibold mt-1">Dealing in {Math.ceil(secsTo(v.next_hand_at))}s</div>}
               </>
             ) : v.status === "done" && res ? (
               <div className="fadein">
                 <div className="text-sm font-semibold">{iWon ? "You win!" : `${res.name} wins`}</div>
-                <div className="text-[11px] text-gold-300 font-semibold">{inr(res.amount)} • {res.reason}</div>
-                <div className="text-[11px] text-white/60 mt-1">Next hand in {Math.ceil(secsTo(v.next_hand_at))}s</div>
+                <div className="text-[13px] text-gold-300 font-semibold">{inr(res.amount)} • {res.reason}</div>
+                <div className="text-[13px] text-white/60 mt-1">Next hand in {Math.ceil(secsTo(v.next_hand_at))}s</div>
               </div>
             ) : (
               <>
                 <div className="text-sm font-semibold">Round {v.round}</div>
-                <div className="text-[11px] text-gold-300 font-semibold">Pot {inr(v.pot)}</div>
-                {pending && <div className="text-[11px] text-fuchsia-300 mt-1">{pending.from === me ? "You" : v.seats[pending.from]?.name} asked {pending.to === me ? "you" : v.seats[pending.to]?.name} for a side show</div>}
+                <div className="text-[13px] text-gold-300 font-semibold">Pot {inr(v.pot)}</div>
+                {pending && <div className="text-[13px] text-fuchsia-300 mt-1">{pending.from === me ? "You" : v.seats[pending.from]?.name} asked {pending.to === me ? "you" : v.seats[pending.to]?.name} for a side show</div>}
                 <div className="text-lg font-bold mt-0.5">
-                  {pending ? <span className="text-xs font-normal text-white/70">{Math.ceil(secsTo(pending.ends))}s</span> : myTurn ? `${Math.ceil(secsTo(v.turn_ends))}s` : v.turn !== null && <span className="text-xs font-normal text-white/70">{v.seats[v.turn]?.name}&apos;s turn • {Math.ceil(secsTo(v.turn_ends))}s</span>}
+                  {pending ? <span className="text-sm font-normal text-white/70">{Math.ceil(secsTo(pending.ends))}s</span> : myTurn ? `${Math.ceil(secsTo(v.turn_ends))}s` : v.turn !== null && <span className="text-sm font-normal text-white/70">{v.seats[v.turn]?.name}&apos;s turn • {Math.ceil(secsTo(v.turn_ends))}s</span>}
                 </div>
               </>
             )}
@@ -228,10 +228,10 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
           <div className="absolute left-1/2 -translate-x-1/2 -bottom-7 flex flex-col items-center z-10">
             <TimerAvatar emoji={mySeat?.emoji} size={48} active={!!myTurn} left={myTurn ? secsTo(v!.turn_ends) : 0} dim={!!mySeat?.packed} total={TURN_SECS} />
             <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
-              <div className="text-[10px] font-medium leading-tight">
+              <div className="text-[12px] font-medium leading-tight">
                 You {playing && mySeat?.playing && (mySeat.packed ? <span className="text-rose-300">• Packed</span> : <span className="text-white/60">• {mySeat.seen ? "Seen" : "Blind"}</span>)}
               </div>
-              <div className="text-[10px] text-gold-300 leading-tight">{inr(total)}</div>
+              <div className="text-[12px] text-gold-300 leading-tight">{inr(total)}</div>
             </div>
           </div>
         </div>
@@ -239,10 +239,10 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
         {/* My hand */}
         <div className="mt-14 flex flex-col items-center min-h-[120px]">
           {v?.queued ? (
-            <div className="text-xs text-white/60 mt-6">You&apos;ll be dealt in from the next hand</div>
+            <div className="text-sm text-white/60 mt-6">You&apos;ll be dealt in from the next hand</div>
           ) : mySeat && !mySeat.playing && v?.status !== "waiting" ? (
             <div className="text-center mt-4">
-              <div className="text-xs text-white/70">{mySeat.action ?? "Sitting out"} — you need {inr(v?.boot ?? buyIn)} for the boot</div>
+              <div className="text-sm text-white/70">{mySeat.action ?? "Sitting out"} — you need {inr(v?.boot ?? buyIn)} for the boot</div>
               <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Get Coins</button>
             </div>
           ) : mySeat?.playing && v?.status !== "waiting" ? (
@@ -252,7 +252,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
                   <PlayingCard key={i} card={c} faceDown={!c} size="lg" className={`${c ? "flip" : ""} ${mySeat.packed ? "opacity-50" : ""}`} style={{ transform: `rotate(${(i - 1) * 8}deg) translateY(${Math.abs(i - 1) * 5}px)` }} />
                 ))}
               </div>
-              <div className="mt-2 text-xs text-white/70">{v?.my_hand ? <>Your hand: <b className="text-gold-300">{v.my_hand}</b></> : mySeat.packed ? "Packed without looking" : "Playing blind — tap See to look"}</div>
+              <div className="mt-2 text-sm text-white/70">{v?.my_hand ? <>Your hand: <b className="text-gold-300">{v.my_hand}</b></> : mySeat.packed ? "Packed without looking" : "Playing blind — tap See to look"}</div>
             </>
           ) : null}
         </div>
@@ -269,7 +269,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
         {v?.sideshow && playing && (
           <div className="mt-2 rounded-2xl bg-white/5 p-3 flex items-center gap-3">
             <div className="flex -space-x-3">{v.sideshow.cards.map((c, i) => <PlayingCard key={i} card={c} size="xs" />)}</div>
-            <div className="text-xs">Side show vs <b>{v.seats[v.sideshow.seat]?.name}</b> ({v.sideshow.hand}) — you {v.sideshow.lost ? <span className="text-rose-300">lost</span> : <span className="text-neon-400">won</span>}</div>
+            <div className="text-sm">Side show vs <b>{v.seats[v.sideshow.seat]?.name}</b> ({v.sideshow.hand}) — you {v.sideshow.lost ? <span className="text-rose-300">lost</span> : <span className="text-neon-400">won</span>}</div>
           </div>
         )}
         {inHand && mySeat?.packed === false && (
@@ -280,20 +280,20 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               <button disabled={!myTurn || !!pending || busy || active !== 2} onClick={() => act("show")} className="rounded-full py-3 text-sm font-bold tracking-wide bg-gold-500 text-slate-900 disabled:opacity-40">SHOW</button>
             </div>
             <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
-              <button disabled={!canSideShow || busy} onClick={() => act("sideshow")} className="rounded-full py-3 text-[11px] font-bold tracking-wide bg-fuchsia-600 disabled:opacity-40">SIDE SHOW</button>
-              <button disabled={!myTurn || !!pending || busy} onClick={() => act("raise")} className="rounded-full py-3 text-[11px] font-bold tracking-wide bg-[#2a3470] disabled:opacity-40">RAISE {inr(chaalAmt * 2)}</button>
+              <button disabled={!canSideShow || busy} onClick={() => act("sideshow")} className="rounded-full py-3 text-[13px] font-bold tracking-wide bg-fuchsia-600 disabled:opacity-40">SIDE SHOW</button>
+              <button disabled={!myTurn || !!pending || busy} onClick={() => act("raise")} className="rounded-full py-3 text-[13px] font-bold tracking-wide bg-[#2a3470] disabled:opacity-40">RAISE {inr(chaalAmt * 2)}</button>
               <button disabled={!myTurn || !!pending || busy} onClick={() => act("chaal")} className="btn-green rounded-full py-3 text-sm font-bold tracking-wide">{mySeat.seen ? "CHAAL" : "BLIND"} {inr(chaalAmt)}</button>
             </div>
             {myTurn && !pending && (
-              <div className="text-center text-[10px] text-white/40">
+              <div className="text-center text-[12px] text-white/40">
                 {active !== 2 ? "Show unlocks when two players are left" : ""}{active >= 3 && !canSideShow ? " • Side show needs you and the previous player to be Seen" : ""}
               </div>
             )}
           </div>
         )}
-        {playing && mySeat?.packed && <div className="text-center text-xs text-white/60 mt-auto">You packed — waiting for this hand to finish</div>}
-        <div className="text-center text-[10px] text-white/35 mt-2">Cards are dealt by the server. If you disconnect, your turn times out after {TURN_SECS}s and your hand is packed.</div>
-        <button onClick={leave} className="mx-auto mt-2 text-[11px] text-white/50 flex items-center gap-1"><LogOut size={12} /> Leave table</button>
+        {playing && mySeat?.packed && <div className="text-center text-sm text-white/60 mt-auto">You packed — waiting for this hand to finish</div>}
+        <div className="text-center text-[12px] text-white/35 mt-2">Cards are dealt by the server. If you disconnect, your turn times out after {TURN_SECS}s and your hand is packed.</div>
+        <button onClick={leave} className="mx-auto mt-2 text-[13px] text-white/50 flex items-center gap-1"><LogOut size={12} /> Leave table</button>
       </div>
 
       {res && v && (
@@ -312,12 +312,12 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               {res.reveal.map((r) => (
                 <div key={r.seat} className="flex flex-col items-center gap-1">
                   <div className="flex -space-x-2">{r.cards.map((c, i) => <PlayingCard key={i} card={c} size="sm" />)}</div>
-                  <div className="text-[10px] text-white/60">{r.seat === me ? "You" : v.seats[r.seat]?.name} • {r.hand}</div>
+                  <div className="text-[12px] text-white/60">{r.seat === me ? "You" : v.seats[r.seat]?.name} • {r.hand}</div>
                 </div>
               ))}
             </div>
           )}
-          <div className="text-[10px] text-white/40 mt-3">Pot {inr(res.pot)} • Platform fee 5%</div>
+          <div className="text-[12px] text-white/40 mt-3">Pot {inr(res.pot)} • Platform fee 5%</div>
         </ResultSheet>
       )}
     </div>
