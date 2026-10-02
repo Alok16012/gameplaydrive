@@ -5,6 +5,7 @@ import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as Wal
 import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
+import { createTeenPattiPrivate, getTeenPattiLobby } from "../../lib/gameServer";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
 import type { Nav, RummyMode } from "../nav";
@@ -39,15 +40,13 @@ export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
 
 export function Home({ nav }: { nav: Nav }) {
   const { player } = useStore();
-  // Real players seated at Teen Patti / Rummy tables right now.
+  // Real players seated at Teen Patti / Rummy tables right now. Teen Patti tables live on the game server
+  // (Railway); Rummy is still dealt from Supabase until it moves over too.
   const [live, setLive] = useState<Record<string, number>>({});
   useEffect(() => {
-    supabase().rpc("lobby_counts").then(({ data }) => {
-      if (!data) return;
-      const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
-      const d = data as Record<string, Record<string, number>>;
-      setLive({ "teen-patti": sum(d["teen-patti"]), rummy: sum(d.rummy) });
-    });
+    const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
+    getTeenPattiLobby().then((d) => setLive((l) => ({ ...l, "teen-patti": sum(d) })));
+    supabase().rpc("lobby_counts").then(({ data }) => { if (data) setLive((l) => ({ ...l, rummy: sum((data as Record<string, Record<string, number>>).rummy) })); });
   }, []);
   const unread = NOTIFICATIONS.filter((n) => n.unread).length;
   return (
@@ -187,9 +186,12 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Real players seated right now, per table type (server games only).
   useEffect(() => {
     if (!online) return;
-    const load = () => supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[gameId] ?? {}));
+    const load = () =>
+      gameId === "teen-patti"
+        ? getTeenPattiLobby().then(setCounts)
+        : supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[gameId] ?? {}));
     load();
-    const t = setInterval(load, 10000);
+    const t = setInterval(load, gameId === "teen-patti" ? 5000 : 10000);
     return () => clearInterval(t);
   }, [online, gameId]);
 
@@ -199,16 +201,20 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     else nav.push({ name: "cardtable", game: game.id, table, buyIn });
   };
 
-  // Private tables on the server: create one (you get an invite code) or join a friend's by code.
+  // Private tables: create one (you get an invite code) or join a friend's by code. Teen Patti tables are
+  // created on the game server (Railway); Rummy still goes through Supabase until it moves over too.
   const createPrivate = async () => {
     setBusy(true);
-    const { data, error } = rummy
-      ? await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privEntries[privStake], p_deals: mode === "deals" ? 2 : 0 })
-      : await supabase().rpc("tp_create_private", { p_boot: privEntries[privStake] });
+    try {
+      const code = gameId === "teen-patti"
+        ? await createTeenPattiPrivate(privEntries[privStake])
+        : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privEntries[privStake], p_deals: mode === "deals" ? 2 : 0 }).then(({ data, error }) => { if (error) throw error; return data as string; });
+      setPriv(false);
+      join(`P-${code}`, privEntries[privStake], mode === "deals" ? 2 : 0);
+    } catch (e) {
+      showToast(errText(e));
+    }
     setBusy(false);
-    if (error) return showToast(errText(error));
-    setPriv(false);
-    join(`P-${data}`, privEntries[privStake], mode === "deals" ? 2 : 0);
   };
   const joinPrivate = () => {
     const c = joinCode.trim().toUpperCase();

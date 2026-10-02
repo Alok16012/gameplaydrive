@@ -4,16 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, LogOut, Users } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { useStore } from "../../lib/store";
-import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
+import { gameSocket, type ServerMsg } from "../../lib/gameServer";
 import { Header, Money, PlayingCard } from "../ui";
 import { LandscapeStage } from "./LandscapeStage";
 import { BotTag, ResultSheet, TimerAvatar } from "./bots";
 import type { Nav } from "../nav";
 
-// Teen Patti on the game server (supabase/migrations/002_game_server.sql). The database shuffles, deals, runs
-// the 15 s turn clock, plays the bots and moves coins; this screen only renders the table and sends actions.
-// Changes arrive through Supabase Realtime (plus a slow poll as a fallback); when a deadline passes, the
-// client nudges the server with tp_tick so timeouts, bot moves and the next deal happen.
+// Teen Patti on the realtime game server (server/src/teenpatti.ts, deployed on Railway). The table lives in the
+// server's memory with its own timers, so a bot's move, a timeout or another player's action reaches this
+// screen the instant it happens — the server pushes the new view over WebSocket, there is no polling.
 
 interface Seat { uid?: string; name: string; emoji: string; bot: boolean; bal: number; playing?: boolean; packed?: boolean; seen?: boolean; action?: string | null; left?: boolean; blinds?: number; blinds_hand?: number }
 interface Result { seat: number; name: string; bot: boolean; uid?: string; amount: number; reason: string; pot: number; reveal: { seat: number; cards: Card[]; hand: string }[] }
@@ -62,9 +61,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   const [busy, setBusy] = useState(false);
   const [sheetFor, setSheetFor] = useState(0); // hand number whose result sheet is open
   const [peek, setPeek] = useState(false);
-  const tableId = useRef<string | null>(null);
   const offset = useRef(0); // server clock − local clock
-  const ticking = useRef(false);
   const [flies, setFlies] = useState<Fly[]>([]);
   const lastSeen = useRef<{ hand: number; status: string; bals: number[] } | null>(null);
   const flyId = useRef(0);
@@ -96,62 +93,38 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
       const ids = new Set(add.map((a) => a.id));
       setTimeout(() => setFlies((f) => f.filter((x) => !ids.has(x.id))), 950);
     }
+    setErr("");
     setV(view);
     const mine = view.me !== null ? view.seats[view.me] : null;
     if (mine && !mine.bot) applyBalance(mine.bal);
   }, [applyBalance]);
 
-  const tick = useCallback(async () => {
-    if (!tableId.current || ticking.current) return;
-    ticking.current = true;
-    const { data, error } = await supabase().rpc("tp_tick", { p_table: tableId.current });
-    ticking.current = false;
-    if (error) setErr(errText(error));
-    else take(data as View);
-  }, [take]);
-
-  const pull = useCallback(async () => {
-    if (!tableId.current) return;
-    const { data } = await supabase().rpc("tp_state", { p_table: tableId.current });
-    if (data) take(data as View);
-  }, [take]);
-
-  // Join (or rejoin) a table, follow it live, and leave when this screen closes.
+  // Connect, join (or rejoin) the table, and apply every pushed update. The server re-sends the full state on
+  // every change — a bot's move, a timeout, a side show answer, another player's action — so there is nothing
+  // to poll. Closing the screen does not leave the table (your seat is kept by the server); only Leave does.
   useEffect(() => {
     let alive = true;
-    const sb = supabase();
-    let channel: ReturnType<typeof sb.channel> | null = null;
-    (async () => {
-      const { data, error } = await joinOnce("tp_join", { p_boot: buyIn, p_code: code ?? null });
+    const onMsg = (m: ServerMsg) => {
       if (!alive) return;
-      if (error) return setErr(errText(error));
-      tableId.current = data as string;
-      channel = sb
-        .channel(`tp-${data}`)
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "tp_tables", filter: `id=eq.${data}` }, () => pull())
-        .subscribe();
-      tick();
-    })();
-    const heartbeat = setInterval(() => tick(), 12000);
-    const poll = setInterval(() => pull(), 3000);
-    return () => {
-      alive = false;
-      clearInterval(heartbeat);
-      clearInterval(poll);
-      if (channel) sb.removeChannel(channel);
-      // Closing the screen (reload, crash, lost connection) does not leave the table: the turn clock covers an
-      // absent player and they can come back. Leaving is an explicit action (see leave()).
+      if (m.t === "tp_view") { setBusy(false); take(m.view as View); }
+      else if (m.t === "error") {
+        setBusy(false);
+        const message = String(m.message ?? "Something went wrong");
+        if (m.code === "auth" || m.code === "join") setErr(message);
+        else showToast(message);
+      }
     };
-  }, [buyIn, code, pull, tick]);
+    const off = gameSocket.on(onMsg);
+    gameSocket.connect();
+    gameSocket.send({ t: "tp_join", boot: buyIn, code: code ?? undefined });
+    return () => { alive = false; off(); gameSocket.disconnect(); };
+  }, [buyIn, code, take, showToast]);
 
-  // Clock: redraw timers, and nudge the server once something is due.
+  // Clock: just redraws the countdowns locally between pushes; the server is the one deciding when time's up.
   useEffect(() => {
-    const t = setInterval(() => {
-      setNow(Date.now());
-      if (v?.due_at && Date.now() + offset.current >= new Date(v.due_at).getTime() + 150) tick();
-    }, 250);
+    const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
-  }, [v?.due_at, tick]);
+  }, []);
 
   // Show the table's result for a moment before the sheet slides up.
   useEffect(() => {
@@ -162,17 +135,14 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   }, [v?.status, v?.hand_no, v?.result]);
 
   const leave = () => {
-    if (tableId.current) fire(supabase().rpc("tp_leave", { p_table: tableId.current }));
+    gameSocket.send({ t: "tp_leave" });
     nav.back();
   };
 
-  const act = async (action: "see" | "pack" | "chaal" | "raise" | "show" | "sideshow" | "accept" | "decline") => {
-    if (!tableId.current || busy) return;
+  const act = (action: "see" | "pack" | "chaal" | "raise" | "show" | "sideshow" | "accept" | "decline") => {
+    if (busy) return;
     setBusy(true);
-    const { data, error } = await supabase().rpc("tp_act", { p_table: tableId.current, p_action: action });
-    setBusy(false);
-    if (error) showToast(errText(error));
-    else take(data as View);
+    gameSocket.send({ t: "tp_act", action });
   };
 
   const serverNow = now + offset.current;
