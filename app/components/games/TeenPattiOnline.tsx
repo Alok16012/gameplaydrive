@@ -262,7 +262,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               <>
                 <PotStack pot={v.pot} boot={v.boot} />
                 <div className="text-[15px] text-gold-300 font-bold">Pot {inr(v.pot)}</div>
-                <div className="text-[12px] text-white/60">Round {v.round}</div>
+                <div className="text-[12px] text-white/60">Round {v.round} • Pot limit {inr(v.boot * 1024)}</div>
                 {pending && <div className="text-[13px] text-fuchsia-300 mt-1">{pending.from === me ? "You" : v.seats[pending.from]?.name} asked {pending.to === me ? "you" : v.seats[pending.to]?.name} for a side show</div>}
                 <div className="text-lg font-bold mt-0.5">
                   {pending ? <span className="text-sm font-normal text-white/70">{Math.ceil(secsTo(pending.ends))}s</span> : myTurn ? `${Math.ceil(secsTo(v.turn_ends))}s` : v.turn !== null && <span className="text-sm font-normal text-white/70">{v.seats[v.turn]?.name}&apos;s turn • {Math.ceil(secsTo(v.turn_ends))}s</span>}
@@ -335,7 +335,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
             </div>
             <div className="grid grid-cols-[1fr_1fr_2fr] gap-2">
               <button disabled={!canSideShow || busy} onClick={() => act("sideshow")} className="rounded-full py-3 text-[13px] font-bold tracking-wide bg-fuchsia-600 disabled:opacity-40">SIDE SHOW</button>
-              <button disabled={!myTurn || !!pending || busy} onClick={() => act("raise")} className="rounded-full py-3 text-[13px] font-bold tracking-wide bg-[#2a3470] disabled:opacity-40">RAISE {inr(chaalAmt * 2)}</button>
+              <button disabled={!myTurn || !!pending || busy || (v?.stake ?? 0) >= (v?.boot ?? buyIn) * 128} onClick={() => act("raise")} className="rounded-full py-3 text-[13px] font-bold tracking-wide bg-[#2a3470] disabled:opacity-40">RAISE {inr(chaalAmt * 2)}</button>
               <button disabled={!myTurn || !!pending || busy} onClick={() => act("chaal")} className="btn-green rounded-full py-3 text-sm font-bold tracking-wide">{mySeat.seen ? "CHAAL" : "BLIND"} {inr(chaalAmt)}</button>
             </div>
             {myTurn && !pending && (
