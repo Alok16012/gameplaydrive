@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, Layers, LogOut, Users } from "lucide-react";
+import { ArrowDownUp, ChevronLeft, Layers, LogOut, Users } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, Money, PlayingCard, Sheet } from "../ui";
 import { BotTag, ResultSheet, TimerAvatar } from "./bots";
+import { LandscapeStage } from "./LandscapeStage";
 import type { Nav, RummyMode } from "../nav";
 
 // 13 Card Rummy on the game server (supabase/migrations/003_teen_patti_rummy.sql). The server deals from two
@@ -218,139 +219,145 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   };
   const declareGroups = () => groups.map((g) => g.filter((id) => id !== sel[0])).filter((g) => g.length);
 
+  // Opponents sit in an arc along the top of the table (% of the table area).
+  const ARC: [number, number][] = [[9, 30], [26, 11], [50, 8], [74, 11], [91, 30]];
+
   return (
-    <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header
-        title="Rummy"
-        sub={`${MODE_LABEL[mode]}${mode === "deals" ? ` ×${deals}` : ""}${v?.deal_no && mode !== "points" ? ` • Deal ${v.deal_no}` : ""} • ${stakeText}`}
-        onBack={leave}
-        right={<div className="flex items-center gap-2"><Money n={total} className="text-sm font-semibold text-neon-400" /><Users size={16} className="text-white/60" /><span className="text-sm text-white/60">{humans}</span></div>}
-      />
-
-      {v?.code && (
-        <div className="mx-3 mb-2 rounded-xl bg-white/5 px-3 py-2 text-sm flex items-center justify-between">
-          <span>Private table • code <b className="tracking-widest text-gold-300">{v.code}</b></span>
-          <button onClick={() => { navigator.clipboard?.writeText(v.code!); showToast("Code copied"); }} className="text-neon-400">Copy</button>
+    <LandscapeStage>
+      <div className="relative w-full h-full flex flex-col select-none">
+        {/* Top bar */}
+        <div className="h-11 shrink-0 flex items-center gap-2 px-3 bg-black/30">
+          <button onClick={leave} aria-label="Leave table" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold">Rummy • {MODE_LABEL[mode]}{mode === "deals" ? ` ×${deals}` : ""}</div>
+            <div className="text-[11px] text-white/60">{stakeText}{v?.deal_no && mode !== "points" ? ` • Deal ${v.deal_no}` : ""} • {humans} real player{humans === 1 ? "" : "s"}</div>
+          </div>
+          {v?.code && (
+            <button onClick={() => { navigator.clipboard?.writeText(v.code!); showToast("Code copied"); }} className="ml-3 pill bg-white/10 px-3 py-1 text-[12px]">
+              Private • <b className="tracking-widest text-gold-300">{v.code}</b> • Copy
+            </button>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            <Users size={16} className="text-white/50" />
+            <Money n={total} className="text-sm font-semibold text-neon-400" />
+            <button onClick={leave} className="text-[12px] text-white/60 flex items-center gap-1"><LogOut size={13} /> Leave</button>
+          </div>
         </div>
-      )}
 
-      <div className="px-2">
-        <div className="grid grid-cols-5 gap-1">
-          {v && others.slice(0, 5).map((si) => {
+        {/* Table */}
+        <div className="relative flex-1 min-h-0">
+          <div className="absolute left-[7%] right-[7%] top-[24%] bottom-[40%] felt-oval" />
+
+          {/* Opponents */}
+          {v && others.slice(0, 5).map((si, k) => {
             const b = v.seats[si];
-            if (!b) return <div key={si} />;
+            if (!b) return null;
             const active = playing && v.turn === si;
             const outOfDeal = !b.playing || b.dropped || b.wrong || b.out;
+            const [x, y] = ARC[k];
             return (
-              <div key={si + (b.uid ?? b.name)} className="flex flex-col items-center min-w-0">
-                <TimerAvatar emoji={b.emoji} size={38} active={active} left={active ? secsTo(v.turn_ends) : 0} dim={outOfDeal || b.left} total={turnSecs} />
-                <div className={`text-[12px] mt-1.5 font-medium truncate max-w-full ${active ? "text-neon-400" : ""}`}>{b.name}</div>
-                {b.bot && <BotTag />}
-                {scoreText(b) && <div className="text-[10.5px] text-gold-300 leading-tight">{scoreText(b)}</div>}
-                {b.out ? (
-                  <div className="text-[10px] pill px-1.5 py-0.5 mt-0.5 bg-white/10 text-white/60 font-semibold">OUT</div>
-                ) : b.dropped || b.wrong ? (
-                  <div className="text-[10px] pill px-1.5 py-0.5 mt-0.5 bg-rose-500/25 text-rose-200 font-semibold">{(b.action ?? "Dropped").toUpperCase()}</div>
-                ) : (
-                  <>
-                    <div className="flex -space-x-4 mt-0.5 scale-[.6] origin-top h-5">{b.playing && playing && Array.from({ length: 4 }, (_, j) => <PlayingCard key={j} faceDown size="xs" />)}</div>
-                    <div className={`text-[10.5px] leading-tight text-center h-5 ${active ? "text-white" : "text-white/45"}`}>{playing ? b.action ?? "" : ""}</div>
-                  </>
-                )}
+              <div key={si + (b.uid ?? b.name)} className="absolute z-10 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5" style={{ left: `${x}%`, top: `${y}%` }}>
+                <TimerAvatar emoji={b.emoji} size={40} active={active} left={active ? secsTo(v.turn_ends) : 0} dim={outOfDeal || b.left} total={turnSecs} />
+                <div className="rounded-md bg-black/60 px-2 py-0.5 max-w-[110px]">
+                  <div className={`text-[11px] font-medium truncate ${active ? "text-neon-400" : ""}`}>{b.name}{b.bot && <BotTag />}</div>
+                  {scoreText(b) && <div className="text-[10px] text-gold-300 leading-tight">{scoreText(b)}</div>}
+                  {b.out ? <div className="text-[10px] text-white/60 font-semibold">OUT</div>
+                    : b.dropped || b.wrong ? <div className="text-[10px] text-rose-300 font-semibold">{(b.action ?? "Dropped").toUpperCase()}</div>
+                    : <div className={`text-[10px] leading-tight truncate ${active ? "text-white" : "text-white/55"}`}>{playing ? b.action ?? "" : ""}</div>}
+                </div>
               </div>
             );
           })}
-        </div>
 
-        <div className="felt rounded-[36px] mt-4 mx-2 p-4 flex items-center justify-center gap-5" style={{ minHeight: 150 }}>
-          {!v || v.status === "waiting" ? (
-            <div className="text-center">
-              <div className="text-sm font-semibold">{v?.code ? "Waiting for friends…" : "Finding players…"}</div>
-              <div className="text-sm text-white/70 mt-1">
-                {v?.next_at ? `Dealing in ${Math.ceil(secsTo(v.next_at))}s` : v?.code ? "A private table starts when 2 players are in" : ""}
+          {/* Centre: closed deck, open card, wild joker — or the deal status */}
+          <div className="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-6">
+            {!v || v.status === "waiting" ? (
+              <div className="text-center">
+                <div className="text-sm font-semibold">{v?.code ? "Waiting for friends…" : "Finding players…"}</div>
+                <div className="text-[13px] text-white/70 mt-1">{v?.next_at ? `Dealing in ${Math.ceil(secsTo(v.next_at))}s` : v?.code ? "A private table starts when 2 players are in" : ""}</div>
               </div>
-            </div>
-          ) : v.status === "dealdone" && res ? (
-            <div className="text-center fadein">
-              <div className="text-sm font-semibold">{iWonDeal ? "You declared!" : `${res.winner_name} ${res.rows.find((r) => r.seat === res.winner)?.note === "Declared" ? "declared" : "wins"}`}</div>
-              {res.match_over && mode !== "points" && <div className="text-[13px] text-gold-300 mt-0.5">{iWonMatch ? "You win the match!" : `${res.champion_name} wins the match`}</div>}
-              <div className="text-[13px] text-white/70 mt-1">{res.match_over ? "Next game" : `Deal ${v.deal_no + 1}`} in {Math.ceil(secsTo(v.next_at))}s</div>
-            </div>
-          ) : (
-            <>
-              <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => act("draw_stock")} className="flex flex-col items-center gap-1">
-                <div className={`relative ${myTurn && v.phase === "draw" ? "ring-2 ring-neon-400 rounded-lg" : ""}`}><PlayingCard faceDown size="md" /><PlayingCard faceDown size="md" className="absolute -top-1 -left-1" /></div>
-                <span className="text-[12px] text-white/70">Closed ({v.stock_count})</span>
-              </button>
-              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || v.open_top.r === wild} onClick={() => act("draw_open")} className="flex flex-col items-center gap-1">
-                {v.open_top ? <PlayingCard key={v.open_top.id} card={v.open_top} size="md" className="flip" /> : <div className="w-12 h-[68px] rounded-lg border-2 border-dashed border-white/30" />}
-                <span className="text-[12px] text-white/70">Open</span>
-              </button>
-              {v.wild && (
-                <div className="flex flex-col items-center gap-1">
-                  <PlayingCard card={v.wild} size="sm" className="ring-2 ring-gold-300" />
-                  <span className="text-[12px] text-gold-300">Wild Joker</span>
+            ) : v.status === "dealdone" && res ? (
+              <div className="text-center fadein">
+                <div className="text-base font-semibold">{iWonDeal ? "You declared!" : `${res.winner_name} ${res.rows.find((r) => r.seat === res.winner)?.note === "Declared" ? "declared" : "wins"}`}</div>
+                {res.match_over && mode !== "points" && <div className="text-[13px] text-gold-300 mt-0.5">{iWonMatch ? "You win the match!" : `${res.champion_name} wins the match`}</div>}
+                <div className="text-[12px] text-white/70 mt-1">{res.match_over ? "Next game" : `Deal ${v.deal_no + 1}`} in {Math.ceil(secsTo(v.next_at))}s</div>
+              </div>
+            ) : (
+              <>
+                <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => act("draw_stock")} className="flex flex-col items-center gap-1">
+                  <div className={`relative ${myTurn && v.phase === "draw" ? "ring-2 ring-neon-400 rounded-lg" : ""}`}><PlayingCard faceDown size="lg" /><PlayingCard faceDown size="lg" className="absolute -top-1 -left-1" /></div>
+                  <span className="text-[11px] text-white/80 bg-black/40 rounded px-1.5">Closed ({v.stock_count})</span>
+                </button>
+                <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || v.open_top.r === wild} onClick={() => act("draw_open")} className="flex flex-col items-center gap-1">
+                  {v.open_top ? <PlayingCard key={v.open_top.id} card={v.open_top} size="lg" className={`flip ${myTurn && v.phase === "draw" ? "ring-2 ring-neon-400" : ""}`} /> : <div className="w-16 h-[90px] rounded-lg border-2 border-dashed border-white/30" />}
+                  <span className="text-[11px] text-white/80 bg-black/40 rounded px-1.5">Open</span>
+                </button>
+                {v.wild && (
+                  <div className="flex flex-col items-center gap-1">
+                    <PlayingCard card={v.wild} size="md" className="ring-2 ring-gold-300" />
+                    <span className="text-[11px] text-gold-300 bg-black/40 rounded px-1.5">Wild Joker</span>
+                  </div>
+                )}
+                <div className="text-center w-36">
+                  {!inDeal ? (
+                    <div className="text-[12px] text-white/70">{mySeat?.out ? "You're out of this match — watching" : mySeat?.dropped ? "You dropped — waiting for this deal" : mySeat?.wrong ? "Wrong show (80) — waiting for this deal" : v.queued ? "You'll join from the next game" : "Watching"}</div>
+                  ) : myTurn ? (
+                    <div className={`text-[13px] font-semibold ${secsTo(v.turn_ends) <= 8 ? "text-rose-400" : "text-neon-400"}`}>Your turn • {Math.ceil(secsTo(v.turn_ends))}s<div className="text-[11px] font-normal text-white/70">{v.phase === "draw" ? "Draw from Closed or Open" : "Discard a card, or declare"}</div></div>
+                  ) : v.turn !== null ? (
+                    <div className="text-[12px] text-white/75">{v.seats[v.turn]?.name}&apos;s turn • {Math.ceil(secsTo(v.turn_ends))}s</div>
+                  ) : null}
                 </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {playing && v && (
-          <div className="mt-2 text-center text-sm h-5">
-            {!inDeal ? (
-              <span className="text-white/60">{mySeat?.out ? "You're out of this match — watching" : mySeat?.dropped ? "You dropped — waiting for this deal to finish" : mySeat?.wrong ? "Wrong show (80 points) — waiting for this deal to finish" : v.queued ? "You'll join from the next game" : "Watching"}</span>
-            ) : myTurn ? (
-              <span className={secsTo(v.turn_ends) <= 8 ? "text-rose-400 font-semibold" : "text-neon-400"}>
-                Your turn • {v.phase === "draw" ? "draw from Closed or Open" : "select a card to discard, or declare"} • {Math.ceil(secsTo(v.turn_ends))}s
-              </span>
-            ) : v.turn !== null ? (
-              <span className="text-white/70">{v.seats[v.turn]?.name}&apos;s turn • {Math.ceil(secsTo(v.turn_ends))}s</span>
-            ) : null}
+              </>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* My hand */}
-      {v && mySeat && !mySeat.playing && v.status !== "waiting" && mySeat.action === "Not enough coins" ? (
-        <div className="text-center mt-8">
-          <div className="text-sm text-white/70">You need {inr(mode === "points" ? stake * 80 : stake)} to play this table</div>
-          <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-6 py-2.5 mt-2 text-sm">Get Coins</button>
-        </div>
-      ) : (
-        <div className={`px-2 mt-3 flex flex-wrap gap-x-3 gap-y-5 justify-center min-h-[130px] ${!inDeal && playing ? "opacity-40" : ""}`}>
-          {v?.status !== "waiting" && mySeat?.playing && cardGroups.map((g, gi) => (
-            <div key={gi} className="flex flex-col items-center">
-              <div className={`text-[11px] pill px-2 py-0.5 mb-2 ${sc.kinds[gi] === "invalid" ? "bg-rose-500/20 text-rose-300" : "bg-neon-400/15 text-neon-400"}`}>
-                {KIND_LABEL[sc.kinds[gi]]}{sc.kinds[gi] !== "invalid" ? " ✓" : ` • ${g.reduce((a, c) => a + cardPoints(c, wild), 0)}`}
+          {/* My hand: one row across the table */}
+          <div className="absolute inset-x-2 bottom-1 z-20">
+            {v && mySeat && !mySeat.playing && v.status !== "waiting" && mySeat.action === "Not enough coins" ? (
+              <div className="text-center bg-black/50 rounded-lg px-3 py-2 w-fit mx-auto">
+                <div className="text-[12px] text-white/75">You need {inr(mode === "points" ? stake * 80 : stake)} to play this table</div>
+                <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-5 py-1.5 mt-1.5 text-[12px]">Get Coins</button>
               </div>
-              <div className="flex pl-6">
-                {g.map((c) => (
-                  <PlayingCard key={c.id} card={c} size="md" selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className={`-ml-6 ${c.r === wild ? "outline-2 outline-gold-300" : ""}`} />
+            ) : (
+              <div className={`flex items-end justify-center gap-3 ${!inDeal && playing ? "opacity-40" : ""}`}>
+                {v?.status !== "waiting" && mySeat?.playing && cardGroups.map((g, gi) => (
+                  <div key={gi} className="flex flex-col items-center">
+                    <div className={`text-[10px] pill px-2 py-0.5 mb-1 whitespace-nowrap ${sc.kinds[gi] === "invalid" ? "bg-rose-500/25 text-rose-200" : "bg-neon-400/20 text-neon-300"}`}>
+                      {KIND_LABEL[sc.kinds[gi]]}{sc.kinds[gi] !== "invalid" ? " ✓" : ` • ${g.reduce((a, c) => a + cardPoints(c, wild), 0)}`}
+                    </div>
+                    <div className="flex pl-7">
+                      {g.map((c) => (
+                        <PlayingCard key={c.id} card={c} size="lg" selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className={`-ml-7 ${c.r === wild ? "outline-2 outline-gold-300" : ""}`} />
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
-          ))}
+            )}
+          </div>
         </div>
-      )}
 
-      {inDeal && v && (
-        <div className="px-3 mt-auto pt-4">
-          <div className="text-center text-[13px] text-white/50 mb-2">
-            Points in hand: <b className="text-white">{sc.points}</b>{sc.valid && <b className="text-neon-400"> • ready to declare</b>} • {v.my_cards?.length ?? 0} cards
-            {pool ? <> • You {mySeat?.score ?? 0}/{pool}</> : mode === "deals" ? <> • Chips {scoreText(mySeat!)}</> : <> • {inr(stake)}/pt</>}
-          </div>
-          <div className="grid grid-cols-5 gap-1.5 text-[13px]">
-            <button onClick={sortHand} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><ArrowDownUp size={15} />Sort</button>
-            <button onClick={makeGroup} className="btn-ghost rounded-xl py-2.5 flex flex-col items-center gap-0.5"><Layers size={15} />Group</button>
-            <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => act("discard", sel[0])} className="rounded-xl py-2.5 bg-sky-500 font-semibold disabled:opacity-40">Discard</button>
-            <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => setConfirm("drop")} className="rounded-xl py-2.5 bg-[#1b2350] border border-white/10 disabled:opacity-40">Drop</button>
-            <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => setConfirm("declare")} className="btn-green rounded-xl py-2.5">Declare</button>
-          </div>
-          {myTurn && v.phase === "discard" && <div className="text-center text-[12px] text-white/40 mt-2">To declare: arrange your groups, select the one card to put aside, then tap Declare.</div>}
+        {/* Action bar */}
+        <div className="h-14 shrink-0 flex items-center gap-2 px-3 bg-black/45 border-t border-white/10">
+          {inDeal && v ? (
+            <>
+              <div className="text-[11px] text-white/60 leading-tight mr-1">
+                Points <b className="text-white">{sc.points}</b>{sc.valid && <b className="text-neon-400"> • ready</b>}<br />
+                {pool ? <>You {mySeat?.score ?? 0}/{pool}</> : mode === "deals" ? <>Chips {scoreText(mySeat!)}</> : <>{inr(stake)}/pt</>}
+              </div>
+              <button onClick={sortHand} className="btn-ghost rounded-lg px-3 py-2 text-[12px] flex items-center gap-1"><ArrowDownUp size={14} />Sort</button>
+              <button onClick={makeGroup} className="btn-ghost rounded-lg px-3 py-2 text-[12px] flex items-center gap-1"><Layers size={14} />Group</button>
+              <div className="flex-1 text-center text-[11px] text-white/45">{myTurn && v.phase === "discard" ? "Declare: select the card to put aside, then Declare" : ""}</div>
+              <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => setConfirm("drop")} className="rounded-lg px-4 py-2.5 text-[13px] font-bold bg-[#8b1d2c] border border-white/15 disabled:opacity-40">Drop</button>
+              <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => act("discard", sel[0])} className="rounded-lg px-4 py-2.5 text-[13px] font-bold bg-sky-500 disabled:opacity-40">Discard</button>
+              <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => setConfirm("declare")} className="btn-green rounded-lg px-4 py-2.5 text-[13px] font-bold">Declare</button>
+            </>
+          ) : (
+            <div className="flex-1 text-center text-[13px] text-white/60">{mode !== "points" ? "Leaving mid-deal counts as a drop and forfeits the match" : `Cards are dealt by the server • ${turnSecs}s per move`}</div>
+          )}
         </div>
-      )}
-      <button onClick={leave} className="mx-auto mt-3 text-[13px] text-white/50 flex items-center gap-1"><LogOut size={12} /> Leave table{mode !== "points" && inDeal ? " (counts as a drop and forfeits the match)" : ""}</button>
+      </div>
+
 
       <Sheet open={confirm !== null} onClose={() => setConfirm(null)} title={confirm === "drop" ? "Drop this deal?" : "Declare?"}>
         {confirm === null ? null : confirm === "drop" ? (
@@ -419,6 +426,6 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           <div className="text-[12px] text-white/40 mt-2">Platform fee {res.rake}%</div>
         </ResultSheet>
       )}
-    </div>
+    </LandscapeStage>
   );
 }

@@ -156,3 +156,30 @@ body {
   box-shadow: inset 0 -2px 0 rgba(120, 53, 15, 0.45), 0 2px 4px rgba(0, 0, 0, 0.45);
   border: 1px solid #b45309;
 }
+
+/* Landscape card tables (LandscapeStage) */
+.table-room {
+  background:
+    radial-gradient(70% 60% at 50% 45%, #3b1f6b 0%, #23124a 45%, #120a2a 100%);
+}
+.stage-rotated {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  width: 100vh;
+  height: 100vw;
+  width: 100dvh;
+  height: 100dvw;
+  transform-origin: top left;
+  transform: rotate(90deg);
+}
+.felt-oval {
+  border-radius: 50%;
+  background: radial-gradient(60% 60% at 50% 40%, #2fae7a 0%, #1d8a5d 50%, #12623f 100%);
+  box-shadow:
+    inset 0 0 50px rgba(0, 0, 0, 0.5),
+    0 0 0 9px #4a2a12,
+    0 0 0 12px #8a5a2b,
+    0 0 0 14px #2a170a,
+    0 25px 50px rgba(0, 0, 0, 0.6);
+}

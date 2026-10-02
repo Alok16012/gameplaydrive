@@ -16,7 +16,7 @@ export function PlayingCard({
   style,
 }: {
   card?: Card;
-  size?: "xs" | "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
   faceDown?: boolean;
   selected?: boolean;
   onClick?: () => void;
@@ -28,6 +28,7 @@ export function PlayingCard({
     sm: "w-9 h-12 text-[11px] rounded-md",
     md: "w-12 h-[68px] text-sm rounded-lg",
     lg: "w-16 h-[90px] text-lg rounded-lg",
+    xl: "w-[74px] h-[104px] text-2xl rounded-xl",
   }[size];
   if (faceDown || !card) {
     return (
