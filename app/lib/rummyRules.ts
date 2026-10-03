@@ -48,10 +48,15 @@ export function scoreGroups(groups: Card[][], wild: string): { points: number; v
   const pure = kinds.filter((k) => k === "pure").length;
   const seqs = kinds.filter((k) => k === "pure" || k === "impure").length;
   const sum = (gs: Card[][]) => gs.flat().reduce((a, c) => a + cardPoints(c, wild), 0);
+  const count = groups.reduce((a, g) => a + g.length, 0);
+  // 21 Card Rummy (the hand size picks the rules): 3 pure sequences needed; without them every card counts; max 120.
+  if (count >= 20) {
+    const points = pure < 3 ? sum(groups) : sum(groups.filter((_, i) => kinds[i] === "invalid"));
+    return { points: Math.min(points, 120), valid: count === 21 && pure >= 3 && kinds.every((k) => k !== "invalid"), kinds };
+  }
   let points: number;
   if (pure === 0) points = sum(groups);
   else if (seqs < 2) points = sum(groups.filter((_, i) => kinds[i] !== "pure"));
   else points = sum(groups.filter((_, i) => kinds[i] === "invalid"));
-  const count = groups.reduce((a, g) => a + g.length, 0);
   return { points: Math.min(points, 80), valid: count === 13 && pure >= 1 && seqs >= 2 && kinds.every((k) => k !== "invalid"), kinds };
 }

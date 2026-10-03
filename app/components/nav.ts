@@ -10,7 +10,7 @@ export type Route =
   | { name: "casino"; game: GameId }
   | { name: "aviator" }
   | { name: "cardtable"; game: GameId; table: string; buyIn: number }
-  | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number } // buyIn = point value (points) or entry fee
+  | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number; cards?: 13 | 21 } // buyIn = point value (points) or entry fee
   | { name: "board"; game: GameId; table: string; buyIn: number }
   | { name: "wallet" }
   | { name: "addcash" } // "Get coins": coins come from your agent

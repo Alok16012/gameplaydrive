@@ -10,7 +10,7 @@ import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
 import type { Nav, RummyMode } from "../nav";
 
-const SERVER_GAMES: GameId[] = ["teen-patti", "rummy"];
+const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 
 export function openGame(nav: Nav, game: Game) {
   if (game.kind === "aviator") nav.push({ name: "aviator" });
@@ -47,7 +47,12 @@ export function Home({ nav }: { nav: Nav }) {
   useEffect(() => {
     const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
     getTeenPattiLobby().then((d) => setLive((l) => ({ ...l, "teen-patti": sum(d) })));
-    supabase().rpc("lobby_counts").then(({ data }) => { if (data) setLive((l) => ({ ...l, rummy: sum((data as Record<string, Record<string, number>>).rummy) })); });
+    supabase().rpc("lobby_counts").then(({ data }) => {
+      if (!data) return;
+      const rm = (data as Record<string, Record<string, number>>).rummy ?? {};
+      const pick = (big: boolean) => Object.fromEntries(Object.entries(rm).filter(([k]) => k.endsWith(":21") === big));
+      setLive((l) => ({ ...l, rummy: sum(pick(false)), rummy21: sum(pick(true)) }));
+    });
   }, []);
   const unread = NOTIFICATIONS.filter((n) => n.unread).length;
   return (
@@ -160,7 +165,7 @@ const RUMMY_STAKES: Record<RummyMode, number[]> = {
   deals: [10, 25, 50, 100, 250, 500, 1000],
 };
 
-const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1 };
+const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1, rummy21: 1 };
 
 export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
@@ -173,7 +178,9 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [localCode] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
   const m = MULT[gameId] ?? 1;
-  const rummy = gameId === "rummy";
+  const rummy = gameId === "rummy" || gameId === "rummy21";
+  const cards: 13 | 21 = gameId === "rummy21" ? 21 : 13;
+  const maxPts = cards === 21 ? 120 : 80;
   const online = SERVER_GAMES.includes(gameId);
   const [mode, setMode] = useState<RummyMode>("points");
   const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
@@ -182,7 +189,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const tables = base
     .map((t, i) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: rummy && mode === "deals" ? (i % 2 ? 3 : 2) : 0 }))
     .filter((t) => stake === "All" || t.stake === stake);
-  const countKey = (buyIn: number, deals: number) => (rummy ? `${mode}:${buyIn}:${deals}` : String(buyIn));
+  const countKey = (buyIn: number, deals: number) => (rummy ? `${mode}:${buyIn}:${deals}${cards === 21 ? ":21" : ""}` : String(buyIn));
 
   // Real players seated right now, per table type (server games only).
   useEffect(() => {
@@ -190,14 +197,14 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     const load = () =>
       gameId === "teen-patti"
         ? getTeenPattiLobby().then(setCounts)
-        : supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[gameId] ?? {}));
+        : supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[rummy ? "rummy" : gameId] ?? {}));
     load();
     const t = setInterval(load, gameId === "teen-patti" ? 5000 : 10000);
     return () => clearInterval(t);
   }, [online, gameId]);
 
   const join = (table: string, buyIn: number, deals?: number) => {
-    if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn, mode, deals });
+    if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn, mode, deals, cards });
     else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn });
     else nav.push({ name: "cardtable", game: game.id, table, buyIn });
   };
@@ -209,7 +216,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     try {
       const code = gameId === "teen-patti"
         ? await createTeenPattiPrivate(privEntries[privStake])
-        : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privEntries[privStake], p_deals: mode === "deals" ? 2 : 0 }).then(({ data, error }) => { if (error) throw error; return data as string; });
+        : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privEntries[privStake], p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
       setPriv(false);
       join(`P-${code}`, privEntries[privStake], mode === "deals" ? 2 : 0);
     } catch (e) {
@@ -243,7 +250,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                 <button key={k} onClick={() => { setMode(k); setPrivStake(1); }} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
               ))}
             </div>
-            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about}</div>
+            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards each from three decks; declare with 3 pure sequences." : ""}</div>
           </>
         )}
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
@@ -267,7 +274,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                   </div>
                   <div className="text-[11px] text-[var(--ink-soft)]">
                     {online
-                      ? <>{real > 0 ? <span className="text-neon-400">{real} playing now</span> : "Be the first"}{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * 80)}` : ""}</>
+                      ? <>{real > 0 ? <span className="text-neon-400">{real} playing now</span> : "Be the first"}{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * maxPts)}` : ""}</>
                       : <>{t.seated}/{t.seats} Players • {inr(t.buyIn)} Entry</>}
                   </div>
                 </div>

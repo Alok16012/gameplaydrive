@@ -11,7 +11,7 @@ import { BotTag, ResultSheet, TimerAvatar } from "./bots";
 import { LandscapeStage } from "./LandscapeStage";
 import type { Nav, RummyMode } from "../nav";
 
-// 13 Card Rummy on the game server (supabase/migrations/003_teen_patti_rummy.sql). The server deals from two
+// 13 and 21 Card Rummy on the game server (migrations 003 and 011). The server deals from two (21 cards: three)
 // decks, runs every player's 30 s clock, validates declarations, scores hands, plays the bots and settles coins.
 // This screen renders the table, keeps your own card arrangement (saved to the server so it counts if someone
 // else declares) and sends actions.
@@ -33,7 +33,9 @@ interface View {
 
 const dropPts = (mode: RummyMode, middle: boolean) => (mode === "pool201" ? (middle ? 50 : 25) : middle ? 40 : 20);
 
-export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: askedDeals, code }: { nav: Nav; mode: RummyMode; stake: number; deals: number; code?: string }) {
+export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: askedDeals, code, cards = 13 }: { nav: Nav; mode: RummyMode; stake: number; deals: number; code?: string; cards?: 13 | 21 }) {
+  const maxPts = cards === 21 ? 120 : 80;
+  const gameName = cards === 21 ? "21 Card Rummy" : "Rummy";
   const { total, showToast, applyBalance } = useStore();
   const [v, setV] = useState<View | null>(null);
   const [err, setErr] = useState("");
@@ -78,7 +80,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     const sb = supabase();
     let channel: ReturnType<typeof sb.channel> | null = null;
     (async () => {
-      const { data, error } = await joinOnce("rm_join", { p_mode: askedMode, p_stake: askedStake, p_deals: askedMode === "deals" ? askedDeals : 0, p_code: code ?? null });
+      const { data, error } = await joinOnce("rm_join", { p_mode: askedMode, p_stake: askedStake, p_deals: askedMode === "deals" ? askedDeals : 0, p_code: code ?? null, p_cards: cards });
       if (!alive) return;
       if (error) return setErr(errText(error));
       tableId.current = data as string;
@@ -175,7 +177,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   if (err && !v) {
     return (
       <div className="min-h-dvh flex flex-col fadein">
-        <Header title="Rummy" sub={MODE_LABEL[askedMode]} onBack={leave} />
+        <Header title={gameName} sub={MODE_LABEL[askedMode]} onBack={leave} />
         <div className="flex-1 grid place-items-center px-6 text-center">
           <div>
             <div className="text-sm text-white/80">{err}</div>
@@ -229,7 +231,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         <div className="h-11 shrink-0 flex items-center gap-2 px-3 bg-black/30">
           <button onClick={leave} aria-label="Leave table" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
           <div className="leading-tight">
-            <div className="text-sm font-semibold">Rummy • {MODE_LABEL[mode]}{mode === "deals" ? ` ×${deals}` : ""}</div>
+            <div className="text-sm font-semibold">{gameName} • {MODE_LABEL[mode]}{mode === "deals" ? ` ×${deals}` : ""}</div>
             <div className="text-[11px] text-white/60">{stakeText}{v?.deal_no && mode !== "points" ? ` • Deal ${v.deal_no}` : ""} • {humans} real player{humans === 1 ? "" : "s"}</div>
           </div>
           {v?.code && (
@@ -300,7 +302,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 )}
                 <div className="text-center w-36">
                   {!inDeal ? (
-                    <div className="text-[12px] text-white/70">{mySeat?.out ? "You're out of this match — watching" : mySeat?.dropped ? "You dropped — waiting for this deal" : mySeat?.wrong ? "Wrong show (80) — waiting for this deal" : v.queued ? "You'll join from the next game" : "Watching"}</div>
+                    <div className="text-[12px] text-white/70">{mySeat?.out ? "You're out of this match — watching" : mySeat?.dropped ? "You dropped — waiting for this deal" : mySeat?.wrong ? `Wrong show (${maxPts}) — waiting for this deal` : v.queued ? "You'll join from the next game" : "Watching"}</div>
                   ) : myTurn ? (
                     <div className={`text-[13px] font-semibold ${secsTo(v.turn_ends) <= 8 ? "text-rose-400" : "text-neon-400"}`}>Your turn • {Math.ceil(secsTo(v.turn_ends))}s<div className="text-[11px] font-normal text-white/70">{v.phase === "draw" ? "Draw from Closed or Open" : "Discard a card, or declare"}</div></div>
                   ) : v.turn !== null ? (
@@ -315,7 +317,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           <div className="absolute inset-x-2 bottom-1 z-20">
             {v && mySeat && !mySeat.playing && v.status !== "waiting" && mySeat.action === "Not enough coins" ? (
               <div className="text-center bg-black/50 rounded-lg px-3 py-2 w-fit mx-auto">
-                <div className="text-[12px] text-white/75">You need {inr(mode === "points" ? stake * 80 : stake)} to play this table</div>
+                <div className="text-[12px] text-white/75">You need {inr(mode === "points" ? stake * maxPts : stake)} to play this table</div>
                 <button onClick={() => nav.push({ name: "addcash" })} className="btn-green pill px-5 py-1.5 mt-1.5 text-[12px]">Get Coins</button>
               </div>
             ) : (
@@ -325,9 +327,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                     <div className={`text-[10px] pill px-2 py-0.5 mb-1 whitespace-nowrap ${sc.kinds[gi] === "invalid" ? "bg-rose-500/25 text-rose-200" : "bg-neon-400/20 text-neon-300"}`}>
                       {KIND_LABEL[sc.kinds[gi]]}{sc.kinds[gi] !== "invalid" ? " ✓" : ` • ${g.reduce((a, c) => a + cardPoints(c, wild), 0)}`}
                     </div>
-                    <div className="flex pl-7">
+                    <div className={`flex ${cards === 21 ? "pl-6" : "pl-7"}`}>
                       {g.map((c) => (
-                        <PlayingCard key={c.id} card={c} size="lg" selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className={`-ml-7 ${c.r === wild ? "outline-2 outline-gold-300" : ""}`} />
+                        <PlayingCard key={c.id} card={c} size={cards === 21 ? "md" : "lg"} selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className={`${cards === 21 ? "-ml-6" : "-ml-7"} ${c.r === wild ? "outline-2 outline-gold-300" : ""}`} />
                       ))}
                     </div>
                   </div>
@@ -373,8 +375,8 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             {(() => {
               const d = scoreGroups(declareGroups().map((g) => g.map((id) => byId.get(id)).filter(Boolean) as RCard[]), wild);
               return d.valid
-                ? <>Your 13 cards form a valid hand. The selected card goes to the open pile.</>
-                : <span className="text-rose-300">These groups are not a valid declaration. A wrong show costs 80 points.</span>;
+                ? <>Your {cards} cards form a valid hand. The selected card goes to the open pile.</>
+                : <span className="text-rose-300">These groups are not a valid declaration{cards === 21 ? " (21 cards need 3 pure sequences)" : ""}. A wrong show costs {maxPts} points.</span>;
             })()}
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button onClick={() => setConfirm(null)} className="btn-ghost py-3 rounded-2xl">Cancel</button>

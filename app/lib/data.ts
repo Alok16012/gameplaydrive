@@ -14,7 +14,8 @@ export type GameId =
   | "ludo"
   | "carrom"
   | "chess"
-  | "aviator";
+  | "aviator"
+  | "rummy21";
 
 export interface Game {
   id: GameId;
@@ -33,6 +34,7 @@ export interface Game {
 
 export const GAMES: Game[] = [
   { id: "rummy", name: "Rummy", tag: "13 Cards", meta: "13 Card • 2-6 Players", category: "card", kind: "rummy", from: "#4b4fc4", to: "#1d2170", glow: "#5b61ff", players: "2-6", online: 12480, phase: 2 },
+  { id: "rummy21", name: "21 Card Rummy", tag: "21 Cards", meta: "21 Card • 2-6 Players", category: "card", kind: "rummy", from: "#0f766e", to: "#0b2a3d", glow: "#2dd4bf", players: "2-6", online: 6930, phase: 3 },
   { id: "teen-patti", name: "Teen Patti", tag: "3 Cards", meta: "3 Card • 2-6 Players", category: "card", kind: "cardtable", from: "#d42f36", to: "#6d0e14", glow: "#ff4d57", players: "2-6", online: 18230, phase: 2 },
   { id: "andar-bahar", name: "Andar Bahar", tag: "Casino Style", meta: "Casino Style • 2-7 Players", category: "casino", kind: "casino", from: "#c98a1f", to: "#5e3606", glow: "#ffb13b", players: "2-7", online: 6410, phase: 1 },
   { id: "dragon-tiger", name: "Dragon Tiger", tag: "Casino Style", meta: "Casino Style • 2-7 Players", category: "casino", kind: "casino", from: "#7b35c9", to: "#2e0f5c", glow: "#a45cff", players: "2-7", online: 9120, phase: 1 },
