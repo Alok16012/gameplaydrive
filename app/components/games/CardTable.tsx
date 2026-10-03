@@ -75,13 +75,18 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   if (!g.current) g.current = fresh(pickBots(BOTS).map(seat));
   const [, bump] = useReducer((x: number) => x + 1, 0);
   const [lowBal, setLowBal] = useState(false);
+  const [raising, setRaising] = useState(false); // poker: raise amount picker open
+  const [raiseAmt, setRaiseAmt] = useState(0);
   const s = g.current;
   const label = `${game.name} • Table #${table}`;
 
   const score = (cards: Card[]) => (poker ? pokerScore([...cards, ...s.community]) : teenPattiScore(cards));
-  const handName = (cards: Card[]) => {
+  // Poker: only the board cards turned up so far count (pre-flop none, flop 3, turn 4, river/showdown 5) — the
+  // hand name must never give away cards that are still face down.
+  const visibleBoard = () => s.community.slice(0, s.stage >= 3 ? 5 : s.stage === 2 ? 4 : s.stage === 1 ? 3 : 0);
+  const handName = (cards: Card[], all = false) => {
     if (poker) {
-      const sc = pokerScore([...cards, ...s.community]);
+      const sc = pokerScore([...cards, ...(all ? s.community : visibleBoard())]);
       return sc[0] < 0 ? (cards[0].r === cards[1].r ? "Pocket Pair" : "High Card") : POKER_NAMES[sc[0]];
     }
     return TP_NAMES[teenPattiScore(cards)[0]];
@@ -150,7 +155,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       const b = score(best === "me" ? st.me.cards : st.bots[best].cards);
       if (compare(a, b) > 0) best = c;
     }
-    finish(best, handName(best === "me" ? st.me.cards : st.bots[best].cards));
+    finish(best, handName(best === "me" ? st.me.cards : st.bots[best].cards, true));
   };
 
   const botsTurn = async () => {
@@ -219,6 +224,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     bump();
   };
 
+  // Poker raise limits: at least double the current bet (or 2 × boot), at most what you hold (capped at 100 × boot).
+  const minRaise = () => Math.max(s.stake * 2, buyIn * 2);
+  const maxRaise = () => Math.max(minRaise(), Math.min(total, buyIn * 100));
+
   const pay = (amt: number) => {
     if (amt > 0 && !debit(amt, label)) {
       showToast("Not enough balance");
@@ -229,7 +238,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     return true;
   };
 
-  const act = (kind: "pack" | "see" | "chaal" | "raise" | "show") => {
+  const act = (kind: "pack" | "see" | "chaal" | "raise" | "show", raiseTo?: number) => {
     if (s.phase !== "playing" || s.turn !== "me" || s.busy) return;
     if (kind === "see") {
       s.me.seen = true;
@@ -241,7 +250,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       bump();
       return botsTurn();
     }
-    if (kind === "raise") s.stake = poker ? Math.max(s.stake * 2, buyIn * 2) : s.stake * 2;
+    if (kind === "raise") s.stake = poker ? Math.max(raiseTo ?? 0, minRaise()) : s.stake * 2;
+    setRaising(false);
     const amt = poker ? s.stake : s.me.seen ? s.stake * 2 : s.stake;
     if (!pay(amt)) return;
     if (kind === "show") return showdown();
@@ -437,11 +447,29 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         {/* Actions */}
         {s.phase !== "idle" && (
           <div className="mt-auto pt-3">
+            {poker && raising && myTurn && (
+              <div className="card p-3 mb-2.5 fadein">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-white/60">Raise to</span>
+                  <b className="text-gold-300 text-base">🪙 {raiseAmt.toLocaleString("en-IN")}</b>
+                </div>
+                <input type="range" min={minRaise()} max={maxRaise()} step={buyIn} value={raiseAmt} onChange={(e) => setRaiseAmt(Number(e.target.value))} className="w-full mt-2 accent-[#4ade80]" />
+                <div className="grid grid-cols-4 gap-1.5 mt-2">
+                  {[["Min", minRaise()], ["2×", minRaise() * 2], ["Pot", Math.max(minRaise(), s.pot)], ["All in", maxRaise()]].map(([l, v]) => (
+                    <button key={l as string} onClick={() => setRaiseAmt(Math.min(maxRaise(), v as number))} className="pill bg-white/10 py-1.5 text-[11px]">{l}</button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2.5">
+                  <button onClick={() => setRaising(false)} className="btn-ghost rounded-full py-2.5 text-sm">Cancel</button>
+                  <button onClick={() => act("raise", raiseAmt)} className="btn-green rounded-full py-2.5 text-sm">Raise 🪙 {raiseAmt.toLocaleString("en-IN")}</button>
+                </div>
+              </div>
+            )}
             {poker ? (
               <div className="grid grid-cols-3 gap-2.5">
                 <button disabled={!myTurn} onClick={() => act("pack")} className="rounded-full py-3 text-sm font-semibold bg-[#1b2350] border border-white/10 disabled:opacity-40">Fold</button>
                 <button disabled={!myTurn} onClick={() => act("chaal")} className="rounded-full py-3 text-sm font-semibold bg-sky-500 disabled:opacity-40">{s.stake ? `Call 🪙 ${chaalAmt}` : "Check"}</button>
-                <button disabled={!myTurn} onClick={() => act("raise")} className="btn-green rounded-full py-3 text-sm">Raise</button>
+                <button disabled={!myTurn || total < minRaise()} onClick={() => { setRaiseAmt(minRaise()); setRaising((r) => !r); }} className="btn-green rounded-full py-3 text-sm">Raise</button>
               </div>
             ) : (
               <div className="space-y-2">

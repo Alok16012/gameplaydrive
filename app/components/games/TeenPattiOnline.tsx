@@ -116,7 +116,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
     };
     const off = gameSocket.on(onMsg);
     gameSocket.connect();
-    gameSocket.send({ t: "tp_join", boot: buyIn, code: code ?? undefined });
+    gameSocket.resume({ t: "tp_join", boot: buyIn, code: code ?? undefined });
     return () => { alive = false; off(); gameSocket.disconnect(); };
   }, [buyIn, code, take, showToast]);
 
@@ -135,6 +135,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   }, [v?.status, v?.hand_no, v?.result]);
 
   const leave = () => {
+    gameSocket.resume(null);
     gameSocket.send({ t: "tp_leave" });
     nav.back();
   };

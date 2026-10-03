@@ -186,8 +186,13 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
   const base = rummy ? RUMMY_TABLES : TABLES;
+  // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
+  // show 2…seats-1 already seated (1 for 2-player games), drifting a little every few seconds like a real lobby.
+  const [drift, setDrift] = useState(0);
+  useEffect(() => { const t = setInterval(() => setDrift((d) => d + 1), 7000); return () => clearInterval(t); }, []);
+  const practiceSeated = (i: number) => (seats <= 2 ? 1 : 2 + ((i * 5 + drift * (i % 2 ? 1 : 2)) % (seats - 2)));
   const tables = base
-    .map((t, i) => ({ ...t, seats, seated: Math.min(t.seated, seats), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: rummy && mode === "deals" ? (i % 2 ? 3 : 2) : 0 }))
+    .map((t, i) => ({ ...t, seats, seated: online ? t.seated : practiceSeated(i), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: rummy && mode === "deals" ? (i % 2 ? 3 : 2) : 0 }))
     .filter((t) => stake === "All" || t.stake === stake);
   const countKey = (buyIn: number, deals: number) => (rummy ? `${mode}:${buyIn}:${deals}${cards === 21 ? ":21" : ""}` : String(buyIn));
 
@@ -263,7 +268,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         <div className="mt-4 card divide-y divide-white/5">
           {tables.map((t, i) => {
             const real = counts[countKey(t.buyIn, t.deals)] ?? 0;
-            const full = !online && t.seated >= t.seats;
+            const full = false;
             return (
               <div key={t.id} className="flex items-center gap-3 p-3.5">
                 <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i]} />

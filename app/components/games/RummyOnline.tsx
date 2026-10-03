@@ -214,8 +214,17 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     arrange(suits.map((s) => all.filter((c) => c.s === s && c.r !== wild).sort((a, b) => low(a) - low(b)).map((c) => c.id)).concat([all.filter((c) => c.r === wild).map((c) => c.id)]).filter((g) => g.length));
     setSel([]);
   };
+  // Move the selected cards into an existing group (tap a card or two, then "Move here" on the target group).
+  const moveTo = (gi: number) => {
+    if (!sel.length) return;
+    const target = groups[gi];
+    const rest = groups.map((g, i) => (i === gi ? g : g.filter((id) => !sel.includes(id))));
+    rest[gi] = [...target.filter((id) => !sel.includes(id)), ...sel];
+    arrange(rest.filter((g) => g.length));
+    setSel([]);
+  };
   const makeGroup = () => {
-    if (sel.length < 2) return showToast("Select 2 or more cards to group");
+    if (!sel.length) return showToast("Select cards first, then tap Group");
     arrange([...groups.map((g) => g.filter((id) => !sel.includes(id))).filter((g) => g.length), sel]);
     setSel([]);
   };
@@ -324,9 +333,13 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               <div className={`flex items-end justify-center gap-3 ${!inDeal && playing ? "opacity-40" : ""}`}>
                 {v?.status !== "waiting" && mySeat?.playing && cardGroups.map((g, gi) => (
                   <div key={gi} className="flex flex-col items-center">
-                    <div className={`text-[10px] pill px-2 py-0.5 mb-1 whitespace-nowrap ${sc.kinds[gi] === "invalid" ? "bg-rose-500/25 text-rose-200" : "bg-neon-400/20 text-neon-300"}`}>
-                      {KIND_LABEL[sc.kinds[gi]]}{sc.kinds[gi] !== "invalid" ? " ✓" : ` • ${g.reduce((a, c) => a + cardPoints(c, wild), 0)}`}
-                    </div>
+                    {sel.length > 0 && !g.every((c) => sel.includes(c.id)) ? (
+                      <button onClick={() => moveTo(gi)} className="text-[11px] font-semibold pill px-2.5 py-0.5 mb-1 whitespace-nowrap bg-sky-500 text-white animate-pulse">⤵ Move here</button>
+                    ) : (
+                      <div className={`text-[10px] pill px-2 py-0.5 mb-1 whitespace-nowrap ${sc.kinds[gi] === "invalid" ? "bg-rose-500/25 text-rose-200" : "bg-neon-400/20 text-neon-300"}`}>
+                        {KIND_LABEL[sc.kinds[gi]]}{sc.kinds[gi] !== "invalid" ? " ✓" : ` • ${g.reduce((a, c) => a + cardPoints(c, wild), 0)}`}
+                      </div>
+                    )}
                     <div className={`flex ${cards === 21 ? "pl-6" : "pl-7"}`}>
                       {g.map((c) => (
                         <PlayingCard key={c.id} card={c} size={cards === 21 ? "md" : "lg"} selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className={`${cards === 21 ? "-ml-6" : "-ml-7"} ${c.r === wild ? "outline-2 outline-gold-300" : ""}`} />
@@ -349,7 +362,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               </div>
               <button onClick={sortHand} className="btn-ghost rounded-lg px-3 py-2 text-[12px] flex items-center gap-1"><ArrowDownUp size={14} />Sort</button>
               <button onClick={makeGroup} className="btn-ghost rounded-lg px-3 py-2 text-[12px] flex items-center gap-1"><Layers size={14} />Group</button>
-              <div className="flex-1 text-center text-[11px] text-white/45">{myTurn && v.phase === "discard" ? "Declare: select the card to put aside, then Declare" : ""}</div>
+              <div className="flex-1 text-center text-[11px] text-white/45">{sel.length ? "Tap “Move here” on a group, or Group to make a new one" : myTurn && v.phase === "discard" ? "Declare: select the card to put aside, then Declare" : "Tap cards to select & move them"}</div>
               <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => setConfirm("drop")} className="rounded-lg px-4 py-2.5 text-[13px] font-bold bg-[#8b1d2c] border border-white/15 disabled:opacity-40">Drop</button>
               <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => act("discard", sel[0])} className="rounded-lg px-4 py-2.5 text-[13px] font-bold bg-sky-500 disabled:opacity-40">Discard</button>
               <button disabled={!myTurn || v.phase !== "discard" || sel.length !== 1 || busy} onClick={() => setConfirm("declare")} className="btn-green rounded-lg px-4 py-2.5 text-[13px] font-bold">Declare</button>
