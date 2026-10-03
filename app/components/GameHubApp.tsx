@@ -18,6 +18,9 @@ import { TeenPattiOnline } from "./games/TeenPattiOnline";
 import { RummyOnline } from "./games/RummyOnline";
 import { BoardGame } from "./games/Board";
 import { Aviator } from "./games/Aviator";
+import { Roulette } from "./games/Roulette";
+import { Blackjack } from "./games/Blackjack";
+import { Plinko } from "./games/Plinko";
 
 const TAB_OF: Partial<Record<Route["name"], Tab>> = { home: "home", games: "games", wallet: "wallet", more: "more" };
 
@@ -77,6 +80,9 @@ function Shell() {
     case "games": screen = <Games nav={nav} initial={route.category} />; break;
     case "lobby": screen = <Lobby nav={nav} gameId={route.game} />; break;
     case "aviator": screen = <Aviator nav={nav} />; break;
+    case "roulette": screen = <Roulette nav={nav} />; break;
+    case "blackjack": screen = <Blackjack nav={nav} />; break;
+    case "plinko": screen = <Plinko nav={nav} />; break;
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"
       ? <TeenPattiOnline key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />

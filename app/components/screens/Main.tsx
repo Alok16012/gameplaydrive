@@ -13,7 +13,7 @@ import type { Nav, RummyMode } from "../nav";
 const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 
 export function openGame(nav: Nav, game: Game) {
-  if (game.kind === "aviator") nav.push({ name: "aviator" });
+  if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
 }
@@ -122,7 +122,7 @@ export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | 
       />
       <div className="px-4">
         {q !== null ? (
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search 9 games…" className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${GAMES.length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
         ) : (
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             {([["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
@@ -173,7 +173,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [stake, setStake] = useState<"All" | Stake>("All");
   const [priv, setPriv] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [privStake, setPrivStake] = useState(1);
+  const [privAmt, setPrivAmt] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [localCode] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
@@ -185,6 +185,10 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [mode, setMode] = useState<RummyMode>("points");
   const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
+  // Private tables take any amount the creator picks (checked again by the server).
+  const privMin = rummy && mode !== "points" ? 10 : 1;
+  const privMax = rummy && mode === "points" ? 100 : 10000;
+  const privStake = privAmt === "" ? privEntries[1] : Number(privAmt);
   const base = rummy ? RUMMY_TABLES : TABLES;
   // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
   // show 2…seats-1 already seated (1 for 2-player games), drifting a little every few seconds like a real lobby.
@@ -217,13 +221,16 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Private tables: create one (you get an invite code) or join a friend's by code. Teen Patti tables are
   // created on the game server (Railway); Rummy still goes through Supabase until it moves over too.
   const createPrivate = async () => {
+    if (!Number.isInteger(privStake) || privStake < privMin || privStake > privMax) {
+      return showToast(`Pick ${inr(privMin)} to ${inr(privMax)}${rummy && mode === "points" ? " per point" : ""}`);
+    }
     setBusy(true);
     try {
       const code = gameId === "teen-patti"
-        ? await createTeenPattiPrivate(privEntries[privStake])
-        : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privEntries[privStake], p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
+        ? await createTeenPattiPrivate(privStake)
+        : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privStake, p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
       setPriv(false);
-      join(`P-${code}`, privEntries[privStake], mode === "deals" ? 2 : 0);
+      join(`P-${code}`, privStake, mode === "deals" ? 2 : 0);
     } catch (e) {
       showToast(errText(e));
     }
@@ -252,7 +259,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
           <>
             <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-white/5 mb-2">
               {(Object.keys(RUMMY_MODES) as RummyMode[]).map((k) => (
-                <button key={k} onClick={() => { setMode(k); setPrivStake(1); }} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
+                <button key={k} onClick={() => { setMode(k); setPrivAmt(""); }} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
               ))}
             </div>
             <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards each from three decks; declare with 3 pure sequences." : ""}</div>
@@ -303,9 +310,22 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             <div className="text-sm text-[var(--ink-soft)]">Play with friends only — no bots. A game starts when at least 2 players are in.</div>
             <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy ? "Entry" : "Boot"}</div>
             <div className="grid grid-cols-3 gap-2 mt-2">
-              {privEntries.map((b, i) => (
-                <button key={b} onClick={() => setPrivStake(i)} className={`card py-3 text-center text-sm ${privStake === i ? "ring-2 ring-neon-400" : ""}`}>{inr(b)}</button>
+              {privEntries.map((b) => (
+                <button key={b} onClick={() => setPrivAmt(String(b))} className={`card py-3 text-center text-sm ${privStake === b ? "ring-2 ring-neon-400" : ""}`}>{inr(b)}</button>
               ))}
+            </div>
+            <label className="card mt-2 px-4 py-2.5 flex items-center gap-2">
+              <span className="text-xs text-white/60 shrink-0">Custom 🪙</span>
+              <input
+                value={privAmt}
+                inputMode="numeric"
+                placeholder={`${privMin} – ${privMax.toLocaleString("en-IN")}`}
+                onChange={(e) => setPrivAmt(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="flex-1 min-w-0 bg-transparent outline-none text-right font-semibold"
+              />
+            </label>
+            <div className="text-[11px] text-white/45 mt-1.5">
+              {rummy && mode === "points" ? `Buy-in ${inr(privStake * maxPts)} (${maxPts} points max). ` : ""}You set the amount — friends who join with your code play at it.
             </div>
             <button disabled={busy} onClick={createPrivate} className="btn-green w-full py-3.5 rounded-2xl mt-4">{busy ? "Creating…" : "Create & get invite code"}</button>
             <div className="flex items-center gap-3 my-5 text-xs text-white/40"><div className="flex-1 h-px bg-white/10" />or join a friend<div className="flex-1 h-px bg-white/10" /></div>

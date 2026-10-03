@@ -29,6 +29,18 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
   switch (id) {
     case "rummy":
       return scale(<Fan size={size} cards={[{ r: "A", s: "♠" }, { r: "A", s: "♥" }, { r: "A", s: "♠" }]} />);
+    case "rummy21":
+      return scale(
+        <div className="relative">
+          <Fan size={size} cards={[{ r: "8", s: "♦" }, { r: "9", s: "♦" }, { r: "10", s: "♦" }]} />
+          <span
+            className="absolute -right-3 -bottom-1 pill px-1.5 text-[11px] font-extrabold leading-[18px] text-slate-900"
+            style={{ background: "linear-gradient(180deg,#fef08a,#f59e0b)", boxShadow: "0 2px 6px rgba(0,0,0,.5)" }}
+          >
+            21
+          </span>
+        </div>,
+      );
     case "teen-patti":
       return scale(<Fan size={size} cards={[{ r: "A", s: "♥" }, { r: "A", s: "♠" }, { r: "A", s: "♦" }]} />);
     case "poker":
@@ -82,6 +94,36 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
       return <span style={{ fontSize: 44 * s, lineHeight: 1, color: "#f8fafc", filter: "drop-shadow(0 4px 6px rgba(0,0,0,.6))" }}>♞</span>;
     case "aviator":
       return <span style={{ fontSize: 40 * s, lineHeight: 1, display: "inline-block", transform: "rotate(-12deg)", filter: "drop-shadow(0 4px 8px rgba(0,0,0,.55))" }}>✈️</span>;
+    case "roulette":
+      return (
+        <div
+          className="rounded-full grid place-items-center"
+          style={{
+            width: 48 * s,
+            height: 48 * s,
+            background: "radial-gradient(circle,#fbbf24 0 14%,#78350f 15% 40%,transparent 41%), repeating-conic-gradient(#dc2626 0 10deg,#111827 10deg 20deg)",
+            border: `${3 * s}px solid #a16207`,
+            boxShadow: "0 5px 12px rgba(0,0,0,.5)",
+          }}
+        />
+      );
+    case "blackjack":
+      return scale(<Fan size={size} cards={[{ r: "A", s: "♠" }, { r: "K", s: "♥" }]} />);
+    case "plinko":
+      return (
+        <div className="relative" style={{ width: 52 * s, height: 46 * s }}>
+          {[1, 2, 3, 4].map((row) =>
+            Array.from({ length: row + 1 }, (_, i) => (
+              <span
+                key={`${row}-${i}`}
+                className="absolute rounded-full bg-white/85"
+                style={{ width: 4 * s, height: 4 * s, top: row * 9 * s, left: `calc(50% + ${(i - row / 2) * 10 * s}px - ${2 * s}px)` }}
+              />
+            )),
+          )}
+          <span className="absolute rounded-full" style={{ width: 9 * s, height: 9 * s, top: 0, left: `calc(50% - ${4.5 * s}px)`, background: "radial-gradient(circle at 35% 35%,#fff,#f472b6 60%,#9d174d)", boxShadow: "0 0 8px #f472b6" }} />
+        </div>
+      );
   }
 }
 

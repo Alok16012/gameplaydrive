@@ -9,6 +9,9 @@ export type Route =
   | { name: "lobby"; game: GameId }
   | { name: "casino"; game: GameId }
   | { name: "aviator" }
+  | { name: "roulette" }
+  | { name: "blackjack" }
+  | { name: "plinko" }
   | { name: "cardtable"; game: GameId; table: string; buyIn: number }
   | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number; cards?: 13 | 21 } // buyIn = point value (points) or entry fee
   | { name: "board"; game: GameId; table: string; buyIn: number }

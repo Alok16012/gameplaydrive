@@ -14,6 +14,9 @@ import { TPTable } from "./teenpatti.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const BOOTS = [10, 25, 50, 100, 200, 500, 1000];
+// Private tables: the creator picks any whole-coin boot in this range.
+const PRIVATE_BOOT_MIN = 1;
+const PRIVATE_BOOT_MAX = 10000;
 const wallet = new SupabaseWallet();
 
 interface Conn { ws: WebSocket; uid?: string; name?: string; tableId?: string; alive: boolean }
@@ -94,7 +97,9 @@ async function onMessage(c: Conn, raw: string) {
     }
     case "tp_create": {
       const boot = Number(m.boot);
-      if (!BOOTS.includes(boot)) return send(c, { t: "error", code: "join", message: "Invalid boot" });
+      if (!Number.isInteger(boot) || boot < PRIVATE_BOOT_MIN || boot > PRIVATE_BOOT_MAX) {
+        return send(c, { t: "error", code: "join", message: `Pick a boot between ${PRIVATE_BOOT_MIN} and ${PRIVATE_BOOT_MAX.toLocaleString("en-IN")} coins` });
+      }
       await wallet.load(c.uid);
       if (wallet.balance(c.uid) < boot) return send(c, { t: "error", code: "join", message: "Not enough coins" });
       const t = makeTable(boot, newCode());

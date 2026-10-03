@@ -129,6 +129,10 @@ body {
 @keyframes roll { 0% { transform: rotate(0) scale(1); } 50% { transform: rotate(180deg) scale(1.15); } 100% { transform: rotate(360deg) scale(1); } }
 .roll { animation: roll 0.5s ease-in-out; }
 
+/* Ludo: a small hop on every square a token steps onto. */
+@keyframes hop { 0% { transform: translateY(0) scale(1); } 45% { transform: translateY(-38%) scale(1.12); } 100% { transform: translateY(0) scale(1); } }
+.hop { animation: hop 0.17s ease-out; }
+
 @keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
 .gold-text {
   background: linear-gradient(90deg, #fde68a, #f59e0b, #fde68a);

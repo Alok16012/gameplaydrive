@@ -2,7 +2,7 @@
 // the real app reads it from the backend (PRD §4: Node + Socket.io, PostgreSQL ledger, Redis lobbies).
 
 export type GameCategory = "card" | "casino" | "board";
-export type GameKind = "rummy" | "cardtable" | "casino" | "board" | "aviator";
+export type GameKind = "rummy" | "cardtable" | "casino" | "board" | "aviator" | "roulette" | "blackjack" | "plinko";
 
 export type GameId =
   | "rummy"
@@ -15,7 +15,10 @@ export type GameId =
   | "carrom"
   | "chess"
   | "aviator"
-  | "rummy21";
+  | "rummy21"
+  | "roulette"
+  | "blackjack"
+  | "plinko";
 
 export interface Game {
   id: GameId;
@@ -43,6 +46,9 @@ export const GAMES: Game[] = [
   { id: "ludo", name: "Ludo", tag: "Board Game", meta: "Board Game • 2-4 Players", category: "board", kind: "board", from: "#14a0b4", to: "#063f4a", glow: "#2fd3e8", players: "2-4", online: 15360, phase: 2 },
   { id: "carrom", name: "Carrom", tag: "Board Game", meta: "Board Game • 2-4 Players", category: "board", kind: "board", from: "#d8691e", to: "#6b2a06", glow: "#ff8a3d", players: "2-4", online: 3920, phase: 3 },
   { id: "aviator", name: "Aviator", tag: "Crash Game", meta: "Crash • Live rounds", category: "casino", kind: "aviator", from: "#e11d48", to: "#5c0a1f", glow: "#ff4d6d", players: "Live", online: 11240, phase: 1 },
+  { id: "roulette", name: "Roulette", tag: "Casino Style", meta: "European • Single zero", category: "casino", kind: "roulette", from: "#15803d", to: "#052e16", glow: "#22c55e", players: "Live", online: 8650, phase: 1 },
+  { id: "blackjack", name: "Blackjack", tag: "21", meta: "Blackjack • vs Dealer", category: "card", kind: "blackjack", from: "#334155", to: "#0b1220", glow: "#94a3b8", players: "1", online: 7120, phase: 1 },
+  { id: "plinko", name: "Plinko", tag: "Drop Game", meta: "Plinko • Instant", category: "casino", kind: "plinko", from: "#db2777", to: "#4a0a2c", glow: "#f472b6", players: "Live", online: 9840, phase: 1 },
   { id: "chess", name: "Chess", tag: "Board Game", meta: "Board Game • 2 Players", category: "board", kind: "board", from: "#4a5368", to: "#171b27", glow: "#8a94ad", players: "2", online: 4410, phase: 3 },
 ];
 
