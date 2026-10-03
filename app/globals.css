@@ -183,3 +183,26 @@ body {
     0 0 0 14px #2a170a,
     0 25px 50px rgba(0, 0, 0, 0.6);
 }
+
+/* Rummy table (styled after native rummy apps): near-black room, bright green oval felt with a dark rim. */
+.rc-room {
+  background: radial-gradient(80% 70% at 50% 60%, #121a13 0%, #0a0d0a 70%, #050605 100%);
+}
+.rc-felt {
+  border-radius: 50%;
+  background: radial-gradient(55% 45% at 50% 35%, #29a845 0%, #1a8a33 45%, #0f6a24 80%, #0b5a1e 100%);
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.45),
+    0 0 0 10px #161a16,
+    0 0 0 12px #262b26,
+    0 0 40px 14px rgba(0, 0, 0, 0.7);
+}
+.rc-felt::after {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(255, 255, 255, 0.13);
+  pointer-events: none;
+}
+.rc-glow { box-shadow: 0 0 0 3px #4ade80, 0 0 18px 4px rgba(74, 222, 128, 0.6); }

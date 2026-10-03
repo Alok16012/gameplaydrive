@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 // In landscape it simply fills the screen. Held upright, the stage is rotated 90° so the table is still
 // wide; pop-up sheets render inside it (the rotated stage is their containing block) and rotate with it.
 
-export function LandscapeStage({ children }: { children: React.ReactNode }) {
+export function LandscapeStage({ children, className = "table-room" }: { children: React.ReactNode; className?: string }) {
   const [portrait, setPortrait] = useState(false);
   useEffect(() => {
     const m = window.matchMedia("(orientation: portrait)");
@@ -16,7 +16,7 @@ export function LandscapeStage({ children }: { children: React.ReactNode }) {
     return () => m.removeEventListener("change", sync);
   }, []);
   return (
-    <div className="fixed inset-0 z-40 overflow-hidden table-room">
+    <div className={`fixed inset-0 z-40 overflow-hidden ${className}`}>
       <div className={portrait ? "stage-rotated" : "absolute inset-0"}>{children}</div>
     </div>
   );
