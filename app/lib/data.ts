@@ -2,7 +2,7 @@
 // the real app reads it from the backend (PRD §4: Node + Socket.io, PostgreSQL ledger, Redis lobbies).
 
 export type GameCategory = "card" | "casino" | "board";
-export type GameKind = "rummy" | "cardtable" | "casino" | "board";
+export type GameKind = "rummy" | "cardtable" | "casino" | "board" | "aviator";
 
 export type GameId =
   | "rummy"
@@ -13,7 +13,8 @@ export type GameId =
   | "poker"
   | "ludo"
   | "carrom"
-  | "chess";
+  | "chess"
+  | "aviator";
 
 export interface Game {
   id: GameId;
@@ -39,6 +40,7 @@ export const GAMES: Game[] = [
   { id: "poker", name: "Poker", tag: "Texas Hold'em", meta: "Texas Hold'em • 2-6 Players", category: "card", kind: "cardtable", from: "#2459e0", to: "#0b1f6b", glow: "#3d7bff", players: "2-6", online: 7840, phase: 3 },
   { id: "ludo", name: "Ludo", tag: "Board Game", meta: "Board Game • 2-4 Players", category: "board", kind: "board", from: "#14a0b4", to: "#063f4a", glow: "#2fd3e8", players: "2-4", online: 15360, phase: 2 },
   { id: "carrom", name: "Carrom", tag: "Board Game", meta: "Board Game • 2-4 Players", category: "board", kind: "board", from: "#d8691e", to: "#6b2a06", glow: "#ff8a3d", players: "2-4", online: 3920, phase: 3 },
+  { id: "aviator", name: "Aviator", tag: "Crash Game", meta: "Crash • Live rounds", category: "casino", kind: "aviator", from: "#e11d48", to: "#5c0a1f", glow: "#ff4d6d", players: "Live", online: 11240, phase: 1 },
   { id: "chess", name: "Chess", tag: "Board Game", meta: "Board Game • 2 Players", category: "board", kind: "board", from: "#4a5368", to: "#171b27", glow: "#8a94ad", players: "2", online: 4410, phase: 3 },
 ];
 

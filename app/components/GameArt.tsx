@@ -80,6 +80,8 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
       );
     case "chess":
       return <span style={{ fontSize: 44 * s, lineHeight: 1, color: "#f8fafc", filter: "drop-shadow(0 4px 6px rgba(0,0,0,.6))" }}>♞</span>;
+    case "aviator":
+      return <span style={{ fontSize: 40 * s, lineHeight: 1, display: "inline-block", transform: "rotate(-12deg)", filter: "drop-shadow(0 4px 8px rgba(0,0,0,.55))" }}>✈️</span>;
   }
 }
 

@@ -13,7 +13,8 @@ import type { Nav, RummyMode } from "../nav";
 const SERVER_GAMES: GameId[] = ["teen-patti", "rummy"];
 
 export function openGame(nav: Nav, game: Game) {
-  if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
+  if (game.kind === "aviator") nav.push({ name: "aviator" });
+  else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
 }
 
