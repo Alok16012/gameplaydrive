@@ -1,27 +1,39 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Repeat, RotateCcw, Trash2, Undo2 } from "lucide-react";
-import { inr } from "../../lib/data";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from "lucide-react";
+import { gameById, inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
-import { Chip, Header, Money } from "../ui";
+import { Avatar } from "../ui";
+import { LandscapeStage } from "./LandscapeStage";
 import type { Nav } from "../nav";
 
-// European roulette (single zero). The database spins and pays every bet (supabase/migrations/012_roulette_blackjack_plinko.sql);
-// this screen lays out the board, sends the chips and turns the wheel to the number the server drew.
+// European roulette (single zero), laid out like casino roulette apps: a landscape green table, the wheel
+// peeking in from the left, timed rounds (15 s to bet, then the wheel slides in and spins).
+// The database spins and pays every bet (supabase/migrations/012_roulette_blackjack_plinko.sql); a round you
+// didn't bet on is spun on the device just for show.
 
+const BET_SECS = 15;
+const SPIN_MS = 5200;
+const RESULT_MS = 3800;
+const MAX_STAKE = 100000;
 const CHIPS: { v: number; c: string }[] = [
-  { v: 10, c: "#2563eb" },
-  { v: 50, c: "#16a34a" },
-  { v: 100, c: "#e11d48" },
-  { v: 500, c: "#7c3aed" },
-  { v: 1000, c: "#d97706" },
+  { v: 10, c: "#16a34a" },
+  { v: 50, c: "#0d9488" },
+  { v: 100, c: "#2563eb" },
+  { v: 1000, c: "#ca8a04" },
+  { v: 5000, c: "#ea580c" },
+  { v: 10000, c: "#dc2626" },
 ];
 const ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
 const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
-const color = (n: number) => (n === 0 ? "#15803d" : REDS.has(n) ? "#dc2626" : "#111827");
-const SPIN_MS = 4200;
+const RED = "#c9454d";
+const BLACK = "#1b3a33";
+const GREEN = "#2f9d4e";
+const color = (n: number) => (n === 0 ? GREEN : REDS.has(n) ? RED : BLACK);
+const short = (v: number) => (v >= 1000 ? `${Math.round(v / 100) / 10}K` : String(v));
+const norm = (d: number) => ((d % 360) + 360) % 360;
 
 /** Does a bet win on number n? (Display only — the server settles every bet.) */
 function wins(side: string, n: number) {
@@ -45,198 +57,380 @@ function wins(side: string, n: number) {
 }
 
 type Bet = { side: string; v: number };
+type Phase = "betting" | "spinning" | "result";
+const OUTSIDE = ["low", "even", "red", "black", "odd", "high", "d1", "d2", "d3", "c1", "c2", "c3"];
 
 export function Roulette({ nav }: { nav: Nav }) {
-  const { total, showToast, applyBalance } = useStore();
-  const [chip, setChip] = useState(100);
+  const game = gameById("roulette");
+  const { total, player, showToast, applyBalance } = useStore();
+  const [phase, setPhase] = useState<Phase>("betting");
+  const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
+  const [now, setNow] = useState(() => Date.now());
+  const [chip, setChip] = useState(10);
   const [bets, setBets] = useState<Bet[]>([]);
   const [lastBets, setLastBets] = useState<Bet[]>([]);
-  const [spinning, setSpinning] = useState(false);
-  const [rot, setRot] = useState(0);
-  const [result, setResult] = useState<{ n: number; payout: number; stake: number } | null>(null);
+  const [crowd, setCrowd] = useState<{ side: string; v: number; dx: number; dy: number }[]>([]);
   const [hist, setHist] = useState<number[]>([]);
-  const pendingHist = useRef<number[] | null>(null);
+  const [result, setResult] = useState<{ n: number; payout: number; stake: number } | null>(null);
+  const [wheelRot, setWheelRot] = useState(0);
+  const [ballRot, setBallRot] = useState(0);
+  const [ballIn, setBallIn] = useState(false);
+  const [round, setRound] = useState(() => 40000 + Math.floor(Math.random() * 900));
+  const betsRef = useRef(bets);
+  betsRef.current = bets;
+  const busy = useRef(false);
 
   useEffect(() => {
-    supabase().rpc("rl_history").then(({ data }) => Array.isArray(data) && setHist(data as number[]));
+    supabase().rpc("rl_history").then(({ data }) => Array.isArray(data) && data.length && setHist(data as number[]));
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(t);
   }, []);
 
+  // Other players' chips land on the table while bets are open.
+  useEffect(() => {
+    if (phase !== "betting") return;
+    const t = setInterval(() => {
+      const side = Math.random() < 0.55 ? `n_${Math.floor(Math.random() * 37)}` : OUTSIDE[Math.floor(Math.random() * OUTSIDE.length)];
+      const v = CHIPS[Math.floor(Math.pow(Math.random(), 2.2) * 5)].v;
+      setCrowd((c) => [...c, { side, v, dx: Math.random() * 40 - 20, dy: Math.random() * 30 - 15 }].slice(-70));
+    }, 380);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  const spinTo = useCallback((n: number) => {
+    const idx = ORDER.indexOf(n);
+    setBallIn(false);
+    setWheelRot((cur) => cur - norm(cur) + 360 * 4 + norm(-(idx * 360) / ORDER.length));
+    setBallRot((cur) => cur - norm(cur) - 360 * 7);
+    window.setTimeout(() => setBallIn(true), SPIN_MS * 0.72);
+  }, []);
+
+  // Round clock: betting → spin (server settles your bets) → result → next round.
+  useEffect(() => {
+    if (now < endsAt || busy.current) return;
+    if (phase === "betting") {
+      const placed = betsRef.current;
+      busy.current = true;
+      setPhase("spinning");
+      setEndsAt(Number.MAX_SAFE_INTEGER);
+      const go = (n: number, payout: number, stake: number, balance: number | null) => {
+        spinTo(n);
+        window.setTimeout(() => {
+          setResult({ n, payout, stake });
+          setHist((h) => [n, ...h].slice(0, 20));
+          if (balance !== null) applyBalance(balance);
+          setPhase("result");
+          setEndsAt(Date.now() + RESULT_MS);
+          busy.current = false;
+        }, SPIN_MS + 300);
+      };
+      if (placed.length) {
+        setLastBets(placed);
+        supabase().rpc("roulette_spin", { p_bets: placed }).then(({ data, error }) => {
+          if (error) {
+            showToast(errText(error));
+            setBets([]);
+            return go(Math.floor(Math.random() * 37), 0, 0, null);
+          }
+          const r = data as { number: number; payout: number; stake: number; balance: number };
+          applyBalance(r.balance - r.payout); // stake leaves now, winnings arrive when the ball stops
+          go(r.number, r.payout, r.stake, r.balance);
+        });
+      } else go(Math.floor(Math.random() * 37), 0, 0, null);
+    } else if (phase === "result") {
+      setBets([]);
+      setCrowd([]);
+      setResult(null);
+      setBallIn(false);
+      setRound((r) => r + 1);
+      setPhase("betting");
+      setEndsAt(Date.now() + BET_SECS * 1000);
+    }
+  }, [now, endsAt, phase, spinTo, showToast, applyBalance]);
+
   const pending = bets.reduce((a, b) => a + b.v, 0);
+  const crowdTotal = crowd.reduce((a, b) => a + b.v, 0);
   const mine = (side: string) => bets.filter((b) => b.side === side).reduce((a, b) => a + b.v, 0);
-  const shown = result && !spinning ? result.n : null;
+  const secs = Math.max(0, Math.ceil((endsAt - now) / 1000));
+  const shown = phase === "result" && result ? result.n : null;
 
   const place = (side: string) => {
-    if (spinning) return;
-    if (result) { setResult(null); setBets([]); }
-    const base = result ? 0 : pending;
-    if (base + chip > total) return showToast("Not enough coins — ask your agent");
-    if (base + chip > 100000) return showToast("Max 100,000 coins per spin");
-    setBets((b) => [...(result ? [] : b), { side, v: chip }]);
+    if (phase !== "betting") return showToast("Wait for the next round");
+    if (pending + chip > total) return showToast("Not enough coins — ask your agent");
+    if (pending + chip > MAX_STAKE) return showToast("Max 1,00,000 coins per round");
+    setBets((b) => [...b, { side, v: chip }]);
+  };
+  const rebet = () => {
+    if (phase !== "betting" || bets.length || !lastBets.length) return;
+    const sum = lastBets.reduce((a, b) => a + b.v, 0);
+    if (sum > total) return showToast("Not enough balance to rebet");
+    setBets(lastBets);
   };
 
-  const spin = async () => {
-    if (spinning || !bets.length) return;
-    setSpinning(true);
-    setResult(null);
-    const { data, error } = await supabase().rpc("roulette_spin", { p_bets: bets });
-    if (error) { showToast(errText(error)); setSpinning(false); return; }
-    const r = data as { number: number; payout: number; stake: number; balance: number; history: number[] };
-    setLastBets(bets);
-    applyBalance(r.balance - r.payout); // show the stake leaving now, the winnings when the ball stops
-    pendingHist.current = r.history;
-    // Land the pocket under the pointer at the top: a few full turns plus the pocket's offset.
-    const idx = ORDER.indexOf(r.number);
-    setRot((cur) => {
-      const target = -(idx * 360) / ORDER.length;
-      const base = cur - (((cur % 360) + 360) % 360);
-      return base - 360 * 5 + ((target % 360) + 360) % 360 - 360;
-    });
-    window.setTimeout(() => {
-      setSpinning(false);
-      setResult({ n: r.number, payout: r.payout, stake: r.stake });
-      applyBalance(r.balance);
-      if (pendingHist.current) setHist(pendingHist.current);
-    }, SPIN_MS);
-  };
-
-  const Cell = ({ side, label, className = "", style }: { side: string; label: React.ReactNode; className?: string; style?: React.CSSProperties }) => {
+  // One betting spot: shows the crowd's chips, your stack and the win glow.
+  const Spot = ({ side, children, className = "", style }: { side: string; children: React.ReactNode; className?: string; style?: React.CSSProperties }) => {
     const my = mine(side);
     const win = shown !== null && wins(side, shown);
+    const theirs = crowd.filter((c) => c.side === side).slice(-3);
     return (
       <button
         onClick={() => place(side)}
-        disabled={spinning}
-        className={`relative grid place-items-center font-semibold text-[13px] border border-white/25 transition-all active:scale-95 ${win ? "ring-2 ring-gold-300 z-10 shadow-[0_0_14px_rgba(253,224,71,.6)]" : ""} ${className}`}
+        className={`relative grid place-items-center border border-[#9fd8a9]/45 text-white transition-[filter,box-shadow] active:brightness-125 ${win ? "z-10 shadow-[inset_0_0_0_3px_#fde047,0_0_16px_#fde047]" : ""} ${className}`}
         style={style}
       >
-        {label}
+        {children}
+        {theirs.map((c, i) => (
+          <span key={i} className="absolute pointer-events-none pop" style={{ left: `calc(50% + ${c.dx}%)`, top: `calc(50% + ${c.dy}%)`, transform: "translate(-50%,-50%)" }}>
+            <MiniChip v={c.v} size={15} faded />
+          </span>
+        ))}
         {my > 0 && (
-          <span className="absolute -top-1.5 -right-1 pop pill px-1 text-[9px] font-bold bg-gold-400 text-slate-900 shadow z-20">{my >= 1000 ? `${Math.round(my / 100) / 10}K` : my}</span>
+          <span className="absolute pointer-events-none pop z-10" style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}>
+            <MiniChip v={my} size={24} />
+          </span>
         )}
       </button>
     );
   };
 
-  const seg = 360 / ORDER.length;
+  const spinning = phase === "spinning" || phase === "result";
+  const NUM = "font-serif text-[19px] leading-none";
+
   return (
-    <div className="pb-6 fadein min-h-dvh flex flex-col">
-      <Header
-        title="Roulette"
-        sub="European • Min 🪙 10 • Max 🪙 100,000 per spin"
-        onBack={nav.back}
-        right={<div className="text-right"><div className="text-[10px] text-white/50">Balance</div><Money n={total - (spinning || result ? 0 : pending)} className="text-sm font-semibold text-neon-400" /></div>}
-      />
-
-      <div className="px-4">
-        <div className="flex gap-1 overflow-x-auto no-scrollbar min-h-6">
-          {hist.map((n, i) => (
-            <span key={i} className={`min-w-6 h-6 px-1 rounded-full grid place-items-center text-[11px] font-bold shrink-0 ${i === 0 ? "ring-2 ring-white/70" : ""}`} style={{ background: color(n) }}>{n}</span>
-          ))}
-          {!hist.length && <span className="text-[12px] text-white/40">Your last spins show here</span>}
-        </div>
-
-        {/* Wheel */}
-        <div className="relative mx-auto mt-4" style={{ width: 230, height: 230 }}>
-          <div className="absolute left-1/2 -top-1 -translate-x-1/2 z-10 w-0 h-0" style={{ borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderTop: "16px solid #fbbf24", filter: "drop-shadow(0 2px 3px rgba(0,0,0,.6))" }} />
-          <svg
-            viewBox="-110 -110 220 220"
-            className="w-full h-full rounded-full"
-            style={{ transform: `rotate(${rot}deg)`, transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(.15,.65,.2,1)` : "none", filter: "drop-shadow(0 8px 18px rgba(0,0,0,.55))" }}
-          >
-            <circle r="108" fill="#78350f" stroke="#a16207" strokeWidth="4" />
-            {ORDER.map((n, i) => {
-              const a0 = ((i - 0.5) * seg - 90) * (Math.PI / 180), a1 = ((i + 0.5) * seg - 90) * (Math.PI / 180);
-              const R = 100, r = 66;
-              const p = (rad: number, a: number) => `${(rad * Math.cos(a)).toFixed(2)},${(rad * Math.sin(a)).toFixed(2)}`;
-              const mid = (i * seg - 90) * (Math.PI / 180);
-              return (
-                <g key={n}>
-                  <path d={`M${p(r, a0)} L${p(R, a0)} A${R},${R} 0 0 1 ${p(R, a1)} L${p(r, a1)} A${r},${r} 0 0 0 ${p(r, a0)} Z`} fill={color(n)} stroke="#fcd34d" strokeWidth=".6" />
-                  <text x={88 * Math.cos(mid)} y={88 * Math.sin(mid)} fill="#fff" fontSize="8.5" fontWeight="700" textAnchor="middle" dominantBaseline="central" transform={`rotate(${i * seg} ${88 * Math.cos(mid)} ${88 * Math.sin(mid)})`}>{n}</text>
-                </g>
-              );
-            })}
-            <circle r="66" fill="#3f1d0b" stroke="#a16207" strokeWidth="2" />
-            <circle r="30" fill="#a16207" />
-            <circle r="12" fill="#fcd34d" />
-          </svg>
-          <div className="absolute inset-0 grid place-items-center pointer-events-none">
-            {shown !== null ? (
-              <div className="pop w-16 h-16 rounded-full grid place-items-center text-2xl font-extrabold border-2 border-gold-300" style={{ background: color(shown) }}>{shown}</div>
-            ) : spinning ? (
-              <div className="w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_10px_#fff]" />
-            ) : null}
+    <LandscapeStage className="roulette-room">
+      <div className="absolute inset-0 flex flex-col select-none overflow-hidden">
+        {/* Top: back, last numbers, balance */}
+        <div className="h-[13%] min-h-[44px] flex items-center gap-2 px-3 relative z-30">
+          <button onClick={nav.back} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Back"><ChevronLeft size={20} /></button>
+          <button onClick={() => showToast("Bet before the timer runs out. Number 36x • Row / Dozen 3x • Red, Black, Even, Odd, 1-18, 19-36 2x")} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Rules"><Info size={18} /></button>
+          <div className="flex-1 flex justify-center min-w-0">
+            <div className="flex items-center gap-1 rounded-b-xl bg-[#1b2a22]/90 border border-[#c9a24a]/50 px-2 py-1 overflow-hidden max-w-full">
+              <span className="w-7 h-6 rounded bg-[#14532d] grid place-items-center shrink-0"><TrendingUp size={15} className="text-gold-300" /></span>
+              {(hist.length ? hist : []).slice(0, 12).map((n, i) => (
+                <span key={`${hist.length}-${i}`} className={`min-w-[26px] h-6 px-1 rounded grid place-items-center text-[13px] font-bold shrink-0 ${i === 0 ? "ring-2 ring-gold-300 pop" : ""}`} style={{ background: color(n) }}>{n}</span>
+              ))}
+              {!hist.length && <span className="text-[11px] text-white/60 px-2">Last numbers show here</span>}
+            </div>
+          </div>
+          <div className="shrink-0 rounded-full bg-gradient-to-b from-amber-300 to-amber-500 text-slate-900 font-bold text-sm px-3 py-1.5 shadow-[0_2px_0_#92400e]">
+            🪙 {(total - (phase === "betting" ? pending : 0)).toLocaleString("en-IN")}
           </div>
         </div>
 
-        <div className="mt-3 text-center text-sm h-6">
-          {spinning && <span className="text-white/70">No more bets…</span>}
-          {result && !spinning && (
-            <span className={`pop inline-block font-semibold ${result.payout > 0 ? "text-neon-400" : "text-rose-400"}`}>
-              {result.payout > 0 ? `🎉 ${result.n} • You won ${inr(result.payout)}!` : `${result.n} • Better luck next spin`}
-            </span>
+        {/* Middle: wheel + board */}
+        <div className="flex-1 min-h-0 relative">
+          {/* bet totals + timer */}
+          <div className="absolute left-[22%] right-[2%] top-0 h-[16%] flex items-center justify-center gap-3 z-20">
+            <div className="rounded-full bg-[#0f3d22]/80 border border-white/15 px-4 py-0.5 text-[13px] min-w-[120px] text-center">Your bet <b className="text-gold-300">{pending.toLocaleString("en-IN")}</b></div>
+            <div className={`relative w-10 h-10 grid place-items-center ${phase === "betting" && secs <= 5 ? "animate-pulse" : ""}`}>
+              <AlarmClock size={40} className="absolute inset-0 text-amber-300 drop-shadow" strokeWidth={1.6} />
+              <span className="relative mt-1 w-[26px] h-[26px] rounded-full bg-white grid place-items-center text-[13px] font-extrabold text-slate-900">{phase === "betting" ? secs : "–"}</span>
+            </div>
+            <div className="rounded-full bg-[#0f3d22]/80 border border-white/15 px-4 py-0.5 text-[13px] min-w-[120px] text-center">Total bet <b className="text-gold-300">{(pending + crowdTotal).toLocaleString("en-IN")}</b></div>
+          </div>
+
+          {/* Board */}
+          <div className="absolute left-[22%] right-[2%] top-[17%] bottom-[3%]">
+            <div className="w-full h-full grid" style={{ gridTemplateColumns: "1.15fr repeat(12, 1fr) 1.35fr", gridTemplateRows: "repeat(3, 1fr) .72fr .72fr" }}>
+              <Spot side="n_0" className="rounded-l-xl flex-col" style={{ gridColumn: 1, gridRow: "1 / 4", background: GREEN }}>
+                <span className={`${NUM} text-[24px]`}>0</span><span className="text-[10px] text-white/80 mt-1">36x</span>
+              </Spot>
+              {[3, 2, 1].map((rowTop, r) =>
+                Array.from({ length: 12 }, (_, c) => {
+                  const n = rowTop + c * 3;
+                  return (
+                    <Spot key={n} side={`n_${n}`} style={{ gridColumn: c + 2, gridRow: r + 1, background: color(n) }}>
+                      <span className={NUM}>{n}</span>
+                    </Spot>
+                  );
+                }),
+              )}
+              {[["c3", "1st row"], ["c2", "2nd row"], ["c1", "3rd row"]].map(([s, l], r) => (
+                <Spot key={s} side={s} className={`flex-col text-[10px] leading-tight bg-[#1f6b3a] ${r === 0 ? "rounded-tr-xl" : r === 2 ? "rounded-br-xl" : ""}`} style={{ gridColumn: 14, gridRow: r + 1 }}>
+                  <span>{l}</span><span>3x</span>
+                </Spot>
+              ))}
+              {[["d1", "1st 12 (3x)"], ["d2", "2nd 12 (3x)"], ["d3", "3rd 12 (3x)"]].map(([s, l], i) => (
+                <Spot key={s} side={s} className="font-serif text-[14px] bg-[#257a42]" style={{ gridColumn: `${2 + i * 4} / span 4`, gridRow: 4 }}>{l}</Spot>
+              ))}
+              {[
+                ["low", "1-18 (2x)"],
+                ["even", "Even (2x)"],
+                ["red", "2x"],
+                ["black", "2x"],
+                ["odd", "Odd (2x)"],
+                ["high", "19-36 (2x)"],
+              ].map(([s, l], i) => (
+                <Spot
+                  key={s}
+                  side={s}
+                  className={`font-serif text-[14px] ${i === 0 ? "rounded-bl-xl" : ""} ${i === 5 ? "rounded-br-xl" : ""}`}
+                  style={{ gridColumn: `${2 + i * 2} / span 2`, gridRow: 5, background: s === "red" ? RED : s === "black" ? BLACK : "#257a42" }}
+                >
+                  {l}
+                </Spot>
+              ))}
+            </div>
+          </div>
+
+          {/* Dim the board while the wheel is in front */}
+          <div className={`absolute inset-0 z-20 bg-black/35 transition-opacity duration-500 pointer-events-none ${spinning ? "opacity-100" : "opacity-0"}`} />
+
+          {/* Wheel: peeks in from the left while betting, slides in to spin */}
+          <div
+            className="absolute top-1/2 z-30 aspect-square pointer-events-none"
+            style={{
+              height: "112%",
+              left: 0,
+              transform: `translate(${spinning ? "6%" : "-58%"}, -50%)`,
+              transition: "transform .7s cubic-bezier(.3,.8,.3,1)",
+            }}
+          >
+            <Wheel rot={wheelRot} ball={ballRot} ballIn={ballIn} visible={spinning} />
+            {shown !== null && (
+              <div className="absolute top-1/2 -translate-y-1/2 left-[104%] pop">
+                <div className="w-[86px] h-[86px] rounded-xl bg-[#14532d] border-2 border-[#9fd8a9]/60 grid place-items-center shadow-2xl">
+                  <div className="w-[62px] h-[62px] rounded-full grid place-items-center font-serif text-[30px] font-bold border-2 border-white/60" style={{ background: color(shown) }}>{shown}</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Your result */}
+          {phase === "result" && result && result.stake > 0 && (
+            <div className="absolute left-1/2 bottom-[8%] -translate-x-1/2 z-40 pop">
+              <div className={`rounded-full px-5 py-2 font-bold text-[15px] shadow-xl ${result.payout > 0 ? "bg-gradient-to-b from-amber-300 to-amber-500 text-slate-900" : "bg-black/70 text-white"}`}>
+                {result.payout > 0 ? `🎉 You won ${inr(result.payout)}` : `${result.n} • Better luck next round`}
+              </div>
+            </div>
           )}
-          {!spinning && !result && pending > 0 && <span className="text-white/70">Your bet: <b className="text-white">{inr(pending)}</b></span>}
+          {phase === "spinning" && (
+            <div className="absolute left-[60%] top-[45%] -translate-x-1/2 z-40 text-[15px] font-semibold text-white/90 drop-shadow">No more bets</div>
+          )}
         </div>
 
-        {/* Board: 0 on top, numbers in 12 rows of 3, column bets underneath */}
-        <div className="mt-2 rounded-2xl felt p-2">
-          <Cell side="n_0" label="0" className="w-full h-9 rounded-t-xl" style={{ background: color(0) }} />
-          <div className="grid grid-cols-3">
-            {Array.from({ length: 36 }, (_, i) => i + 1).map((n) => (
-              <Cell key={n} side={`n_${n}`} label={n} className="h-9" style={{ background: color(n) }} />
+        {/* Bottom bar: player, chips, rebet */}
+        <div className="h-[17%] min-h-[54px] relative z-30 flex items-center gap-3 px-3 bg-gradient-to-t from-black/55 to-black/20 border-t border-[#c9a24a]/40">
+          <div className="flex flex-col items-center text-[10px] text-white/80 shrink-0">
+            <Users size={18} />
+            {Math.floor(game.online / 60)}
+          </div>
+          <div className="flex items-center gap-2 shrink-0 rounded-xl bg-black/35 pl-1 pr-3 py-1">
+            <Avatar size={34} />
+            <div className="leading-tight">
+              <div className="text-[12px] font-medium max-w-[90px] truncate">{player?.first ?? "You"}</div>
+              <div className="text-[12px] text-gold-300 font-semibold">🪙 {(total - (phase === "betting" ? pending : 0)).toLocaleString("en-IN")}</div>
+            </div>
+          </div>
+          <div className="flex-1 flex items-center justify-center gap-2.5 min-w-0">
+            {CHIPS.map((c) => (
+              <button key={c.v} onClick={() => setChip(c.v)} className={`transition-transform ${chip === c.v ? "-translate-y-1.5 drop-shadow-[0_0_10px_#fde047]" : ""}`} aria-label={`Chip ${c.v}`}>
+                <MiniChip v={c.v} size={44} ring={chip === c.v} />
+              </button>
             ))}
-            {["c1", "c2", "c3"].map((c) => <Cell key={c} side={c} label="2:1" className="h-9 bg-white/5 text-[11px]" />)}
           </div>
-          <div className="grid grid-cols-3 mt-1.5">
-            {[["d1", "1st 12"], ["d2", "2nd 12"], ["d3", "3rd 12"]].map(([s, l]) => <Cell key={s} side={s} label={l} className="h-9 bg-white/5 text-[12px]" />)}
-          </div>
-          <div className="grid grid-cols-6">
-            {[["low", "1-18"], ["even", "Even"], ["red", <span key="r" className="w-4 h-4 rotate-45 bg-red-600 inline-block" />], ["black", <span key="b" className="w-4 h-4 rotate-45 bg-gray-900 border border-white/40 inline-block" />], ["odd", "Odd"], ["high", "19-36"]].map(([s, l]) => (
-              <Cell key={s as string} side={s as string} label={l} className="h-10 bg-white/5 text-[11px] rounded-b-md" />
-            ))}
-          </div>
-          <div className="text-center text-[10px] text-white/45 mt-1.5">Number ×36 • Dozen / Column ×3 • Red, Black, Even, Odd, 1-18, 19-36 ×2</div>
+          <button onClick={() => setBets((b) => b.slice(0, -1))} disabled={phase !== "betting" || !bets.length} className="w-10 h-10 rounded-full bg-black/40 border border-white/20 grid place-items-center disabled:opacity-35 shrink-0" aria-label="Undo"><Undo2 size={18} /></button>
+          <button onClick={rebet} disabled={phase !== "betting" || !!bets.length || !lastBets.length} className="w-10 h-10 rounded-full bg-black/40 border border-white/20 grid place-items-center disabled:opacity-35 shrink-0" aria-label="Rebet"><Repeat size={18} /></button>
         </div>
-
-        {/* Chips */}
-        <div className="flex justify-between items-center mt-4 px-1">
-          {CHIPS.map((c) => <Chip key={c.v} value={c.v >= 1000 ? "1K" : c.v} color={c.c} size={50} active={chip === c.v} onClick={() => setChip(c.v)} />)}
-        </div>
-
-        <div className="grid grid-cols-4 gap-2 mt-4">
-          <button disabled={spinning || !bets.length || !!result} onClick={() => setBets((b) => b.slice(0, -1))} className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"><Undo2 size={14} /> Undo</button>
-          <button disabled={spinning || !bets.length} onClick={() => { setBets([]); setResult(null); }} className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"><Trash2 size={14} /> Clear</button>
-          <button
-            disabled={spinning || !lastBets.length}
-            onClick={() => {
-              const sum = lastBets.reduce((a, b) => a + b.v, 0);
-              if (sum > total) return showToast("Not enough balance to rebet");
-              setResult(null);
-              setBets(lastBets);
-            }}
-            className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"
-          >
-            <Repeat size={14} /> Rebet
-          </button>
-          <button
-            disabled={spinning || !bets.length || !!result}
-            onClick={() => {
-              if (pending * 2 > total) return showToast("Not enough balance to double");
-              if (pending * 2 > 100000) return showToast("Max 100,000 coins per spin");
-              setBets((b) => [...b, ...b]);
-            }}
-            className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"
-          >
-            <RotateCcw size={14} /> Double
-          </button>
-        </div>
-
-        <button disabled={spinning || !bets.length || !!result} onClick={spin} className="w-full btn-green rounded-2xl py-3.5 mt-3 font-bold text-lg disabled:opacity-50">
-          {spinning ? "Spinning…" : result ? "Place new bets" : bets.length ? `SPIN • ${inr(pending)}` : "Tap the board to bet"}
-        </button>
-        <div className="text-center text-[12px] text-white/35 mt-3">The server draws every number and pays every bet.</div>
+        <div className="absolute right-3 bottom-[18%] text-[10px] text-white/45 z-10">Round #{round}</div>
       </div>
+    </LandscapeStage>
+  );
+}
+
+/** Casino chip in one of the table colours (by value). */
+function MiniChip({ v, size, faded, ring }: { v: number; size: number; faded?: boolean; ring?: boolean }) {
+  const c = [...CHIPS].reverse().find((x) => v >= x.v)?.c ?? CHIPS[0].c;
+  return (
+    <span
+      className={`rounded-full grid place-items-center font-bold text-white shrink-0 ${ring ? "ring-2 ring-gold-300" : ""}`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * (short(v).length > 3 ? 0.24 : 0.3),
+        opacity: faded ? 0.85 : 1,
+        background: `radial-gradient(circle, ${c} 50%, transparent 51%), repeating-conic-gradient(#f8fafc 0 14deg, ${c} 14deg 30deg)`,
+        boxShadow: "0 2px 4px rgba(0,0,0,.55)",
+      }}
+    >
+      <span className="rounded-full grid place-items-center" style={{ width: size * 0.64, height: size * 0.64, border: "1px dashed rgba(255,255,255,.75)" }}>
+        {faded ? "" : short(v)}
+      </span>
+    </span>
+  );
+}
+
+/** Wooden wheel: numbers on the outer ring, pockets inside, gold turret; the ball drops into the pocket on top. */
+function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ballIn: boolean; visible: boolean }) {
+  const seg = 360 / ORDER.length;
+  const p = (r: number, a: number) => `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
+  const ring = (r0: number, r1: number, i: number) => {
+    const a0 = ((i - 0.5) * seg - 90) * (Math.PI / 180), a1 = ((i + 0.5) * seg - 90) * (Math.PI / 180);
+    return `M${p(r0, a0)} L${p(r1, a0)} A${r1},${r1} 0 0 1 ${p(r1, a1)} L${p(r0, a1)} A${r0},${r0} 0 0 0 ${p(r0, a0)} Z`;
+  };
+  return (
+    <div className="relative w-full h-full">
+      <svg viewBox="-112 -112 224 224" className="absolute inset-0 w-full h-full" style={{ filter: "drop-shadow(6px 10px 18px rgba(0,0,0,.55))" }}>
+        <defs>
+          <radialGradient id="rl-wood" cx=".45" cy=".4">
+            <stop offset="0" stopColor="#8a5530" />
+            <stop offset=".7" stopColor="#5e3518" />
+            <stop offset="1" stopColor="#3a1f0d" />
+          </radialGradient>
+          <radialGradient id="rl-cone" cx=".45" cy=".4">
+            <stop offset="0" stopColor="#7a4a26" />
+            <stop offset="1" stopColor="#3f220f" />
+          </radialGradient>
+          <radialGradient id="rl-gold" cx=".4" cy=".35">
+            <stop offset="0" stopColor="#fff3c4" />
+            <stop offset=".5" stopColor="#d4a640" />
+            <stop offset="1" stopColor="#7c5a12" />
+          </radialGradient>
+        </defs>
+        <circle r="111" fill="url(#rl-wood)" stroke="#2a1608" strokeWidth="2" />
+        <circle r="97" fill="#2a1608" />
+        <g style={{ transform: `rotate(${rot}deg)`, transition: visible ? `transform ${SPIN_MS}ms cubic-bezier(.12,.6,.18,1)` : "none" }}>
+          {ORDER.map((n, i) => {
+            const mid = (i * seg - 90) * (Math.PI / 180);
+            const tx = 86 * Math.cos(mid), ty = 86 * Math.sin(mid);
+            return (
+              <g key={n}>
+                <path d={ring(76, 95, i)} fill={color(n)} stroke="#d4a640" strokeWidth=".5" />
+                <path d={ring(62, 76, i)} fill={color(n)} stroke="#d4a640" strokeWidth=".5" opacity=".85" />
+                <text x={tx} y={ty} fill="#fff" fontSize="9" fontWeight="700" fontFamily="serif" textAnchor="middle" dominantBaseline="central" transform={`rotate(${i * seg} ${tx} ${ty})`}>{n}</text>
+              </g>
+            );
+          })}
+          <circle r="62" fill="url(#rl-cone)" stroke="#d4a640" strokeWidth="1.2" />
+          {[0, 90, 180, 270].map((a) => (
+            <g key={a} transform={`rotate(${a})`}>
+              <rect x="-2" y="-44" width="4" height="36" rx="2" fill="url(#rl-gold)" />
+              <circle cy="-46" r="3.6" fill="url(#rl-gold)" />
+            </g>
+          ))}
+          <circle r="13" fill="url(#rl-gold)" stroke="#7c5a12" />
+          <circle r="5" fill="#fff3c4" />
+        </g>
+      </svg>
+      {/* Ball */}
+      {visible && (
+        <div className="absolute inset-0" style={{ transform: `rotate(${ball}deg)`, transition: `transform ${SPIN_MS}ms cubic-bezier(.2,.65,.25,1)` }}>
+          <div
+            className="absolute left-1/2 rounded-full"
+            style={{
+              width: "5%",
+              height: "5%",
+              top: ballIn ? "16.7%" : "3%",
+              transform: "translateX(-50%)",
+              transition: "top .9s cubic-bezier(.5,0,.4,1.4)",
+              background: "radial-gradient(circle at 35% 35%, #fff, #e5e7eb 60%, #9ca3af)",
+              boxShadow: "0 1px 3px rgba(0,0,0,.6)",
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

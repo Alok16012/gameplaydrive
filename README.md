@@ -38,13 +38,13 @@ There is no self sign-up. Freezing an account blocks its sign-in and all coin/ga
 - **Blackjack** (server): six decks shuffled per hand, dealer stands on all 17s, blackjack pays 3:2, hit/stand/double/split (one split; split aces get one card). An unfinished hand resumes when you return.
 - **Plinko** (server): 8/12/16 rows × low/medium/high risk, ~99% return on every board, several balls in the air at once.
 - **Private tables**: the creator picks any amount — Teen Patti boot 1-10,000; Rummy 1-100 per point (Points) or 10-10,000 entry (Pool/Deals).
-- **Chess**: preview board.
+- **Chess**: full rules (legal moves only, check, checkmate, stalemate, castling, en passant, promotion) against a computer that searches a few moves ahead — it captures loose pieces and goes for mate. 10-minute clocks; a draw refunds the entry.
 - **Wallet**: one virtual-coin balance from Supabase and the full coin history (received, bets, winnings, refunds). "Get Coins" points players to their agent.
 - **Account**: game history (from the coin ledger), responsible gaming limits and self-exclusion, help/FAQ, settings.
 
 ## Setup
 
-1. **Database:** in Supabase → SQL Editor, run [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql), then [`002_game_server.sql`](supabase/migrations/002_game_server.sql), then [`003_teen_patti_rummy.sql`](supabase/migrations/003_teen_patti_rummy.sql) and every later file in `supabase/migrations/` in number order (004 … 013), once each. A brand-new project can run [`supabase/setup_all.sql`](supabase/setup_all.sql) instead.
+1. **Database:** in Supabase → SQL Editor, run [`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql), then [`002_game_server.sql`](supabase/migrations/002_game_server.sql), then [`003_teen_patti_rummy.sql`](supabase/migrations/003_teen_patti_rummy.sql) and every later file in `supabase/migrations/` in number order (004 … 014), once each. A brand-new project can run [`supabase/setup_all.sql`](supabase/setup_all.sql) instead.
 2. **Auth settings:** Supabase → Authentication → Sign In / Providers → turn **off** "Allow new users to sign up" (accounts are only created from the admin console).
 3. **Env vars:** copy `.env.example` to `.env.local` and fill in the project URL, anon key and service-role key. On Netlify add the same three under Site configuration → Environment variables. The service-role key is server-only.
 4. **First login:** create the Super Admin once:

@@ -161,6 +161,12 @@ body {
   border: 1px solid #b45309;
 }
 
+/* Roulette room: green felt like casino roulette apps. */
+.roulette-room {
+  background:
+    radial-gradient(70% 80% at 60% 45%, #3f9a5c 0%, #2c7a45 45%, #1c5a31 80%, #133f22 100%);
+}
+
 /* Landscape card tables (LandscapeStage) */
 .table-room {
   background:

@@ -8,6 +8,7 @@ import { useStore } from "../../lib/store";
 import { Avatar, Header, Money } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
 import type { Nav } from "../nav";
+import { bestMove, inCheck, kingSquare, legalMoves, makeMove, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
 
 export function BoardGame({ nav, gameId, table, buyIn }: { nav: Nav; gameId: GameId; table: string; buyIn: number }) {
   if (gameId === "ludo") return <Ludo nav={nav} table={table} buyIn={buyIn} />;
@@ -393,88 +394,89 @@ function Waiting({ lowBal, left, onRetry, onAddCash }: { lowBal: boolean; left: 
   );
 }
 
-/* ------------------------------------------------------------------ Chess (preview) */
+/* ------------------------------------------------------------------ Chess */
 
-const START_BOARD = [
-  "rnbqkbnr",
-  "pppppppp",
-  "........",
-  "........",
-  "........",
-  "........",
-  "PPPPPPPP",
-  "RNBQKBNR",
-].map((r) => r.split(""));
+// Full rules (app/lib/chess.ts): legal moves only, check, checkmate, stalemate, castling, en passant, promotion to
+// a queen. The computer searches a few moves ahead, so it captures loose pieces and goes for mate.
 const GLYPH: Record<string, string> = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟", K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟" };
+const CHESS_SECS = 600;
 
 function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
   const { total, credit, debit, showToast } = useStore();
-  const [board, setBoard] = useState(START_BOARD.map((r) => [...r]));
+  const [pos, setPos] = useState<Pos>(startPos);
   const [sel, setSel] = useState<[number, number] | null>(null);
-  const [white, setWhite] = useState(true);
-  const [clock, setClock] = useState([600, 600]);
+  const [last, setLast] = useState<Move | null>(null);
+  const [taken, setTaken] = useState<{ w: string[]; b: string[] }>({ w: [], b: [] }); // pieces each side has captured
+  const [clock, setClock] = useState([CHESS_SECS, CHESS_SECS]);
   const [started, setStarted] = useState(false);
-  const [done, setDone] = useState<null | boolean>(null);
+  const [done, setDone] = useState<null | "win" | "loss" | "draw">(null);
+  const [why, setWhy] = useState("");
   const label = `Chess • Table #${table}`;
   const [opp, setOpp] = useState<Bot>(() => pickBots(1)[0]);
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
+  const gameNo = useRef(0);
+  const white = pos.turn === "w";
 
+  const end = (result: "win" | "loss" | "draw", reason: string) => {
+    setDone(result);
+    setWhy(reason);
+    if (result === "win") credit(Math.floor(buyIn * 2 * 0.9), label);
+    if (result === "draw") credit(buyIn, label, "Refund");
+  };
+
+  const play = (p: Pos, m: Move) => {
+    const next = makeMove(p, m);
+    setPos(next);
+    setLast(m);
+    setSel(null);
+    if (m.captured !== ".") setTaken((t) => (p.turn === "w" ? { ...t, w: [...t.w, m.captured] } : { ...t, b: [...t.b, m.captured] }));
+    const st = chessStatus(next);
+    if (st === "checkmate") end(p.turn === "w" ? "win" : "loss", "Checkmate");
+    else if (st === "stalemate") end("draw", "Stalemate");
+    else if (st === "draw") end("draw", "Not enough pieces to mate");
+    return st;
+  };
+
+  // Clocks: the side to move loses time; running out loses the game.
   useEffect(() => {
     if (!started || done !== null) return;
     const t = setInterval(() => setClock((c) => (white ? [c[0] - 1, c[1]] : [c[0], c[1] - 1])), 1000);
     return () => clearInterval(t);
   }, [started, white, done]);
+  useEffect(() => {
+    if (done !== null || !started) return;
+    if (clock[0] <= 0) end("loss", "You ran out of time");
+    else if (clock[1] <= 0) end("win", `${opp.name} ran out of time`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clock]);
 
-  // Opponent replies with a random legal-looking pawn/knight move (demo only — no rules engine).
+  // Computer's turn: think for a moment, then play the engine's move.
   useEffect(() => {
     if (!started || white || done !== null) return;
+    const g = gameNo.current;
     const t = setTimeout(() => {
-      setBoard((b) => {
-        const nb = b.map((r) => [...r]);
-        for (let tries = 0; tries < 200; tries++) {
-          const r = Math.floor(Math.random() * 8), c = Math.floor(Math.random() * 8);
-          if (nb[r][c] === "p" && r < 7 && nb[r + 1][c] === ".") {
-            nb[r + 1][c] = "p";
-            nb[r][c] = ".";
-            return nb;
-          }
-          if (nb[r][c] === "n") {
-            const opts = [[2, 1], [2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2], [-2, 1], [-2, -1]].map(([dr, dc]) => [r + dr, c + dc]).filter(([a, d]) => a >= 0 && a < 8 && d >= 0 && d < 8 && !/[a-z]/.test(nb[a][d]));
-            if (opts.length) {
-              const [a, d] = opts[Math.floor(Math.random() * opts.length)];
-              if (nb[a][d] === "K") setDone(false);
-              nb[a][d] = "n";
-              nb[r][c] = ".";
-              return nb;
-            }
-          }
-        }
-        return nb;
-      });
-      setWhite(true);
-    }, 900);
+      if (g !== gameNo.current) return;
+      const m = bestMove(pos, 2);
+      if (m) play(pos, m);
+    }, 450 + Math.random() * 900);
     return () => clearTimeout(t);
-  }, [white, started, done]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pos, started, done]);
+
+  const myMoves = started && white && done === null ? legalMoves(pos) : [];
+  const targets = sel ? myMoves.filter((m) => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
 
   const tap = (r: number, c: number) => {
     if (!started || !white || done !== null) return;
-    const p = board[r][c];
-    if (sel) {
-      const [sr, sc] = sel;
-      if (sr === r && sc === c) return setSel(null);
-      if (/[A-Z]/.test(p)) return setSel([r, c]);
-      const nb = board.map((row) => [...row]);
-      if (nb[r][c] === "k") {
-        setDone(true);
-        credit(Math.floor(buyIn * 2 * 0.9), label);
-      }
-      nb[r][c] = nb[sr][sc];
-      nb[sr][sc] = ".";
-      setBoard(nb);
-      setSel(null);
-      setWhite(false);
-    } else if (/[A-Z]/.test(p)) setSel([r, c]);
+    const m = targets.find((x) => x.to[0] === r && x.to[1] === c);
+    if (m) return void play(pos, m);
+    const pc = pos.board[r][c];
+    if (pc !== "." && pc === pc.toUpperCase()) {
+      if (!myMoves.some((x) => x.from[0] === r && x.from[1] === c)) return setSel([r, c]); // selectable, just no moves
+      return setSel(sel && sel[0] === r && sel[1] === c ? null : [r, c]);
+    }
+    setSel(null);
   };
 
   const start = () => {
@@ -485,31 +487,65 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
       return showToast("Not enough coins — ask your agent");
     }
     setLowBal(false);
+    gameNo.current += 1;
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
-    setBoard(START_BOARD.map((r) => [...r]));
-    setClock([600, 600]);
-    setWhite(true);
+    setPos(startPos());
+    setSel(null);
+    setLast(null);
+    setTaken({ w: [], b: [] });
+    setClock([CHESS_SECS, CHESS_SECS]);
     setDone(null);
+    setWhy("");
     setStarted(true);
   };
 
   const firstIn = useAutoNext(!started && !lowBal, 3, start);
   const nextIn = useAutoNext(done !== null, NEXT_GAME_SECS, start);
-  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+  const check = started && done === null && inCheck(pos);
+  const [kr, kc] = kingSquare(pos.board, pos.turn);
+  const Taken = ({ list }: { list: string[] }) => (
+    <div className="h-5 flex items-center gap-[1px] text-[15px] leading-none text-white/80 px-1">
+      {[...list].sort((a, b) => "qrbnp".indexOf(a.toLowerCase()) - "qrbnp".indexOf(b.toLowerCase())).map((p, i) => <span key={i}>{GLYPH[p]}</span>)}
+    </div>
+  );
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
       <Header title="Chess" sub={`Table #${table} • Blitz 10 min • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <PlayerBar name={opp.name} bot emoji={opp.emoji} time={fmt(clock[1])} active={started && !white} />
-        <div className="relative mt-2 grid grid-cols-8 rounded-xl overflow-hidden shadow-2xl border-4 border-[#3b2412]">
-          {board.map((row, r) =>
+        <PlayerBar name={opp.name} bot emoji={opp.emoji} time={fmt(clock[1])} active={started && !white && done === null} />
+        <Taken list={taken.b} />
+        <div className="relative grid grid-cols-8 rounded-xl overflow-hidden shadow-2xl border-4 border-[#3b2412]">
+          {pos.board.map((row, r) =>
             row.map((p, c) => {
               const dark = (r + c) % 2 === 1;
-              const s = sel && sel[0] === r && sel[1] === c;
+              const isSel = sel && sel[0] === r && sel[1] === c;
+              const isLast = last && ((last.from[0] === r && last.from[1] === c) || (last.to[0] === r && last.to[1] === c));
+              const tgt = targets.find((m) => m.to[0] === r && m.to[1] === c);
+              const inChk = check && r === kr && c === kc;
               return (
-                <button key={`${r}${c}`} onClick={() => tap(r, c)} className="aspect-square grid place-items-center text-[28px] leading-none" style={{ background: s ? "#facc15" : dark ? "#779556" : "#ebecd0" }}>
-                  {p !== "." && <span style={{ color: /[A-Z]/.test(p) ? "#fff" : "#111", textShadow: /[A-Z]/.test(p) ? "0 0 2px #000, 0 1px 2px #000" : "0 0 1px #fff" }}>{GLYPH[p]}</span>}
+                <button
+                  key={`${r}${c}`}
+                  onClick={() => tap(r, c)}
+                  className="relative aspect-square grid place-items-center text-[30px] leading-none"
+                  style={{
+                    background: isSel ? "#f6e05e" : isLast ? (dark ? "#b9ca43" : "#f5f682") : dark ? "#779556" : "#ebecd0",
+                    boxShadow: inChk ? "inset 0 0 14px 5px #ef4444" : undefined,
+                  }}
+                >
+                  {c === 0 && <span className={`absolute left-0.5 top-0.5 text-[9px] font-semibold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{8 - r}</span>}
+                  {r === 7 && <span className={`absolute right-0.5 bottom-0 text-[9px] font-semibold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{"abcdefgh"[c]}</span>}
+                  {p !== "." && (
+                    <span key={`${p}${last?.to.join() ?? ""}`} className={isLast && last && last.to[0] === r && last.to[1] === c ? "pop" : ""} style={{ color: /[A-Z]/.test(p) ? "#fff" : "#111", textShadow: /[A-Z]/.test(p) ? "0 0 2px #000, 0 1px 2px #000" : "0 0 1px #fff" }}>
+                      {GLYPH[p]}
+                    </span>
+                  )}
+                  {tgt && (tgt.captured !== "." ? (
+                    <span className="absolute inset-[6%] rounded-full border-[4px] border-black/25" />
+                  ) : (
+                    <span className="absolute w-[28%] h-[28%] rounded-full bg-black/25" />
+                  ))}
                 </button>
               );
             }),
@@ -520,10 +556,20 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
             </div>
           )}
         </div>
-        <div className="mt-2"><PlayerBar name="You" emoji="👨🏽" time={fmt(clock[0])} active={started && white} /></div>
-        <div className="text-center text-[11px] text-white/40 mt-4">Preview build — full move validation arrives with the Chess module. Capture the king to win.</div>
+        <Taken list={taken.w} />
+        <PlayerBar name="You" emoji="👨🏽" time={fmt(clock[0])} active={started && white && done === null} />
+        <div className={`text-center text-[12px] mt-3 ${check ? "text-rose-400 font-semibold" : "text-white/45"}`}>
+          {done !== null ? why : check ? (white ? "Check! Protect your king" : `You gave check!`) : started ? (white ? "Your move — tap a piece to see where it can go" : `${opp.name} is thinking…`) : ""}
+        </div>
       </div>
-      <ResultSheet open={done !== null} won={!!done} title={done ? `You won ${inr(Math.floor(buyIn * 2 * 0.9))}!` : `${opp.name} wins`} left={nextIn} onLeave={nav.back} onClose={() => {}} />
+      <ResultSheet
+        open={done !== null}
+        won={done === "win"}
+        title={done === "win" ? `${why} — you won ${inr(Math.floor(buyIn * 2 * 0.9))}!` : done === "draw" ? `${why} — draw, entry refunded` : `${why} — ${opp.name} wins`}
+        left={nextIn}
+        onLeave={nav.back}
+        onClose={() => {}}
+      />
     </div>
   );
 }

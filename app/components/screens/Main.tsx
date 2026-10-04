@@ -160,10 +160,12 @@ const RUMMY_MODES: Record<RummyMode, { short: string; about: string }> = {
 };
 const RUMMY_STAKES: Record<RummyMode, number[]> = {
   points: [1, 2, 5, 10, 20, 50, 100],
-  pool101: [10, 25, 50, 100, 250, 500, 1000],
-  pool201: [10, 25, 50, 100, 250, 500, 1000],
-  deals: [10, 25, 50, 100, 250, 500, 1000],
+  pool101: [50, 100, 250, 500, 1000, 2500, 5000, 10000],
+  pool201: [50, 100, 250, 500, 1000, 2500, 5000, 10000],
+  deals: [50, 100, 250, 500, 1000, 2500, 5000, 10000],
 };
+/** Low / Mid / High filter for a rummy stake, by its place in the ladder. */
+const rummyTier = (i: number, n: number): Stake => (i < Math.ceil(n * 0.375) ? "Low" : i < Math.ceil(n * 0.625) ? "Mid" : "High");
 
 const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1, rummy21: 1 };
 
@@ -189,7 +191,10 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const privMin = rummy && mode !== "points" ? 10 : 1;
   const privMax = rummy && mode === "points" ? 100 : 10000;
   const privStake = privAmt === "" ? privEntries[1] : Number(privAmt);
-  const base = rummy ? RUMMY_TABLES : TABLES;
+  // Rummy gets one table per stake on the ladder (Points has 7, Pool/Deals have 8).
+  const base = rummy
+    ? RUMMY_STAKES[mode].map((v, i, all) => ({ id: String(101 + i * 103), seated: RUMMY_TABLES[i % RUMMY_TABLES.length].seated, seats: 6, buyIn: v, stake: rummyTier(i, all.length) }))
+    : TABLES;
   // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
   // show 2…seats-1 already seated (1 for 2-player games), drifting a little every few seconds like a real lobby.
   const [drift, setDrift] = useState(0);
@@ -278,7 +283,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             const full = false;
             return (
               <div key={t.id} className="flex items-center gap-3 p-3.5">
-                <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i]} />
+                <Avatar size={36} emoji={["👨🏽", "🧔🏾", "👩🏻", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👨🏽"][i % 7]} />
                 <div className="flex-1">
                   <div className="text-sm font-medium">
                     {rummy ? (mode === "points" ? `${inr(t.buyIn)} per point` : `${inr(t.buyIn)} entry`) : online ? `Boot ${inr(t.buyIn)}` : `Table ${t.id}`}
