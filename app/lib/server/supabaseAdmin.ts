@@ -46,3 +46,18 @@ export async function selectOne<T>(table: string, query: string): Promise<T | nu
   const rows = await call<T[]>(`/rest/v1/${table}?${query}&limit=1`, { headers: headers() });
   return rows[0] ?? null;
 }
+
+export const insertRow = (table: string, body: Record<string, unknown> | Record<string, unknown>[]) =>
+  call<unknown>(`/rest/v1/${table}`, {
+    method: "POST",
+    headers: { ...headers(), Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+
+export const upsertRow = (table: string, body: Record<string, unknown> | Record<string, unknown>[]) =>
+  call<unknown>(`/rest/v1/${table}`, {
+    method: "POST",
+    headers: { ...headers(), Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(body),
+  });
+

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -10,12 +10,13 @@ import { BOT_AVATARS, randomBal, randomName, useBotConfig } from "../lib/botpool
 import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, updateAccount, useAccounts, type Account, type Role } from "../lib/hierarchy";
 import { staffEmail } from "../lib/loginEmail";
 import { errText, supabase } from "../lib/supabase";
+import { AgentPaymentView } from "./AgentPaymentView";
 
 // Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
+type Section = "dashboard" | "payment" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -26,6 +27,7 @@ export default function AdminApp() {
 
   const all: { id: Section; label: string; icon: React.ReactNode; roles: Role[] }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
+    { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
     { id: "agents", label: "Agents", icon: <Briefcase size={18} />, roles: ["superadmin", "admin"] },
     { id: "players", label: "Players", icon: <Users size={18} />, roles: ["superadmin", "admin", "agent"] },
@@ -69,6 +71,7 @@ export default function AdminApp() {
         </div>
         <div className="p-4 lg:p-8 max-w-6xl">
           {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
+          {sec === "payment" && <AgentPaymentView me={me} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
           {sec === "agents" && <AccountsView key="agent" role="agent" {...ctx} />}
           {sec === "players" && <AccountsView key="player" role="player" {...ctx} />}
@@ -184,6 +187,26 @@ function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
           ))}
           {recent.length === 0 && <div className="text-sm text-white/50 py-4">No players yet. Create one from the Players tab.</div>}
         </div>
+      </div>
+
+      <div className="card p-5 mt-4 bg-gradient-to-r from-neon-500/10 via-neon-400/5 to-transparent border border-neon-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-neon-400/20 text-neon-400 grid place-items-center shrink-0 shadow-lg">
+            <QrCode size={24} />
+          </div>
+          <div>
+            <div className="font-semibold text-sm text-white">Player Deposit UPI & QR Code</div>
+            <div className="text-xs text-white/60 mt-0.5">
+              Set up your UPI ID and QR code so your players can pay you directly for coins. Only players created under your account can see these details.
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => go("payment")}
+          className="btn-green px-5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap self-start sm:self-auto shadow-md"
+        >
+          Manage UPI & QR
+        </button>
       </div>
     </>
   );
