@@ -8,7 +8,7 @@ import { supabase } from "./supabase";
 
 // Public addresses (not secrets). The env vars override them; the defaults keep a deploy working even if the
 // hosting provider's env vars haven't been set yet.
-const DEFAULT_HOST = "game-server-production-ca31.up.railway.app";
+const DEFAULT_HOST = "game-server-production-cc2c.up.railway.app";
 const WS_URL = process.env.NEXT_PUBLIC_GAME_SERVER_WS || `wss://${DEFAULT_HOST}/ws`;
 const HTTP_URL = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || `https://${DEFAULT_HOST}`;
 
