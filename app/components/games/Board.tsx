@@ -8,6 +8,7 @@ import { useStore } from "../../lib/store";
 import { Avatar, Header, Money } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
 import type { Nav } from "../nav";
+import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
 import { bestMove, inCheck, kingSquare, legalMoves, makeMove, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
 
 export function BoardGame({ nav, gameId, table, buyIn }: { nav: Nav; gameId: GameId; table: string; buyIn: number }) {
@@ -71,9 +72,14 @@ const STEP_MS = 170;
 const BOT_STEP_MS = 260; // bots walk their tokens a little slower, like a person tapping square by square
 const ROLL_MS = 560;
 /** A human-looking pause: usually between a and b ms, now and then a longer think. */
-const think = (a: number, b: number) => sleep(a + Math.random() * (b - a) + (Math.random() < 0.15 ? 700 + Math.random() * 900 : 0));
+/** Bot pacing from the admin's "bot speed" setting (1 = normal); set by each table on mount. */
+let PACE = 1;
+const think = (a: number, b: number) => sleep((a + Math.random() * (b - a) + (Math.random() < 0.15 ? 700 + Math.random() * 900 : 0)) * PACE);
 
 function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
+  const gs = useGameSettings();
+  const keep = 1 - feeOf(gs, "ludo", 10);
+  PACE = botPace(gs, "ludo");
   const { total, debit, credit, showToast } = useStore();
   const [started, setStarted] = useState(false);
   const [tokens, setTokens] = useState<number[][]>(() => LPLAYERS.map(() => [-1, -1, -1, -1]));
@@ -156,7 +162,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     over.current = true;
     setMoving(false);
     setWinner(p);
-    if (p === 0) credit(Math.floor(buyIn * 4 * 0.9), label);
+    if (p === 0) credit(Math.floor(buyIn * 4 * keep), label);
   };
 
   const nextTurn = (from: number) => {
@@ -374,7 +380,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       <ResultSheet
         open={winner !== null}
         won={winner === 0}
-        title={winner === 0 ? `You won ${inr(Math.floor(buyIn * 4 * 0.9))}!` : `${winner !== null ? names[winner] : ""} wins`}
+        title={winner === 0 ? `You won ${inr(Math.floor(buyIn * 4 * keep))}!` : `${winner !== null ? names[winner] : ""} wins`}
         left={nextIn}
         onLeave={nav.back}
         onClose={() => {}}
@@ -407,6 +413,9 @@ const GLYPH: Record<string, string> = { k: "♚", q: "♛", r: "♜", b: "♝", 
 const CHESS_SECS = 600;
 
 function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
+  const gs = useGameSettings();
+  const keep = 1 - feeOf(gs, "chess", 10);
+  const pace = botPace(gs, "chess");
   const { total, credit, debit, showToast } = useStore();
   const [pos, setPos] = useState<Pos>(startPos);
   const [sel, setSel] = useState<[number, number] | null>(null);
@@ -426,7 +435,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const end = (result: "win" | "loss" | "draw", reason: string) => {
     setDone(result);
     setWhy(reason);
-    if (result === "win") credit(Math.floor(buyIn * 2 * 0.9), label);
+    if (result === "win") credit(Math.floor(buyIn * 2 * keep), label);
     if (result === "draw") credit(buyIn, label, "Refund");
   };
 
@@ -464,7 +473,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
       if (g !== gameNo.current) return;
       const m = bestMove(pos, 2);
       if (m) play(pos, m);
-    }, 450 + Math.random() * 900);
+    }, (450 + Math.random() * 900) * pace);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, started, done]);
@@ -570,7 +579,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
       <ResultSheet
         open={done !== null}
         won={done === "win"}
-        title={done === "win" ? `${why} — you won ${inr(Math.floor(buyIn * 2 * 0.9))}!` : done === "draw" ? `${why} — draw, entry refunded` : `${why} — ${opp.name} wins`}
+        title={done === "win" ? `${why} — you won ${inr(Math.floor(buyIn * 2 * keep))}!` : done === "draw" ? `${why} — draw, entry refunded` : `${why} — ${opp.name} wins`}
         left={nextIn}
         onLeave={nav.back}
         onClose={() => {}}
@@ -699,6 +708,9 @@ function botShot(ds: Disc[]): { x: number; vx: number; vy: number } {
 }
 
 function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
+  const gs = useGameSettings();
+  const keep = 1 - feeOf(gs, "carrom", 10);
+  const pace = botPace(gs, "carrom");
   const { total, debit, credit, showToast } = useStore();
   const discs = useRef<Disc[]>(rackCarrom());
   const [, setFrame] = useState(0);
@@ -772,7 +784,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
       const iWon = sc[0] >= sc[1];
       setDone(iWon);
       setPhase("wait");
-      if (iWon) credit(Math.floor(buyIn * 2 * 0.9), label);
+      if (iWon) credit(Math.floor(buyIn * 2 * keep), label);
       return;
     }
     const again = !foul && (own > 0 || queen);
@@ -792,8 +804,8 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
       const shot = botShot(discs.current);
       placeStriker(1, shot.x); // slides across (CSS transition while phase is "bot")
       redraw();
-      window.setTimeout(() => alive.current && shoot(shot.vx, shot.vy, 1), 700);
-    }, 600);
+      window.setTimeout(() => alive.current && shoot(shot.vx, shot.vy, 1), 700 * pace);
+    }, 600 * pace);
   };
 
   // Finger controls, like carrom apps:
@@ -961,7 +973,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
           </div>
         </div>
       </div>
-      <ResultSheet open={done !== null} won={!!done} title={done ? `You won ${inr(Math.floor(buyIn * 2 * 0.9))}!` : `${opp.name} wins`} left={nextIn} onLeave={nav.back} onClose={() => {}} />
+      <ResultSheet open={done !== null} won={!!done} title={done ? `You won ${inr(Math.floor(buyIn * 2 * keep))}!` : `${opp.name} wins`} left={nextIn} onLeave={nav.back} onClose={() => {}} />
     </div>
   );
 }

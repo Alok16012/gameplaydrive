@@ -37,6 +37,14 @@ export async function walletMove(uid: string, amount: number, kind: string, note
   return r === null ? null : Number(r);
 }
 
+/** Coins the player may still bet today under their daily limit (null = no limit, or the database lacks migration 018). */
+export async function betRoom(uid: string): Promise<number | null> {
+  try {
+    const r = await call<number | null>("/rest/v1/rpc/bet_room", { method: "POST", headers: headers(), body: JSON.stringify({ p_uid: uid }) });
+    return r === null ? null : Number(r);
+  } catch { return null; }
+}
+
 export async function getSetting<T>(key: string): Promise<T | null> {
   const rows = await call<{ value: T }[]>(`/rest/v1/app_settings?key=eq.${key}&select=value`, { headers: headers() });
   return rows[0]?.value ?? null;

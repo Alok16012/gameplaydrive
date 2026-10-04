@@ -9,11 +9,11 @@ import { useStore } from "../../lib/store";
 import { Header, Money, PlayingCard } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, TURN_SECS, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
 import type { Nav } from "../nav";
+import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
 
 // Teen Patti (PRD §6.1) and Texas Hold'em demo table. Game logic runs locally against three bots;
 // in production the table is a server-side FSM and the client only renders state + sends actions.
 
-const RAKE = 0.05;
 const BOTS = 5; // 6 players at the table: you + 5
 
 interface Seat {
@@ -69,6 +69,9 @@ function fresh(bots: Seat[]): G {
 
 export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: GameId; table: string; buyIn: number }) {
   const game = gameById(gameId);
+  const gs = useGameSettings();
+  const RAKE = feeOf(gs, gameId, 5);
+  const pace = botPace(gs, gameId);
   const poker = gameId === "poker";
   const { total, debit, credit, showToast } = useStore();
   const g = useRef<G>(null as unknown as G);
@@ -165,7 +168,9 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       const b = st.bots[i];
       if (b.packed || st.phase !== "playing") continue;
       // Each bot gets its own 15 s clock and uses a human-like slice of it.
-      const delay = humanDelay();
+      const base = humanDelay();
+      const timedOut = base >= TURN_SECS; // decided before pacing, so "slow" bots don't time out more often
+      const delay = timedOut ? TURN_SECS : Math.min(TURN_SECS - 0.5, base * pace);
       st.turn = i;
       st.timerEnd = Date.now() + TURN_SECS * 1000;
       b.action = "Thinking…";
@@ -173,7 +178,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       await sleep(delay * 1000);
       if (g.current !== st) return; // left / restarted
       const packChance = poker ? 0.14 : 0.08 + st.round * 0.04 + (b.seen ? 0.04 : 0);
-      if (delay >= TURN_SECS) {
+      if (timedOut) {
         b.packed = true;
         b.action = "Timed out";
       } else if (Math.random() < packChance) {
@@ -515,7 +520,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
               </div>
             ))}
           </div>
-          <div className="text-[10px] text-white/40 mt-3">Pot {inr(s.pot)} • Platform fee {RAKE * 100}%</div>
+          <div className="text-[10px] text-white/40 mt-3">Pot {inr(s.pot)} • Platform fee {Math.round(RAKE * 1000) / 10}%</div>
         </ResultSheet>
       )}
     </div>

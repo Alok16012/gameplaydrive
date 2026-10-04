@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -15,7 +15,7 @@ import { errText, supabase } from "../lib/supabase";
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "admins" | "agents" | "players" | "bots" | "network" | "config" | "audit";
+type Section = "dashboard" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -32,6 +32,7 @@ export default function AdminApp() {
     { id: "bots", label: "Bots", icon: <BotIcon size={18} />, roles: ["superadmin"] },
     { id: "network", label: "Network", icon: <Network size={18} />, roles: ["superadmin", "admin"] },
     { id: "config", label: "Game Config", icon: <Gamepad2 size={18} />, roles: ["superadmin"] },
+    { id: "reports", label: "Reports", icon: <BarChart3 size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "audit", label: "Audit Log", icon: <ClipboardList size={18} />, roles: ["superadmin", "admin", "agent"] },
   ];
   const nav = all.filter((n) => n.roles.includes(me.role));
@@ -74,6 +75,7 @@ export default function AdminApp() {
           {sec === "bots" && <BotsView />}
           {sec === "network" && <NetworkView {...ctx} />}
           {sec === "config" && <ConfigView />}
+          {sec === "reports" && <ReportsView {...ctx} />}
           {sec === "audit" && <AuditView />}
         </div>
       </main>
@@ -81,7 +83,7 @@ export default function AdminApp() {
   );
 }
 
-interface Ctx { me: Account; accounts: Account[]; reload: () => Promise<void> }
+export interface Ctx { me: Account; accounts: Account[]; reload: () => Promise<void> }
 
 function Brand({ role }: { role?: Role }) {
   return (
@@ -191,6 +193,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
   const [coinsFor, setCoinsFor] = useState<Account | null>(null);
+  const [limitFor, setLimitFor] = useState<Account | null>(null);
   const [editing, setEditing] = useState<Account | null>(null);
   const [err, setErr] = useState("");
   const byId = new Map(accounts.map((a) => [a.id, a]));
@@ -252,6 +255,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Pencil size={13} />Edit</button>
                   <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
+                  {u.role === "player" && <button onClick={() => setLimitFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Gauge size={13} />{u.dailyLimit ? coins(u.dailyLimit) + "/day" : "Limit"}</button>}
                   <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2">{u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
                 </td>
               </tr>
@@ -262,6 +266,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       </div>
       {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} />}
       {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
+      {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
     </>
   );
@@ -627,65 +632,90 @@ function BotsView() {
   );
 }
 
-type GameCfg = { enabled: boolean; rake: number; turn: number };
-const SERVER_GAMES: { id: GameId; note: string }[] = [
-  { id: "teen-patti", note: "Platform fee is taken from each pot" },
-  { id: "rummy", note: "Fee on Points winnings and on Pool/Deals prize pools" },
+/** One game's admin settings (app_settings.games[id]). The same values apply to every player. */
+type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast" };
+type Field = "bets" | "rake" | "turn" | "blind_limit" | "bot_speed";
+const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
+  { id: "teen-patti", fields: ["rake", "turn", "blind_limit"], note: "Fee is taken from each pot. Boots follow the table list" },
+  { id: "rummy", fields: ["rake", "turn"], note: "13 and 21 Card. Fee on Points winnings and Pool/Deals prize pools" },
+  { id: "dragon-tiger", fields: ["bets"], note: "Limits apply to the total staked per round" },
+  { id: "andar-bahar", fields: ["bets"], note: "Limits apply to the total staked per round" },
+  { id: "lucky-7", fields: ["bets"], note: "Limits apply to the total staked per round" },
+  { id: "aviator", fields: ["bets"], note: "Limits apply to each bet slot" },
+  { id: "roulette", fields: ["bets"], note: "Limits apply to the total staked per spin" },
+  { id: "plinko", fields: ["bets"], note: "Limits apply to each ball" },
+  { id: "blackjack", fields: ["bets"], note: "Limits apply to each hand (double / split too)" },
+  { id: "ludo", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
+  { id: "carrom", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
+  { id: "chess", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
+  { id: "poker", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table boot" },
 ];
 
-function ConfigView() {
+export function ConfigView() {
   const [cfg, setCfg] = useState<Record<string, GameCfg> | null>(null);
   const [draft, setDraft] = useState<Record<string, GameCfg>>({});
   const [msg, setMsg] = useState<Record<string, string>>({});
-  const [tables, setTables] = useState<{ tp: number; rm: number } | null>(null);
   const load = async () => {
-    const sb = supabase();
-    const { data } = await sb.from("app_settings").select("value").eq("key", "games").maybeSingle();
+    const { data } = await supabase().from("app_settings").select("value").eq("key", "games").maybeSingle();
     const v = (data?.value ?? {}) as Record<string, GameCfg>;
     setCfg(v);
     setDraft(v);
-    const [{ data: lc }] = await Promise.all([sb.rpc("lobby_counts")]);
-    const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
-    setTables({ tp: sum(lc?.["teen-patti"]), rm: sum(lc?.rummy) });
   };
   useEffect(() => { load(); }, []);
+  const get = (id: string) => draft[id] ?? {};
+  const set = (id: string, patch: Partial<GameCfg>) => setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
   const save = async (id: string) => {
-    const d = draft[id];
-    const { error } = await supabase().rpc("set_game_config", { p_game: id, p_enabled: d.enabled, p_rake: d.rake, p_turn: d.turn });
-    setMsg((m) => ({ ...m, [id]: error ? errText(error) : "Saved — applies from the next hand" }));
+    const d = get(id), old = cfg?.[id] ?? {};
+    const changed: Record<string, unknown> = {};
+    for (const k of ["enabled", "min_bet", "max_bet", "rake", "turn", "blind_limit", "bot_speed"] as (keyof GameCfg)[]) {
+      if (d[k] !== old[k]) changed[k] = d[k] === undefined || (d[k] as unknown) === "" ? null : d[k];
+    }
+    const { error } = await supabase().rpc("set_game_settings", { p_game: id, p_cfg: changed });
+    setMsg((m) => ({ ...m, [id]: error ? (/set_game_settings/.test(errText(error)) ? "Run migration 018 first" : errText(error)) : "Saved — applies to new bets and tables" }));
     if (!error) load();
   };
-  const set = (id: string, patch: Partial<GameCfg>) => setDraft((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+  const num = (v: string) => (v === "" ? undefined : Number(v));
 
   return (
     <>
-      <Title t="Game Config" s="Settings the game server uses for every table" />
+      <Title t="Game Config" s="Same rules for every player. Changes are written to the audit log." />
       <div className="grid md:grid-cols-2 gap-4">
-        {SERVER_GAMES.map(({ id, note }) => {
+        {CONFIG_GAMES.map(({ id, fields, note }) => {
           const g = GAMES.find((x) => x.id === id)!;
-          const d = draft[id];
-          const dirty = cfg && d && JSON.stringify(cfg[id]) !== JSON.stringify(d);
+          const d = get(id);
+          const on = d.enabled ?? true;
+          const dirty = cfg && JSON.stringify(cfg[id] ?? {}) !== JSON.stringify(d);
           return (
-            <div key={id} className="card p-5">
+            <div key={id} className={`card p-5 ${on ? "" : "opacity-80"}`}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg grid place-items-center overflow-hidden" style={{ background: `linear-gradient(160deg,${g.from},${g.to})` }}><div className="scale-[.5]"><GameIcon id={g.id} /></div></div>
                 <div className="flex-1">
                   <div className="font-medium">{g.name}</div>
-                  <div className="text-[11px] text-white/50">{tables ? `${id === "rummy" ? tables.rm : tables.tp} real players at tables now` : "…"}</div>
+                  <div className={`text-[11px] ${on ? "text-neon-400" : "text-rose-300"}`}>{on ? "Open" : "Closed — no new bets or tables"}</div>
                 </div>
-                {d && (
-                  <button onClick={() => set(id, { enabled: !d.enabled })} className={`w-11 h-6 rounded-full p-0.5 transition-colors ${d.enabled ? "bg-neon-500" : "bg-white/15"}`} aria-label="Enabled">
-                    <div className={`w-5 h-5 rounded-full bg-white transition-transform ${d.enabled ? "translate-x-5" : ""}`} />
-                  </button>
-                )}
+                <button onClick={() => set(id, { enabled: !on })} className={`w-11 h-6 rounded-full p-0.5 transition-colors ${on ? "bg-neon-500" : "bg-white/15"}`} aria-label="Open">
+                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${on ? "translate-x-5" : ""}`} />
+                </button>
               </div>
-              {d ? (
+              {cfg ? (
                 <>
                   <div className="grid grid-cols-2 gap-3 mt-4">
-                    <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} value={d.rake} onChange={(e) => set(id, { rake: Number(e.target.value) })} className={`${inputCls} mt-1`} /></label>
-                    <label className="text-xs text-white/60">Turn time (seconds)<input type="number" min={10} max={90} value={d.turn} onChange={(e) => set(id, { turn: Number(e.target.value) })} className={`${inputCls} mt-1`} /></label>
+                    {fields.includes("bets") && <>
+                      <label className="text-xs text-white/60">Min bet (coins)<input type="number" min={1} placeholder="No limit" value={d.min_bet ?? ""} onChange={(e) => set(id, { min_bet: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>
+                      <label className="text-xs text-white/60">Max bet (coins)<input type="number" min={1} placeholder="No limit" value={d.max_bet ?? ""} onChange={(e) => set(id, { max_bet: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>
+                    </>}
+                    {fields.includes("rake") && <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} placeholder={id === "teen-patti" || id === "poker" ? "5" : "10"} value={d.rake ?? ""} onChange={(e) => set(id, { rake: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
+                    {fields.includes("turn") && <label className="text-xs text-white/60">Turn time (seconds)<input type="number" min={10} max={90} placeholder={id === "rummy" ? "30" : "15"} value={d.turn ?? ""} onChange={(e) => set(id, { turn: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
+                    {fields.includes("blind_limit") && <label className="text-xs text-white/60">Blind chaals per player<input type="number" min={1} max={10} placeholder="4" value={d.blind_limit ?? ""} onChange={(e) => set(id, { blind_limit: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
+                    {fields.includes("bot_speed") && (
+                      <label className="text-xs text-white/60">Bot speed
+                        <select value={d.bot_speed ?? "normal"} onChange={(e) => set(id, { bot_speed: e.target.value as GameCfg["bot_speed"] })} className={`${inputCls} mt-1`}>
+                          <option value="slow">Slow (relaxed)</option><option value="normal">Normal</option><option value="fast">Fast</option>
+                        </select>
+                      </label>
+                    )}
                   </div>
-                  <div className="text-[11px] text-white/40 mt-2">{note}. {d.enabled ? "" : "Disabled: players can't join new tables."}</div>
+                  <div className="text-[11px] text-white/40 mt-2">{note}.</div>
                   <div className="flex items-center justify-between mt-3">
                     <span className={`text-xs ${msg[id]?.startsWith("Saved") ? "text-neon-400" : "text-rose-300"}`}>{msg[id]}</span>
                     <button disabled={!dirty} onClick={() => save(id)} className="btn-green rounded-xl px-4 py-2 text-sm">Save</button>
@@ -696,13 +726,141 @@ function ConfigView() {
           );
         })}
       </div>
-      <div className="card p-5 mt-4">
-        <div className="font-medium">Other games</div>
-        <div className="text-xs text-white/50 mt-1">These still run on the player&apos;s device against bots (practice). Server-side payouts are capped at 100× recent stakes until they move to the game server.</div>
-        <div className="flex flex-wrap gap-2 mt-3">
-          {GAMES.filter((g) => !SERVER_GAMES.some((x) => x.id === g.id)).map((g) => <Pill key={g.id} tone="gray">{g.name}</Pill>)}
+    </>
+  );
+}
+
+function LimitModal({ target, reload, onClose }: { target: Account; reload: () => Promise<void>; onClose: () => void }) {
+  const [val, setVal] = useState(target.dailyLimit ? String(target.dailyLimit) : "");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (limit: number | null) => {
+    setBusy(true);
+    const { error } = await supabase().rpc("set_daily_limit", { target: target.id, p_limit: limit });
+    setBusy(false);
+    if (error) return setErr(/set_daily_limit/.test(errText(error)) ? "Run migration 018 first" : errText(error));
+    await reload();
+    onClose();
+  };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-4" onClick={onClose}>
+      <div className="w-full max-w-sm card p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="text-lg font-semibold">Daily bet limit</div>
+        <div className="text-xs text-white/50 mt-1">{target.name} • {target.code}. Total coins they can bet per day (India time), across all games.</div>
+        <input type="number" min={1} value={val} onChange={(e) => { setVal(e.target.value); setErr(""); }} placeholder="e.g. 5000" className={`${inputCls} mt-4`} />
+        {err && <div className="text-xs text-rose-300 mt-2">{err}</div>}
+        <div className="grid grid-cols-2 gap-3 mt-5">
+          <button disabled={busy} onClick={() => save(null)} className="btn-ghost rounded-xl py-2.5 text-sm">Remove limit</button>
+          <button disabled={busy || !(Number(val) >= 1)} onClick={() => save(Math.floor(Number(val)))} className="btn-green rounded-xl py-2.5 text-sm">Save</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface GameRow { game: string; bets: number; payouts: number; net: number; players: number; bet_count: number }
+interface NetRow { id: string; code: string; name: string; role: Role; bets: number; payouts: number; net: number; players: number }
+interface RiskRow { id: string; code: string; name: string; status: string; daily_bet_limit: number | null; staked: number; paid: number; net_won: number; bet_count: number }
+
+export function ReportsView({ accounts, reload }: Ctx) {
+  const [days, setDays] = useState(1);
+  const [data, setData] = useState<{ games: GameRow[]; net: NetRow[]; risk: RiskRow[] } | null>(null);
+  const [err, setErr] = useState("");
+  const [limitFor, setLimitFor] = useState<Account | null>(null);
+  const load = async (d = days) => {
+    setData(null);
+    const sb = supabase();
+    const [g, n, r] = await Promise.all([sb.rpc("admin_game_report", { p_days: d }), sb.rpc("admin_network_report", { p_days: d }), sb.rpc("admin_risk_report", { p_days: d })]);
+    const e = g.error ?? n.error ?? r.error;
+    if (e) { setErr(/admin_game_report|admin_network_report|admin_risk_report/.test(errText(e)) ? "Reports need migration 018 — run it in Supabase first." : errText(e)); return; }
+    setErr("");
+    setData({ games: (g.data ?? []) as GameRow[], net: (n.data ?? []) as NetRow[], risk: (r.data ?? []) as RiskRow[] });
+  };
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const nameOf = (id: string) => GAMES.find((g) => g.id === id)?.name ?? id.replace(/-/g, " ");
+  const tot = data?.games.reduce((a, r) => ({ bets: a.bets + r.bets, payouts: a.payouts + r.payouts, net: a.net + r.net }), { bets: 0, payouts: 0, net: 0 });
+  const th = "px-4 py-3 font-medium";
+  const td = "px-4 py-2.5 tabular-nums";
+  const freeze = async (id: string, frozen: boolean) => { await setStatus(id, frozen ? "Active" : "Frozen"); await reload(); load(); };
+  return (
+    <>
+      <Title t="Reports" s="Only accounts under you are counted" right={
+        <div className="flex gap-1 rounded-xl bg-white/5 p-1">
+          {[[1, "Today"], [7, "7 days"], [30, "30 days"]].map(([d, l]) => (
+            <button key={d} onClick={() => { setDays(d as number); load(d as number); }} className={`px-3 py-1.5 rounded-lg text-xs ${days === d ? "btn-green" : "text-white/70"}`}>{l}</button>
+          ))}
+        </div>
+      } />
+      {err && <div className="card p-5 text-sm text-rose-300">{err}</div>}
+      {!err && !data && <div className="card p-5 text-sm text-white/50">Loading…</div>}
+      {data && tot && (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            {[["Coins bet", tot.bets], ["Paid back", tot.payouts], ["Platform net", tot.net]].map(([l, v]) => (
+              <div key={l as string} className="card p-4"><div className="text-[11px] text-white/50">{l}</div><div className={`text-xl font-semibold mt-1 tabular-nums ${l === "Platform net" ? ((v as number) >= 0 ? "text-neon-400" : "text-rose-300") : ""}`}>{coins(v as number)}</div></div>
+            ))}
+          </div>
+
+          <div className="card mt-4 overflow-x-auto">
+            <div className="px-4 pt-4 font-medium">By game</div>
+            <table className="w-full text-sm min-w-[560px]">
+              <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Game", "Bets", "Coins bet", "Paid back", "Net", "Players"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {data.games.map((r) => (
+                  <tr key={r.game} className="border-b border-white/5 last:border-0">
+                    <td className="px-4 py-2.5 capitalize">{nameOf(r.game)}</td><td className={td}>{r.bet_count}</td><td className={td}>{coins(r.bets)}</td><td className={td}>{coins(r.payouts)}</td>
+                    <td className={`${td} ${r.net >= 0 ? "text-neon-400" : "text-rose-300"}`}>{coins(r.net)}</td><td className={td}>{r.players}</td>
+                  </tr>
+                ))}
+                {data.games.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-white/50">No bets in this period</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="card mt-4 overflow-x-auto">
+            <div className="px-4 pt-4 font-medium">By account under you</div>
+            <table className="w-full text-sm min-w-[560px]">
+              <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Account", "Role", "Players", "Coins bet", "Paid back", "Net"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {data.net.map((r) => (
+                  <tr key={r.id} className="border-b border-white/5 last:border-0">
+                    <td className="px-4 py-2.5">{r.name}<div className="text-[11px] text-white/45">{r.code}</div></td><td className="px-4 py-2.5">{ROLE_LABEL[r.role]}</td>
+                    <td className={td}>{r.players}</td><td className={td}>{coins(r.bets)}</td><td className={td}>{coins(r.payouts)}</td>
+                    <td className={`${td} ${r.net >= 0 ? "text-neon-400" : "text-rose-300"}`}>{coins(r.net)}</td>
+                  </tr>
+                ))}
+                {data.net.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-white/50">No accounts under you yet</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="card mt-4 overflow-x-auto">
+            <div className="px-4 pt-4 font-medium">Worth a look</div>
+            <div className="px-4 text-[11px] text-white/45">Players who won more than twice what they staked, or are up after 20+ bets. Check their games before acting.</div>
+            <table className="w-full text-sm min-w-[640px] mt-2">
+              <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Player", "Bets", "Staked", "Paid", "Up by", "Daily limit", ""].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {data.risk.map((r) => {
+                  const acc = accounts.find((a) => a.id === r.id);
+                  return (
+                    <tr key={r.id} className="border-b border-white/5 last:border-0">
+                      <td className="px-4 py-2.5">{r.name}<div className="text-[11px] text-white/45">{r.code}{r.status !== "active" ? " • frozen" : ""}</div></td>
+                      <td className={td}>{r.bet_count}</td><td className={td}>{coins(r.staked)}</td><td className={td}>{coins(r.paid)}</td>
+                      <td className={`${td} text-amber-300`}>{coins(r.net_won)}</td><td className={td}>{r.daily_bet_limit ? coins(r.daily_bet_limit) : "—"}</td>
+                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        {acc && <button onClick={() => setLimitFor(acc)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Gauge size={13} />Limit</button>}
+                        <button onClick={() => freeze(r.id, r.status !== "active")} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1">{r.status !== "active" ? <Snowflake size={13} /> : <Ban size={13} />}{r.status !== "active" ? "Unfreeze" : "Freeze"}</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {data.risk.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-white/50">Nothing unusual in this period</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {limitFor && <LimitModal target={limitFor} reload={async () => { await reload(); load(); }} onClose={() => setLimitFor(null)} />}
     </>
   );
 }

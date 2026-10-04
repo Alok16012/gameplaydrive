@@ -8,7 +8,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { realClock } from "./clock.js";
 import { cfg, refreshConfig } from "./config.js";
 import { refreshBots } from "./bots.js";
-import { getProfile, userFromToken } from "./supa.js";
+import { getProfile, userFromToken, betRoom } from "./supa.js";
 import { SupabaseWallet } from "./wallet.js";
 import { TPTable } from "./teenpatti.js";
 
@@ -91,6 +91,12 @@ async function onMessage(c: Conn, raw: string) {
   switch (m.t) {
     case "tp_join": {
       await wallet.load(c.uid);
+      {
+        // Admin's daily bet limit for this player: the boot must still fit today.
+        const byCode = m.code ? [...tables.values()].find((x) => x.code === String(m.code).trim().toUpperCase()) : undefined;
+        const room = await betRoom(c.uid);
+        if (room !== null && room < (byCode?.boot ?? Number(m.boot))) return send(c, { t: "error", code: "join", message: `Daily bet limit reached (${room} coins left today)` });
+      }
       const r = joinTable(c, Number(m.boot), m.code ? String(m.code) : null);
       if (typeof r === "string") return send(c, { t: "error", code: "join", message: r });
       return send(c, { t: "tp_view", view: r.view(c.uid) });
@@ -102,6 +108,7 @@ async function onMessage(c: Conn, raw: string) {
       }
       await wallet.load(c.uid);
       if (wallet.balance(c.uid) < boot) return send(c, { t: "error", code: "join", message: "Not enough coins" });
+      { const room = await betRoom(c.uid); if (room !== null && room < boot) return send(c, { t: "error", code: "join", message: `Daily bet limit reached (${room} coins left today)` }); }
       const t = makeTable(boot, newCode());
       const r = joinTable(c, boot, t.code);
       if (typeof r === "string") return send(c, { t: "error", code: "join", message: r });

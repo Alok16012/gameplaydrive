@@ -21,6 +21,7 @@ export interface Account {
   created: string;
   state: string | null;
   coins: number;
+  dailyLimit: number | null; // daily bet limit set by someone above them (migration 018)
 }
 
 export const ROLE_LABEL: Record<Role, string> = { superadmin: "Super Admin", admin: "Admin", agent: "Agent", player: "Player" };
@@ -31,12 +32,12 @@ export const CREATES: Record<Role, Role[]> = { superadmin: ["admin", "agent", "p
 
 interface Row {
   id: string; code: string; role: Role; name: string; phone: string | null; username: string | null; parent_id: string | null;
-  status: "active" | "frozen"; created_at: string; state: string | null; wallets: { coins: number } | null;
+  status: "active" | "frozen"; created_at: string; state: string | null; wallets: { coins: number } | null; daily_bet_limit?: number | null;
 }
 
 const toAccount = (r: Row): Account => ({
   id: r.id, code: r.code, role: r.role, name: r.name, phone: r.phone, username: r.username, parentId: r.parent_id,
-  status: r.status === "active" ? "Active" : "Frozen", state: r.state, coins: r.wallets?.coins ?? 0,
+  status: r.status === "active" ? "Active" : "Frozen", state: r.state, coins: r.wallets?.coins ?? 0, dailyLimit: r.daily_bet_limit ?? null,
   created: new Date(r.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
 });
 

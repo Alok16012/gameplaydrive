@@ -8,11 +8,13 @@ import { errText, supabase } from "../../lib/supabase";
 import { createTeenPattiPrivate, gameServerUp, getTeenPattiLobby } from "../../lib/gameServer";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
+import { isClosed, latestSettings, useGameSettings } from "../../lib/gameConfig";
 import type { Nav, RummyMode } from "../nav";
 
 const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 
-export function openGame(nav: Nav, game: Game) {
+export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
+  if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
   if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
@@ -47,7 +49,8 @@ async function tpLobby(): Promise<Record<string, number>> {
 }
 
 export function Home({ nav }: { nav: Nav }) {
-  const { player } = useStore();
+  const { player, showToast } = useStore();
+  const gs = useGameSettings();
   // Real players seated at Teen Patti / Rummy tables right now. Teen Patti tables live on the game server
   // (Railway); Rummy is still dealt from Supabase until it moves over too.
   const [live, setLive] = useState<Record<string, number>>({});
@@ -81,7 +84,7 @@ export function Home({ nav }: { nav: Nav }) {
       <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
 
       <div className="grid grid-cols-3 gap-2.5 mt-5">
-        {GAMES.map((g) => <GameTile key={g.id} game={g} onClick={() => openGame(nav, g)} />)}
+        {GAMES.map((g) => <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />)}
       </div>
 
       <button
@@ -100,7 +103,7 @@ export function Home({ nav }: { nav: Nav }) {
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
         {SERVER_GAMES.map((id) => gameById(id)).map((g) => (
-          <button key={g.id} onClick={() => openGame(nav, g)} className="card p-2.5 text-left">
+          <button key={g.id} onClick={() => openGame(nav, g, showToast)} className="card p-2.5 text-left">
             <GameThumb game={g} className="h-20" />
             <div className="mt-2 text-sm font-medium">{g.name}</div>
             <div className="text-[11px] text-neon-400 flex items-center gap-1">
@@ -115,6 +118,8 @@ export function Home({ nav }: { nav: Nav }) {
 }
 
 export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | "casino" | "board" }) {
+  const { showToast } = useStore();
+  const gs = useGameSettings();
   const [cat, setCat] = useState(initial);
   const [q, setQ] = useState<string | null>(null);
   const list = GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
@@ -141,12 +146,12 @@ export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | 
         )}
         <div className="mt-4 space-y-3">
           {list.map((g) => (
-            <div key={g.id} onClick={() => openGame(nav, g)} className="card p-2.5 flex items-center gap-3.5 cursor-pointer active:scale-[.99] transition-transform">
+            <div key={g.id} onClick={() => openGame(nav, g, showToast)} className="card p-2.5 flex items-center gap-3.5 cursor-pointer active:scale-[.99] transition-transform">
               <GameThumb game={g} className="w-28 h-[84px] shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold">{g.name}</div>
                 <div className="text-xs text-[var(--ink-soft)]">{g.meta}</div>
-                <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>
+                {isClosed(gs, g.id) ? <span className="inline-block pill px-4 py-1.5 text-xs mt-2.5 bg-white/10 text-white/60">Closed</span> : <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>}
               </div>
               <ChevronRight className="text-white/60 mr-1" />
             </div>

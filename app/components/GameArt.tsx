@@ -127,7 +127,7 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
   }
 }
 
-export function GameTile({ game, onClick }: { game: Game; onClick: () => void }) {
+export function GameTile({ game, onClick, closed }: { game: Game; onClick: () => void; closed?: boolean }) {
   return (
     <button
       onClick={onClick}
@@ -143,6 +143,7 @@ export function GameTile({ game, onClick }: { game: Game; onClick: () => void })
       </div>
       <div className="mt-1.5 text-[13px] font-semibold leading-tight">{game.name}</div>
       <div className="text-[10px] text-white/70">{game.tag}</div>
+      {closed && <div className="absolute inset-0 grid place-items-center bg-black/55"><span className="pill px-2.5 py-0.5 text-[10px] font-semibold bg-black/70 text-white/80">Closed</span></div>}
     </button>
   );
 }
