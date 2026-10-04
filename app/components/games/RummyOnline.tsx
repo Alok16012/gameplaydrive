@@ -243,6 +243,46 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   };
   const declareGroups = () => groups.map((g) => g.filter((id) => id !== sel[0])).filter((g) => g.length);
 
+  // Drag a card with your finger to rearrange the hand: drop it between cards of any group, or past the
+  // last group to start a new one. A short tap still selects the card. Positions are worked out in the
+  // table's own coordinates, so it behaves the same when the table is rotated on an upright phone.
+  const [drag, setDrag] = useState<{ id: number; gi: number; ci: number; x0: number; y0: number; dx: number; dy: number; moving: boolean } | null>(null);
+  const toLocal = (sdx: number, sdy: number): [number, number] =>
+    window.matchMedia("(orientation: portrait)").matches ? [sdy, -sdx] : [sdx, sdy];
+  const onCardDown = (e: React.PointerEvent, id: number, gi: number, ci: number) => {
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    setDrag({ id, gi, ci, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, moving: false });
+  };
+  const onCardMove = (e: React.PointerEvent) => {
+    if (!drag) return;
+    const [dx, dy] = toLocal(e.clientX - drag.x0, e.clientY - drag.y0);
+    setDrag({ ...drag, dx, dy, moving: drag.moving || Math.hypot(dx, dy) > 8 });
+  };
+  const onCardUp = () => {
+    if (!drag) return;
+    const d = drag;
+    setDrag(null);
+    if (!d.moving) return toggle(d.id);
+    // Where did the card's centre land, along the row of groups?
+    const widths = groups.map((g) => cw + (g.length - 1) * cstep);
+    const starts = widths.map((_, i) => widths.slice(0, i).reduce((a, w) => a + w + cgap, 0));
+    const centre = starts[d.gi] + d.ci * cstep + cw / 2 + d.dx;
+    let target = -1;
+    for (let i = 0; i < groups.length; i++) if (centre >= starts[i] - cgap / 2 && centre <= starts[i] + widths[i] + cgap / 2) target = i;
+    const without = groups.map((g) => g.filter((x) => x !== d.id));
+    if (target === -1) {
+      // Past either end: a new group of its own at that end.
+      const left = centre < 0;
+      const next = left ? [[d.id], ...without] : [...without, [d.id]];
+      arrange(next.filter((g) => g.length));
+    } else {
+      const at = Math.max(0, Math.min(without[target].length, Math.round((centre - starts[target] - cw / 2) / cstep)));
+      without[target] = [...without[target].slice(0, at), d.id, ...without[target].slice(at)];
+      arrange(without.filter((g) => g.length));
+    }
+    setSel([]);
+  };
+
   // Opponent seats along the top rim (centre points, % of the stage), picked to spread out by player count.
   const POS: [number, number][] = [[12, 41], [29, 29], [50, 25], [71, 29], [88, 41]];
   const PICK: Record<number, number[]> = { 1: [2], 2: [1, 3], 3: [1, 2, 3], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4] };
@@ -402,9 +442,28 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                     )}
                   </div>
                   <div className="relative" style={{ width: cw + (g.length - 1) * cstep, height: ch }}>
-                    {g.map((c, ci) => (
-                      <RcCard key={c.id} card={c} wild={isJoker(c, wild)} w={cw} h={ch} selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className="absolute top-0" style={{ left: ci * cstep }} />
-                    ))}
+                    {g.map((c, ci) => {
+                      const dragging = drag?.id === c.id && drag.moving;
+                      return (
+                        <div
+                          key={c.id}
+                          onPointerDown={(e) => onCardDown(e, c.id, gi, ci)}
+                          onPointerMove={onCardMove}
+                          onPointerUp={onCardUp}
+                          onPointerCancel={() => setDrag(null)}
+                          className="absolute top-0"
+                          style={{
+                            left: ci * cstep,
+                            touchAction: "none",
+                            zIndex: dragging ? 50 : undefined,
+                            transform: dragging ? `translate(${drag!.dx}px, ${drag!.dy - 10}px) scale(1.06)` : undefined,
+                            filter: dragging ? "drop-shadow(0 10px 14px rgba(0,0,0,.5))" : undefined,
+                          }}
+                        >
+                          <RcCard card={c} wild={isJoker(c, wild)} w={cw} h={ch} selected={sel.includes(c.id)} onClick={() => {}} />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}

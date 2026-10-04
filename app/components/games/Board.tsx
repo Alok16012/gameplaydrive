@@ -68,7 +68,10 @@ function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling
 
 // Animation pacing: tokens walk one square at a time so every move can be followed.
 const STEP_MS = 170;
+const BOT_STEP_MS = 260; // bots walk their tokens a little slower, like a person tapping square by square
 const ROLL_MS = 560;
+/** A human-looking pause: usually between a and b ms, now and then a longer think. */
+const think = (a: number, b: number) => sleep(a + Math.random() * (b - a) + (Math.random() < 0.15 ? 700 + Math.random() * 900 : 0));
 
 function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
   const { total, debit, credit, showToast } = useStore();
@@ -116,7 +119,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       const t = tokRef.current.map((r) => [...r]);
       t[p][i] = prog;
       setT(t);
-      await sleep(STEP_MS);
+      await sleep(p === 0 ? STEP_MS : BOT_STEP_MS);
     }
     if (!alive.current || g !== gameNo.current) return "stop";
     const prog = steps[steps.length - 1];
@@ -187,7 +190,8 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   const botPlay = async (p: number) => {
     const g = gameNo.current;
-    await sleep(450);
+    setMsg(`${names[p]}'s turn`);
+    await think(900, 1800); // picks up the dice
     if (!alive.current || over.current || g !== gameNo.current) return;
     const d = await roll(p);
     if (g !== gameNo.current) return;
@@ -195,10 +199,11 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     const opts = movable(p, d);
     if (!opts.length) {
       setMsg(`${names[p]} rolled ${d} — no move`);
-      await sleep(450);
+      await sleep(1100);
       return nextTurn(p);
     }
-    await sleep(250);
+    setMsg(`${names[p]} rolled ${d}`);
+    await think(opts.length > 1 ? 800 : 500, opts.length > 1 ? 1600 : 900); // decides which token to move
     // prefer a capture, then the most advanced token
     const pick = opts.find((i) => {
       const prog = tokRef.current[p][i] === -1 ? 0 : tokRef.current[p][i] + d;
@@ -791,26 +796,47 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     }, 600);
   };
 
-  // Aiming: drag back from the striker like a slingshot, release to shoot.
+  // Finger controls, like carrom apps:
+  //   • touch the striker (or anywhere on your baseline) and slide sideways to place it;
+  //   • pull back from the striker — or drag back from anywhere on the board — and let go to shoot.
+  //     The further you pull, the harder the shot; the dotted line shows where it will go.
+  const grip = useRef<{ mode: "slide" | "aim"; sx: number; sy: number; fromStriker: boolean } | null>(null);
   const toBoard = (e: React.PointerEvent) => {
     const r = boardRef.current!.getBoundingClientRect();
     return [((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100];
   };
+  const slideTo = (x: number) => { placeStriker(0, Math.max(BASE_MIN, Math.min(BASE_MAX, x))); redraw(); };
   const onDown = (e: React.PointerEvent) => {
     if (phase !== "aim" || done !== null) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     const [x, y] = toBoard(e);
     const s = striker();
-    setPull({ dx: s.x - x, dy: s.y - y });
+    const onStriker = Math.hypot(x - s.x, y - s.y) <= STRIKER_R * 2.4;
+    const onBaseline = Math.abs(y - BASELINE[0]) <= 5;
+    if (onStriker || onBaseline) {
+      if (!onStriker) slideTo(x); // tap the baseline to move the striker there
+      grip.current = { mode: "slide", sx: x, sy: y, fromStriker: true };
+    } else {
+      grip.current = { mode: "aim", sx: x, sy: y, fromStriker: false };
+    }
+    setPull(null);
   };
   const onMove = (e: React.PointerEvent) => {
-    if (!pull || phase !== "aim") return;
+    const gp = grip.current;
+    if (!gp || phase !== "aim") return;
     const [x, y] = toBoard(e);
     const s = striker();
-    setPull({ dx: s.x - x, dy: s.y - y });
+    if (gp.mode === "slide") {
+      // Pulled away from the baseline (down, behind the striker): switch to aiming from the striker.
+      if (Math.abs(y - BASELINE[0]) > 6) { gp.mode = "aim"; }
+      else { slideTo(x); return; }
+    }
+    setPull(gp.fromStriker ? { dx: s.x - x, dy: s.y - y } : { dx: gp.sx - x, dy: gp.sy - y });
   };
   const onUp = () => {
-    if (!pull || phase !== "aim") return;
+    const gp = grip.current;
+    grip.current = null;
+    if (!gp || gp.mode !== "aim" || !pull || phase !== "aim") return setPull(null);
     const len = Math.hypot(pull.dx, pull.dy);
     const power = Math.min(1, len / 32);
     if (power < 0.08) return setPull(null);
@@ -831,7 +857,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     setDone(null);
     setWho(0);
     setPull(null);
-    setMsg("Drag back from the striker and let go to shoot");
+    setMsg("Slide the striker, then pull back and let go to shoot");
     setPhase("aim");
   };
 
@@ -860,7 +886,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
             onPointerDown={onDown}
             onPointerMove={onMove}
             onPointerUp={onUp}
-            onPointerCancel={() => setPull(null)}
+            onPointerCancel={() => { grip.current = null; setPull(null); }}
             className="relative w-full h-full rounded-md overflow-hidden"
             style={{ background: "radial-gradient(circle,#f6d8a8,#e9bf82)", touchAction: "none", cursor: phase === "aim" ? "crosshair" : "default" }}
           >
@@ -928,7 +954,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
             />
           </label>
           <div className="text-center text-[12px] text-white/50">
-            {phase === "aim" ? "Your turn: slide the striker, then drag back on the board and release" : phase === "moving" ? "…" : phase === "bot" ? `${opp.name} is lining up a shot` : ""}
+            {phase === "aim" ? "Your turn: slide the striker with your finger, then pull back and let go" : phase === "moving" ? "…" : phase === "bot" ? `${opp.name} is lining up a shot` : ""}
           </div>
           <div className="flex justify-center gap-4 text-[11px] text-white/45">
             <span>White left: {coinsLeft("w")}</span><span>Black left: {coinsLeft("b")}</span><span>Queen: {coinsLeft("q") ? "on board" : "pocketed"}</span>
