@@ -121,6 +121,27 @@ class GameSocket {
 
 export const gameSocket = new GameSocket();
 
+/**
+ * Is the realtime game server reachable? Checked with /health (3 s timeout) and remembered for 30 s.
+ * When it isn't, Teen Patti falls back to the Supabase engine so the game keeps working.
+ */
+let upCache: { at: number; up: Promise<boolean> } | null = null;
+export function gameServerUp(): Promise<boolean> {
+  if (upCache && Date.now() - upCache.at < 30000) return upCache.up;
+  const up = (async () => {
+    if (!HTTP_URL) return false;
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 3000);
+      const r = await fetch(`${HTTP_URL}/health`, { cache: "no-store", signal: ctl.signal });
+      clearTimeout(t);
+      return r.ok && (await r.json()).ok === true;
+    } catch { return false; }
+  })();
+  upCache = { at: Date.now(), up };
+  return up;
+}
+
 /** Real players seated at Teen Patti tables right now, by boot amount — e.g. {"10": 3, "50": 1}. No auth needed. */
 export async function getTeenPattiLobby(): Promise<Record<string, number>> {
   if (!HTTP_URL) return {};

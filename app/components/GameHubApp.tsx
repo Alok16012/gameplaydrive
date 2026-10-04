@@ -15,6 +15,8 @@ import { Casino } from "./games/Casino";
 import { LuckySeven } from "./games/LuckySeven";
 import { CardTable } from "./games/CardTable";
 import { TeenPattiOnline } from "./games/TeenPattiOnline";
+import { TeenPattiSupabase } from "./games/TeenPattiSupabase";
+import { gameServerUp } from "../lib/gameServer";
 import { RummyOnline } from "./games/RummyOnline";
 import { BoardGame } from "./games/Board";
 import { Aviator } from "./games/Aviator";
@@ -85,7 +87,7 @@ function Shell() {
     case "plinko": screen = <Plinko nav={nav} />; break;
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"
-      ? <TeenPattiOnline key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
+      ? <TeenPattiAuto key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
       : <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
     case "rummy": screen = <RummyOnline key={route.table + route.mode + route.buyIn + (route.cards ?? 13)} nav={nav} mode={route.mode} stake={route.buyIn} deals={route.deals ?? 2} cards={route.cards ?? 13} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />; break;
     case "board": screen = <BoardGame nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
@@ -119,4 +121,12 @@ export default function GameHubApp() {
       </div>
     </StoreProvider>
   );
+}
+
+/** Teen Patti on the realtime game server when it's up; otherwise the Supabase engine, so the game never stops. */
+function TeenPattiAuto(props: { nav: Nav; buyIn: number; code?: string }) {
+  const [up, setUp] = useState<boolean | null>(null);
+  useEffect(() => { gameServerUp().then(setUp); }, []);
+  if (up === null) return <div className="min-h-dvh grid place-items-center text-sm text-white/60">Connecting to the table…</div>;
+  return up ? <TeenPattiOnline {...props} /> : <TeenPattiSupabase {...props} />;
 }

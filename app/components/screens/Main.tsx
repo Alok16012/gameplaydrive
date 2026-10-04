@@ -5,7 +5,7 @@ import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as Wal
 import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
-import { createTeenPattiPrivate, getTeenPattiLobby } from "../../lib/gameServer";
+import { createTeenPattiPrivate, gameServerUp, getTeenPattiLobby } from "../../lib/gameServer";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
 import type { Nav, RummyMode } from "../nav";
@@ -39,6 +39,13 @@ export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
   );
 }
 
+/** Teen Patti lobby counts from whichever engine is live (realtime server, or the Supabase fallback). */
+async function tpLobby(): Promise<Record<string, number>> {
+  if (await gameServerUp()) return getTeenPattiLobby();
+  const { data } = await supabase().rpc("lobby_counts");
+  return ((data as Record<string, Record<string, number>> | null)?.["teen-patti"]) ?? {};
+}
+
 export function Home({ nav }: { nav: Nav }) {
   const { player } = useStore();
   // Real players seated at Teen Patti / Rummy tables right now. Teen Patti tables live on the game server
@@ -46,7 +53,7 @@ export function Home({ nav }: { nav: Nav }) {
   const [live, setLive] = useState<Record<string, number>>({});
   useEffect(() => {
     const sum = (o: Record<string, number> | undefined) => Object.values(o ?? {}).reduce((a, b) => a + b, 0);
-    getTeenPattiLobby().then((d) => setLive((l) => ({ ...l, "teen-patti": sum(d) })));
+    tpLobby().then((d) => setLive((l) => ({ ...l, "teen-patti": sum(d) })));
     supabase().rpc("lobby_counts").then(({ data }) => {
       if (!data) return;
       const rm = (data as Record<string, Record<string, number>>).rummy ?? {};
@@ -210,7 +217,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     if (!online) return;
     const load = () =>
       gameId === "teen-patti"
-        ? getTeenPattiLobby().then(setCounts)
+        ? tpLobby().then(setCounts)
         : supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[rummy ? "rummy" : gameId] ?? {}));
     load();
     const t = setInterval(load, gameId === "teen-patti" ? 5000 : 10000);
@@ -232,7 +239,9 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     setBusy(true);
     try {
       const code = gameId === "teen-patti"
-        ? await createTeenPattiPrivate(privStake)
+        ? (await gameServerUp())
+          ? await createTeenPattiPrivate(privStake)
+          : await supabase().rpc("tp_create_private", { p_boot: privStake }).then(({ data, error }) => { if (error) throw error; return data as string; })
         : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privStake, p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
       setPriv(false);
       join(`P-${code}`, privStake, mode === "deals" ? 2 : 0);
