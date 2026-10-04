@@ -216,3 +216,8 @@ body {
   pointer-events: none;
 }
 .rc-glow { box-shadow: 0 0 0 3px #4ade80, 0 0 18px 4px rgba(74, 222, 128, 0.6); }
+
+/* Aviator: spinning propeller and slowly turning background rays. */
+@keyframes prop { from { transform: scaleY(1); } 50% { transform: scaleY(0.15); } to { transform: scaleY(1); } }
+@keyframes av-rays { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.av-rays { animation: av-rays 40s linear infinite; }

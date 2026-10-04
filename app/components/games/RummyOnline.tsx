@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownUp, Hand, Layers, LogOut, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
-import { KIND_LABEL, cardPoints, scoreGroups, type RCard } from "../../lib/rummyRules";
+import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, Money, PlayingCard, Sheet } from "../ui";
@@ -182,7 +182,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const deals = v?.deals || askedDeals;
   const byId = useMemo(() => new Map((v?.my_cards ?? []).map((c) => [c.id, c])), [v?.my_cards]);
   const cardGroups = groups.map((g) => g.map((id) => byId.get(id)).filter(Boolean) as RCard[]);
-  const wild = v?.wild?.r ?? "";
+  const wild = wildKey(v?.wild, cards); // "5" or, with 21 cards, "5:♥" (also 4♥/6♥) — see isJoker
   const sc = scoreGroups(cardGroups, wild);
   const serverNow = now + offset.current;
   const secsTo = (iso: string | null) => (iso ? Math.max(0, (new Date(iso).getTime() - serverNow) / 1000) : 0);
@@ -224,7 +224,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     const all = (v?.my_cards ?? []).slice();
     const suits = ["♠", "♥", "♦", "♣"];
     const low = (c: Card) => ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"].indexOf(c.r);
-    arrange(suits.map((s) => all.filter((c) => c.s === s && c.r !== wild).sort((a, b) => low(a) - low(b)).map((c) => c.id)).concat([all.filter((c) => c.r === wild).map((c) => c.id)]).filter((g) => g.length));
+    arrange(suits.map((s) => all.filter((c) => c.s === s && !isJoker(c, wild)).sort((a, b) => low(a) - low(b)).map((c) => c.id)).concat([all.filter((c) => isJoker(c, wild)).map((c) => c.id)]).filter((g) => g.length));
     setSel([]);
   };
   // Move the selected cards into an existing group (tap a card or two, then "Move here" on the target group).
@@ -356,9 +356,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 <div className={`relative rounded-[10px] ${myTurn && v.phase === "draw" ? "rc-glow" : ""}`}><RcBack w={deckW} h={deckH} /></div>
               </button>
               {/* Open card */}
-              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || v.open_top.r === wild} onClick={() => act("draw_open")} aria-label="Open card" className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: "52%" }}>
+              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || isJoker(v.open_top, wild)} onClick={() => act("draw_open")} aria-label="Open card" className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: "52%" }}>
                 {v.open_top
-                  ? <div className={`rounded-[10px] ${myTurn && v.phase === "draw" && v.open_top.r !== wild ? "rc-glow" : ""}`}><RcCard key={v.open_top.id} card={v.open_top} wild={v.open_top.r === wild} w={deckW} h={deckH} className="flip" /></div>
+                  ? <div className={`rounded-[10px] ${myTurn && v.phase === "draw" && !isJoker(v.open_top, wild) ? "rc-glow" : ""}`}><RcCard key={v.open_top.id} card={v.open_top} wild={isJoker(v.open_top, wild)} w={deckW} h={deckH} className="flip" /></div>
                   : <div className="rounded-[10px] border-2 border-dashed border-white/25" style={{ width: deckW, height: deckH }} />}
               </button>
               {/* Show (finish) slot: select one card to put aside, then tap here */}
@@ -403,7 +403,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                   </div>
                   <div className="relative" style={{ width: cw + (g.length - 1) * cstep, height: ch }}>
                     {g.map((c, ci) => (
-                      <RcCard key={c.id} card={c} wild={c.r === wild} w={cw} h={ch} selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className="absolute top-0" style={{ left: ci * cstep }} />
+                      <RcCard key={c.id} card={c} wild={isJoker(c, wild)} w={cw} h={ch} selected={sel.includes(c.id)} onClick={() => toggle(c.id)} className="absolute top-0" style={{ left: ci * cstep }} />
                     ))}
                   </div>
                 </div>
@@ -520,6 +520,18 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 function RcCard({ card, w, h, wild, selected, onClick, className = "", style }: { card: Card; w: number; h: number; wild?: boolean; selected?: boolean; onClick?: () => void; className?: string; style?: React.CSSProperties }) {
   const red = card.s === "♥" || card.s === "♦";
   const ink = red ? "#e11d2a" : "#111";
+  if ((card.r as string) === "JK") {
+    return (
+      <div
+        onClick={onClick}
+        className={`${className} ${className.includes("absolute") ? "" : "relative"} rounded-[10px] bg-white border border-black/15 shadow-[0_2px_6px_rgba(0,0,0,.35)] transition-transform ${selected ? "-translate-y-4 ring-[3px] ring-sky-400" : ""} ${onClick ? "cursor-pointer" : ""}`}
+        style={{ width: w, height: h, ...style }}
+      >
+        <div className="absolute font-black leading-[0.95] text-center text-[#c2410c]" style={{ left: w * 0.06, top: h * 0.05, fontSize: h * 0.13, width: w * 0.2 }}>J<br />O<br />K<br />E<br />R</div>
+        <div className="absolute leading-none" style={{ right: w * 0.06, bottom: h * 0.06, fontSize: h * 0.42 }}>🃏</div>
+      </div>
+    );
+  }
   return (
     <div
       onClick={onClick}

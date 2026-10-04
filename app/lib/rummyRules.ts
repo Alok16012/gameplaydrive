@@ -10,12 +10,26 @@
 import type { Card } from "./data";
 
 export interface RCard extends Card { id: number }
-export type GroupKind = "pure" | "impure" | "set" | "invalid";
-export const KIND_LABEL: Record<GroupKind, string> = { pure: "Pure Sequence", impure: "Sequence", set: "Set", invalid: "Invalid" };
+export type GroupKind = "pure" | "impure" | "set" | "tunnela" | "dublee" | "invalid";
+export const KIND_LABEL: Record<GroupKind, string> = { pure: "Pure Sequence", impure: "Sequence", set: "Set", tunnela: "3 Naali", dublee: "Double", invalid: "Invalid" };
+
+/**
+ * Wild-joker key, same format as the server (public.rm_wk): "5" for 13 cards (every 5 is a joker),
+ * "5:♥" for 21 cards (every 5, plus 4♥ and 6♥). Printed jokers ("JK") are always jokers.
+ */
+export const wildKey = (wild: Card | null | undefined, cards: number) => (!wild ? "" : cards === 21 ? `${wild.r}:${wild.s}` : wild.r);
+
+export function isJoker(c: Card, w: string): boolean {
+  if ((c.r as string) === "JK") return true;
+  const [wr, ws] = w.split(":");
+  if (c.r === wr) return true;
+  if (ws && c.s === ws && LOW[c.r] && LOW[wr]) return [1, 12].includes((LOW[c.r] - LOW[wr] + 13) % 13);
+  return false;
+}
 
 const LOW: Record<string, number> = { A: 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, J: 11, Q: 12, K: 13 };
 
-export const cardPoints = (c: Card, wild: string) => (c.r === wild ? 0 : ["A", "K", "Q", "J", "10"].includes(c.r) ? 10 : LOW[c.r]);
+export const cardPoints = (c: Card, wild: string) => (isJoker(c, wild) ? 0 : ["A", "K", "Q", "J", "10"].includes(c.r) ? 10 : LOW[c.r]);
 
 const consecutive = (vals: number[]) => {
   const v = [...vals].sort((a, b) => a - b);
@@ -23,12 +37,16 @@ const consecutive = (vals: number[]) => {
 };
 
 export function classify(group: Card[], wild: string): GroupKind {
-  if (group.length < 3) return "invalid";
-  if (group.every((c) => c.s === group[0].s)) {
-    const low = group.map((c) => LOW[c.r]);
-    if (consecutive(low) || consecutive(low.map((v) => (v === 1 ? 14 : v)))) return "pure";
+  const printed = group.some((c) => (c.r as string) === "JK");
+  if (!printed && (group.length === 2 || group.length === 3) && group.every((c) => c.r === group[0].r && c.s === group[0].s)) {
+    return group.length === 3 ? "tunnela" : "dublee";
   }
-  const naturals = group.filter((c) => c.r !== wild);
+  if (group.length < 3) return "invalid";
+  if (!printed && group.every((c) => c.s === group[0].s)) {
+    const low = group.map((c) => LOW[c.r]);
+    if (new Set(low).size === low.length && (consecutive(low) || consecutive(low.map((v) => (v === 1 ? 14 : v))))) return "pure";
+  }
+  const naturals = group.filter((c) => !isJoker(c, wild));
   const jokers = group.length - naturals.length;
   if (!naturals.length) return "invalid";
   if (group.length <= 4 && naturals.every((c) => c.r === naturals[0].r) && new Set(naturals.map((c) => c.s)).size === naturals.length) return "set";
@@ -49,14 +67,20 @@ export function scoreGroups(groups: Card[][], wild: string): { points: number; v
   const seqs = kinds.filter((k) => k === "pure" || k === "impure").length;
   const sum = (gs: Card[][]) => gs.flat().reduce((a, c) => a + cardPoints(c, wild), 0);
   const count = groups.reduce((a, g) => a + g.length, 0);
-  // 21 Card Rummy (the hand size picks the rules): 3 pure sequences needed; without them every card counts; max 120.
+  // 21 Card Rummy (the hand size picks the rules): 3 pure sequences needed (a 3 Naali counts as one); without them every
+  // card counts; max 120. 3 Naali ×3 or 8 Doubles is a rummy on its own.
   if (count >= 20) {
-    const points = pure < 3 ? sum(groups) : sum(groups.filter((_, i) => kinds[i] === "invalid"));
-    return { points: Math.min(points, 120), valid: count === 21 && pure >= 3 && kinds.every((k) => k !== "invalid"), kinds };
+    const tun = kinds.filter((k) => k === "tunnela").length;
+    const dub = kinds.filter((k) => k === "dublee").length;
+    if (count === 21 && (tun >= 3 || dub >= 8)) return { points: 0, valid: true, kinds };
+    const good = (k: GroupKind) => k === "pure" || k === "impure" || k === "set" || k === "tunnela";
+    const points = pure + tun < 3 ? sum(groups) : sum(groups.filter((_, i) => !good(kinds[i])));
+    return { points: Math.min(points, 120), valid: count === 21 && pure + tun >= 3 && kinds.every(good), kinds };
   }
+  const good13 = (k: GroupKind) => k === "pure" || k === "impure" || k === "set";
   let points: number;
   if (pure === 0) points = sum(groups);
   else if (seqs < 2) points = sum(groups.filter((_, i) => kinds[i] !== "pure"));
-  else points = sum(groups.filter((_, i) => kinds[i] === "invalid"));
-  return { points: Math.min(points, 80), valid: count === 13 && pure >= 1 && seqs >= 2 && kinds.every((k) => k !== "invalid"), kinds };
+  else points = sum(groups.filter((_, i) => !good13(kinds[i])));
+  return { points: Math.min(points, 80), valid: count === 13 && pure >= 1 && seqs >= 2 && kinds.every(good13), kinds };
 }

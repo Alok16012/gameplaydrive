@@ -267,7 +267,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                 <button key={k} onClick={() => { setMode(k); setPrivAmt(""); }} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
               ))}
             </div>
-            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards each from three decks; declare with 3 pure sequences." : ""}</div>
+            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards from three decks + 3 printed jokers. Cut joker ± same-suit neighbours are jokers. Declare with 3 pure sequences (a 3 Naali counts). 3× 3 Naali or 8 Doubles = rummy; 7 Doubles = game maaf." : ""}</div>
           </>
         )}
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
