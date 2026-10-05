@@ -10,7 +10,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "GameHub — Play • Win • Together",
+  title: "Khelobaazi — Play • Win • Together",
   description: "Sports Betting, Cricket, Football, Tennis, Rummy, Teen Patti, Poker, Ludo, Casino & More. 1 Account • 1 Wallet.",
 };
 

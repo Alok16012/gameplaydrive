@@ -147,7 +147,7 @@ export const GAME_HISTORY: HistoryItem[] = [
 ];
 
 export const NOTIFICATIONS = [
-  { title: "Welcome to GameHub 🎉", body: "Coins are virtual and come from your agent. Pick a game and take a seat!", when: "Now", unread: true },
+  { title: "Welcome to Khelobaazi 🎉", body: "Coins are virtual and come from your agent. Pick a game and take a seat!", when: "Now", unread: true },
 ];
 
 export const FAQS = [

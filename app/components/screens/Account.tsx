@@ -51,7 +51,7 @@ export function More({ nav }: { nav: Nav }) {
             </button>
           ))}
         </div>
-        <div className="text-center text-[10px] text-white/30 mt-6">GameHub v1.0.0 (demo) • 18+ only • Play responsibly</div>
+        <div className="text-center text-[10px] text-white/30 mt-6">Khelobaazi v1.0.0 • 18+ only • Play responsibly</div>
       </div>
     </div>
   );

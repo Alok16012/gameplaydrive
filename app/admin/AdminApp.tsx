@@ -95,7 +95,7 @@ function Brand({ role }: { role?: Role }) {
   return (
     <div className="flex items-center gap-2">
       <div className="w-9 h-9 rounded-xl grid place-items-center text-lg" style={{ background: "linear-gradient(135deg,#fde68a,#f59e0b)" }}>♠</div>
-      <div><div className="font-bold leading-none">Game<span className="gold-text">Hub</span></div><div className="text-[10px] text-white/50">{role ? `${ROLE_LABEL[role]} Console` : "Admin Console"}</div></div>
+      <div><div className="font-bold leading-none">Khelo<span className="gold-text">baazi</span></div><div className="text-[10px] text-white/50">{role ? `${ROLE_LABEL[role]} Console` : "Admin Console"}</div></div>
     </div>
   );
 }

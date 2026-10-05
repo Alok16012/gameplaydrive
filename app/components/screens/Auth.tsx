@@ -22,8 +22,8 @@ export function Logo({ size = 1 }: { size?: number }) {
         <path d="M50 2 l3 6 h-6 z" fill="url(#gold)" />
       </svg>
       <div className="mt-2 text-[40px] font-bold tracking-tight leading-none">
-        <span className="text-white">Game</span>
-        <span className="gold-text">Hub</span>
+        <span className="text-white">Khelo</span>
+        <span className="gold-text">baazi</span>
       </div>
       <div className="mt-2 text-[15px] tracking-[0.25em] text-white/75">Play • Win • Together</div>
     </div>
