@@ -678,12 +678,20 @@ function PlayerBar({ name, emoji, time, active, bot }: { name: string; emoji: st
 
 // Real 2-D physics on a 100×100 board (units = % of the playing surface): friction, wall bounces, disc-to-disc
 // collisions and corner pockets, stepped at a fixed 240 Hz and drawn every animation frame.
-// You play white from the bottom baseline, the opponent plays black from the top. Rules:
-//   • pocket your colour: +1 and shoot again; the other colour scores for its owner and your turn ends;
-//   • the queen can only be taken after one of your own coins, and must be covered: pocket one of your coins in
-//     the same or the next shot (+2), otherwise she goes back to the centre;
-//   • pocketing the striker is a foul: coins from that shot go back, plus one of yours as a penalty (−1).
-// First to 5.
+// You shoot from the bottom baseline, the opponent from the top. 9 white, 9 black and the red queen.
+// Rules:
+//   • Striker placement: on your baseline, and each red end-circle is either fully covered or not touched.
+//   • Colour claim: the first colour a player pockets is theirs for the board; the other player gets the other.
+//   • Streak: pocket your own colour and you shoot again; otherwise the turn passes.
+//   • Queen: may be taken once the first coin of the board is gone, and must be covered by pocketing one of
+//     your own coins in the same or the next shot; if not, she goes back to the centre. She can't be left for
+//     last: pocketing your final coin while the queen is still unsecured is a foul.
+//   • Fouls (striker pocketed, or the opponent's coin pocketed without one of yours, or the final coin before
+//     the queen): the turn ends, that shot's coins of yours go back, and one of your pocketed coins returns to
+//     the centre — if you have none down yet, the penalty is owed and paid with your next pocketed coin.
+//     (Pieces can't fly off this board — the frame keeps them in.)
+//   • Board: won by pocketing all 9 of your coins with the queen covered. The winner scores 1 point per
+//     opponent coin still on the board, +3 if they covered the queen. First to 21 points wins the match.
 
 type DiscKind = "w" | "b" | "q" | "s";
 interface Disc { id: number; k: DiscKind; x: number; y: number; vx: number; vy: number; r: number; m: number; sunk: boolean }
@@ -696,8 +704,23 @@ const BASELINE = [82, 18]; // y of the baseline for you / the bot
 const BASE_MIN = 22, BASE_MAX = 78;
 const MAX_SPEED = 270;
 const PHYS_DT = 1 / 240;
-const CARROM_WIN = 5;
-const KIND_OF = ["w", "b"] as const;
+const MATCH_POINTS = 21;
+const QUEEN_BONUS = 3;
+const END_R = 3.2; // the red circles at both ends of each baseline
+const ENDS = [BASE_MIN, BASE_MAX];
+type Colour = "w" | "b";
+const otherColour = (c: Colour): Colour => (c === "w" ? "b" : "w");
+const colourName = (c: Colour | null) => (c === "w" ? "white" : c === "b" ? "black" : "—");
+
+/** Striker placement rule: kept on the baseline, and each red end-circle fully covered or not touched at all. */
+function legalX(x: number) {
+  const c = Math.max(BASE_MIN, Math.min(BASE_MAX, x));
+  for (const e of ENDS) {
+    const d = Math.abs(c - e);
+    if (d > STRIKER_R - END_R && d < STRIKER_R + END_R) return d < STRIKER_R ? e : e + (e === BASE_MIN ? 1 : -1) * (STRIKER_R + END_R);
+  }
+  return c;
+}
 
 function rackCarrom(): Disc[] {
   const d: Disc[] = [];
@@ -774,44 +797,88 @@ function pathClear(ds: Disc[], ax: number, ay: number, bx: number, by: number, r
 /** A free spot on the baseline (the striker may not sit on a coin). */
 const baseFree = (ds: Disc[], x: number, y: number) => ds.every((o) => o.sunk || o.k === "s" || Math.hypot(o.x - x, o.y - y) > o.r + STRIKER_R + 0.3);
 
+/** Play a shot out on a copy of the board and report what went into the pockets. */
+function simulate(ds: Disc[], x: number, y: number, vx: number, vy: number): DiscKind[] {
+  const copy = ds.map((d) => ({ ...d }));
+  Object.assign(copy.find((d) => d.k === "s")!, { x, y, vx, vy, sunk: false });
+  const sunk: Disc[] = [];
+  for (let i = 0; i < 240 * 7; i++) {
+    carromStep(copy, PHYS_DT, sunk);
+    if (i % 24 === 0 && copy.every((d) => d.sunk || Math.hypot(d.vx, d.vy) < 0.8)) break;
+  }
+  return sunk.map((d) => d.k);
+}
+
+const gauss = () => Math.random() + Math.random() + Math.random() - 1.5; // ≈ normal, sd 0.5
+
+interface BotCtx { mine: Colour | null; targets: DiscKind[]; queenAllowed: boolean; mustCover: boolean; lastCoinRisk: boolean }
+
 /**
- * Opponent aim, played like a person: only its own coins (the queen when it is allowed to take her), only shots
- * whose paths are open, sensible power, and a little human error. With nothing on, it plays a soft shot that
- * nudges one of its coins towards a pocket instead of smashing the pack.
+ * Opponent aim. It lines up cut shots onto the coins it may play (its colour, the queen when allowed), keeps
+ * the most promising ones, plays each of them out on a copy of the board, and takes the shot that does best
+ * under the rules (own coins down, no fouls, covering the queen). Then a small human error on angle and power.
  */
-function botShot(ds: Disc[], canQueen: boolean): { x: number; vx: number; vy: number } {
+function botShot(ds: Disc[], ctx: BotCtx): { x: number; vx: number; vy: number } {
   const y = BASELINE[1];
-  let best: { score: number; x: number; ang: number; speed: number } | null = null;
+  const cands: { score: number; x: number; ang: number; speed: number }[] = [];
   for (const c of ds) {
-    if (c.sunk || !(c.k === "b" || (c.k === "q" && canQueen))) continue;
+    if (c.sunk || !ctx.targets.includes(c.k)) continue;
     for (const [px, py] of POCKETS) {
       const cp = Math.hypot(px - c.x, py - c.y);
       const nx = (c.x - px) / cp, ny = (c.y - py) / cp;
       const gx = c.x + nx * (COIN_R + STRIKER_R), gy = c.y + ny * (COIN_R + STRIKER_R);
       const pocketOpen = pathClear(ds, c.x, c.y, px, py, COIN_R, c.id);
-      for (let x = BASE_MIN; x <= BASE_MAX; x += 2) {
-        if (!baseFree(ds, x, y)) continue;
+      for (let x = BASE_MIN; x <= BASE_MAX; x += 1.5) {
+        if (legalX(x) !== x || !baseFree(ds, x, y)) continue;
         const sx = gx - x, sy = gy - y;
         const sg = Math.hypot(sx, sy);
         const cut = (sx * -nx + sy * -ny) / sg; // 1 = straight shot
-        if (cut < 0.5 || sy <= 0) continue;
+        if (cut < 0.4 || sy <= 0) continue;
         const open = pocketOpen && pathClear(ds, x, y, gx, gy, STRIKER_R, c.id);
-        const score = cut * 2 - (sg + cp) / 120 + (c.k === "q" ? 0.2 : 0) - (open ? 0 : 3);
-        if (!best || score > best.score) best = { score, x, ang: Math.atan2(sy, sx), speed: Math.min(MAX_SPEED * 0.78, 65 + ((sg + cp) * 1.1) / Math.max(0.55, cut)) };
+        cands.push({
+          score: cut * 2 - (sg + cp) / 120 + (c.k === "q" ? 0.2 : 0) - (open ? 0 : 3),
+          x, ang: Math.atan2(sy, sx),
+          speed: Math.min(MAX_SPEED * 0.8, 65 + ((sg + cp) * 1.1) / Math.max(0.5, cut)),
+        });
       }
     }
   }
-  if (!best || best.score < -1.5) {
-    // Nothing clean: a gentle shot straight at its nearest coin.
-    const mine = ds.filter((d) => !d.sunk && d.k === "b");
-    const t = mine.sort((a, b) => Math.hypot(a.x - 50, a.y - y) - Math.hypot(b.x - 50, b.y - y))[0] ?? { x: 50, y: 50 };
-    let x = Math.max(BASE_MIN, Math.min(BASE_MAX, t.x + (Math.random() - 0.5) * 10));
-    for (let k = 0; k < 20 && !baseFree(ds, x, y); k++) x = BASE_MIN + Math.random() * (BASE_MAX - BASE_MIN);
-    best = { score: 0, x, ang: Math.atan2(t.y - y, t.x - x), speed: 95 + Math.random() * 30 };
+  cands.sort((a, b) => b.score - a.score);
+  const pool = cands.slice(0, 16);
+  // Always keep a couple of soft shots at its nearest coin as a fall-back.
+  const near = ds.filter((d) => !d.sunk && ctx.targets.includes(d.k) && d.k !== "q").sort((a, b) => Math.abs(a.x - 50) - Math.abs(b.x - 50))[0];
+  if (near) for (const dx of [-8, 8]) {
+    const x = legalX(near.x + dx);
+    if (baseFree(ds, x, y)) pool.push({ score: -1, x, ang: Math.atan2(near.y - y, near.x - x), speed: 110 });
   }
-  const ang = best.ang + (Math.random() - 0.5) * (0.04 + Math.random() * 0.06);
-  const speed = best.speed * (0.94 + Math.random() * 0.12);
-  return { x: best.x, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed };
+  if (!pool.length) pool.push({ score: -2, x: 50, ang: Math.PI / 2, speed: 120 });
+
+  const value = (kinds: DiscKind[], base: number) => {
+    const foul = kinds.includes("s");
+    const w = kinds.filter((k) => k === "w").length, b = kinds.filter((k) => k === "b").length;
+    const own = ctx.mine ? (ctx.mine === "w" ? w : b) : Math.max(w, b);
+    const opp = ctx.mine ? (ctx.mine === "w" ? b : w) : 0;
+    const q = kinds.includes("q");
+    let v = own * 3 - opp * 2.5 + base * 0.2;
+    if (foul) v -= 8;
+    if (q) v += ctx.queenAllowed ? (own > 0 ? 6 : 2) : -1;
+    if (ctx.mustCover) v += own > 0 ? 5 : -4;
+    if (ctx.lastCoinRisk && own > 0 && !q && !ctx.mustCover) v -= 12; // would pocket the final coin before the queen
+    if (ctx.mine && opp > 0 && own === 0) v -= 6; // wrong-coin foul
+    return v;
+  };
+  let best = { v: -Infinity, x: 50, vx: 0, vy: 120 };
+  for (const c of pool) {
+    for (const f of [1, 0.85, 1.15]) {
+      const vx = Math.cos(c.ang) * c.speed * f, vy = Math.sin(c.ang) * c.speed * f;
+      const v = value(simulate(ds, c.x, y, vx, vy), c.score);
+      if (v > best.v) best = { v, x: c.x, vx, vy };
+    }
+  }
+  // Human touch: a little error on angle and power.
+  const ang = Math.atan2(best.vy, best.vx) + gauss() * 0.022;
+  const sp = Math.hypot(best.vx, best.vy) * (1 + gauss() * 0.05);
+  return { x: best.x, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp };
 }
 
 /** Put a returned coin back on the board: the centre, or the nearest free spot around it. */
@@ -823,6 +890,15 @@ function toCentre(ds: Disc[], d: Disc) {
   Object.assign(d, { x, y, vx: 0, vy: 0, sunk: false });
 }
 
+interface CarromRules {
+  colours: [Colour | null, Colour | null]; // claimed by the first coin each player pockets
+  debt: [number, number];                  // penalty coins owed (fouled with nothing pocketed)
+  queenDue: number | null;                 // who must cover the queen with the next shot
+  queenBy: number | null;                  // who covered the queen this board
+  firstGone: boolean;                      // has any coin been pocketed this board?
+}
+const freshRules = (): CarromRules => ({ colours: [null, null], debt: [0, 0], queenDue: null, queenBy: null, firstGone: false });
+
 function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
   const gs = useGameSettings();
   const keep = 1 - feeOf(gs, "carrom", 10);
@@ -831,13 +907,17 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const discs = useRef<Disc[]>(rackCarrom());
   const [, setFrame] = useState(0);
   const redraw = () => setFrame((f) => f + 1);
-  const [phase, setPhase] = useState<"wait" | "aim" | "moving" | "bot">("wait");
-  const [who, setWho] = useState(0); // 0 you, 1 bot
-  const [score, setScore] = useState([0, 0]);
+  const [phase, setPhase] = useState<"wait" | "aim" | "moving" | "bot" | "between">("wait");
+  const [who, setWho] = useState(0); // 0 you, 1 the opponent
+  const [points, setPoints] = useState([0, 0]); // match points, first to 21
+  const pointsRef = useRef(points);
+  pointsRef.current = points;
+  const [boardNo, setBoardNo] = useState(1);
+  const breaker = useRef(0);
+  const rules = useRef<CarromRules>(freshRules());
   const [msg, setMsg] = useState("");
   const [pull, setPull] = useState<{ dx: number; dy: number } | null>(null); // aim vector (board units)
   const [botAim, setBotAim] = useState<{ dx: number; dy: number } | null>(null); // the opponent's line, shown before it shoots
-  const queenDue = useRef<number | null>(null); // who must cover the queen with the next shot
   const [done, setDone] = useState<null | boolean>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
@@ -845,8 +925,6 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const [opp, setOpp] = useState<Bot>(() => pickBots(1)[0]);
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
-  const scoreRef = useRef(score);
-  scoreRef.current = score;
 
   useEffect(() => {
     alive.current = true;
@@ -857,10 +935,10 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
 
   const placeStriker = (p: number, x = 50) => {
     const s = striker();
-    Object.assign(s, { x, y: BASELINE[p], vx: 0, vy: 0, sunk: false });
+    Object.assign(s, { x: legalX(x), y: BASELINE[p], vx: 0, vy: 0, sunk: false });
   };
 
-  /** Run the physics until everything stops, then score the shot. */
+  /** Run the physics until everything stops, then apply the rules to the shot. */
   const shoot = (vx: number, vy: number, p: number) => {
     const s = striker();
     s.vx = vx; s.vy = vy;
@@ -889,69 +967,114 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
 
   const settle = (p: number, sunk: Disc[]) => {
     const ds = discs.current;
-    const mine = KIND_OF[p];
-    const foul = sunk.some((d) => d.k === "s");
-    const ownSunk = sunk.filter((d) => d.k === mine);
-    const own = ownSunk.length;
-    const other = sunk.filter((d) => d.k === KIND_OF[1 - p]).length;
-    const queenNow = sunk.find((d) => d.k === "q");
-    const queen = ds.find((d) => d.k === "q")!;
-    const ownBefore = ds.filter((d) => d.k === mine && d.sunk).length - own;
-    const sc = [...scoreRef.current];
+    const st = rules.current;
     const name = p === 0 ? "You" : opp.name;
-    sc[1 - p] += other;
-    let text: string;
+    const queen = ds.find((d) => d.k === "q")!;
+    const strikerFoul = sunk.some((d) => d.k === "s");
+    const coins = sunk.filter((d) => d.k === "w" || d.k === "b");
+    const queenNow = sunk.some((d) => d.k === "q");
+    const notes: string[] = [];
+
+    // Colour claim: the first colour pocketed (on a clean shot) is yours for the board.
+    if (!st.colours[p] && coins.length && !strikerFoul) {
+      const c = coins[0].k as Colour;
+      st.colours[p] = c;
+      st.colours[1 - p] = otherColour(c);
+      notes.push(`${name} ${p === 0 ? "play" : "plays"} ${colourName(c)}`);
+    }
+    const mine = st.colours[p];
+    const own = mine ? coins.filter((d) => d.k === mine) : [];
+    const opps = mine ? coins.filter((d) => d.k === otherColour(mine)) : [];
+    const firstGoneBefore = st.firstGone;
+    if (coins.length) st.firstGone = true;
+    const ownLeft = mine ? ds.filter((d) => d.k === mine && !d.sunk).length : 9;
+    const coversNow = own.length > 0 && (queenNow || st.queenDue === p);
+
+    let foul: string | null = null;
+    if (strikerFoul) foul = "pocketed the striker";
+    else if (mine && opps.length && !own.length) foul = "pocketed the opponent's coin";
+    else if (mine && own.length && ownLeft === 0 && st.queenBy === null && !coversNow) foul = "pocketed the last coin before the queen";
+
     let again = false;
     if (foul) {
-      // Foul: this shot's coins (and an uncovered queen) go back, plus one of your pocketed coins as a penalty.
-      ownSunk.forEach((d) => toCentre(ds, d));
-      if (queenNow || queenDue.current === p) toCentre(ds, queen);
-      queenDue.current = null;
-      const pen = ds.find((d) => d.k === mine && d.sunk);
-      if (pen && sc[p] > 0) { toCentre(ds, pen); sc[p] -= 1; }
-      text = `${name} pocketed the striker — foul${pen ? " (−1)" : ""}`;
+      // The turn ends; this shot's coins of yours (and an uncovered queen) go back, plus one penalty coin.
+      (mine ? own : coins).forEach((d) => toCentre(ds, d));
+      if (queenNow || st.queenDue === p) toCentre(ds, queen);
+      st.queenDue = null;
+      const pen = mine ? ds.find((d) => d.k === mine && d.sunk) : undefined;
+      if (pen) { toCentre(ds, pen); notes.push(`${name} ${foul} — foul, a coin goes back`); }
+      else { st.debt[p] += 1; notes.push(`${name} ${foul} — foul, penalty owed`); }
+      if (opps.length) notes.push(`${opps.length} ${colourName(otherColour(mine!))} down for ${p === 0 ? opp.name : "you"}`);
     } else {
-      sc[p] += own;
-      if (queenNow && ownBefore === 0 && own === 0) {
-        toCentre(ds, queen);
-        text = `${name} took the queen too early — she goes back`;
-      } else if (queenNow && own > 0) {
-        sc[p] += 2;
-        queenDue.current = null;
-        text = `${name} pocketed and covered the queen! (+2)`;
-        again = true;
-      } else if (queenNow) {
-        queenDue.current = p;
-        text = `${name} pocketed the queen — cover her with the next shot`;
-        again = true;
-      } else if (queenDue.current === p) {
-        queenDue.current = null;
-        if (own > 0) { sc[p] += 2; text = `${name} covered the queen! (+2)`; }
-        else { toCentre(ds, queen); text = `Queen not covered — she goes back to the centre`; }
-        again = own > 0;
-      } else {
-        text = own ? `${name} pocketed ${own} coin${own > 1 ? "s" : ""}!` : other ? `${name} pocketed the other colour` : p === 0 ? "No pocket" : `${opp.name} missed`;
-        again = own > 0;
+      if (queenNow) {
+        if (!firstGoneBefore && !coins.length) { toCentre(ds, queen); notes.push("Queen can't go before the first coin — back to the centre"); }
+        else if (own.length || (mine && ownLeft === 0)) { st.queenBy = p; st.queenDue = null; notes.push(`${name} pocketed and covered the queen!`); }
+        else { st.queenDue = p; notes.push(`${name} pocketed the queen — cover it with the next shot`); }
+      } else if (st.queenDue === p) {
+        if (own.length) { st.queenBy = p; notes.push(`${name} covered the queen!`); }
+        else { toCentre(ds, queen); notes.push("Queen not covered — back to the centre"); }
+        st.queenDue = null;
       }
+      // Owed penalties are paid with the coins just pocketed.
+      while (st.debt[p] > 0 && mine) {
+        const c = ds.find((d) => d.k === mine && d.sunk);
+        if (!c) break;
+        toCentre(ds, c);
+        st.debt[p] -= 1;
+        notes.push("owed penalty paid");
+      }
+      if (!notes.length) notes.push(own.length ? `${name} pocketed ${own.length} coin${own.length > 1 ? "s" : ""}!` : p === 0 ? "No pocket" : `${opp.name} missed`);
+      again = own.length > 0 || st.queenDue === p;
     }
-    setScore(sc);
-    setMsg(text);
+    setMsg(notes.join(" • "));
 
-    const left = (k: DiscKind) => discs.current.some((d) => d.k === k && !d.sunk);
-    if (sc[0] >= CARROM_WIN || sc[1] >= CARROM_WIN || (!left("w") && !left("b"))) {
-      const iWon = sc[0] >= sc[1];
-      setDone(iWon);
-      setPhase("wait");
-      if (iWon) credit(Math.floor(buyIn * 2 * keep), label);
-      return;
+    // Board over? All of a player's coins down with the queen covered.
+    for (const w of [p, 1 - p]) {
+      const c = st.colours[w];
+      if (c && st.queenBy !== null && !ds.some((d) => d.k === c && !d.sunk)) return boardWon(w);
     }
     const next = again ? p : 1 - p;
-    // Re-rack any coin that would be unreachable? Keep it simple: the striker goes back to the next baseline.
     placeStriker(next);
     setWho(next);
     redraw();
     if (next === 0) setPhase("aim");
     else botTurn();
+  };
+
+  const boardWon = (w: number) => {
+    const ds = discs.current;
+    const st = rules.current;
+    const loserColour = st.colours[1 - w];
+    const left = ds.filter((d) => d.k === loserColour && !d.sunk).length;
+    const gain = Math.max(1, left + (st.queenBy === w ? QUEEN_BONUS : 0));
+    const pts = [...pointsRef.current];
+    pts[w] = Math.min(MATCH_POINTS, pts[w] + gain);
+    setPoints(pts);
+    pointsRef.current = pts;
+    const name = w === 0 ? "You" : opp.name;
+    if (pts[w] >= MATCH_POINTS) {
+      setMsg(`${name} won the board (+${gain}) and the match!`);
+      setDone(w === 0);
+      setPhase("wait");
+      if (w === 0) credit(Math.floor(buyIn * 2 * keep), label);
+      return;
+    }
+    setMsg(`${name} won board ${boardNo} (+${gain}) — ${pts[0]} : ${pts[1]}. Next board…`);
+    setPhase("between");
+    window.setTimeout(() => {
+      if (!alive.current) return;
+      discs.current = rackCarrom();
+      rules.current = freshRules();
+      breaker.current = 1 - breaker.current;
+      setBoardNo((n) => n + 1);
+      const b = breaker.current;
+      placeStriker(b);
+      setWho(b);
+      redraw();
+      setMsg(b === 0 ? "New board — your break" : `New board — ${opp.name} breaks`);
+      if (b === 0) setPhase("aim");
+      else botTurn();
+    }, 2800);
   };
 
   // The opponent takes its time like a person: looks at the board, slides the striker over, lines the shot up
@@ -961,8 +1084,18 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     const look = (1400 + Math.random() * 1400 + (Math.random() < 0.2 ? 1200 : 0)) * pace;
     window.setTimeout(() => {
       if (!alive.current) return;
-      const canQueen = queenDue.current !== 1 && discs.current.some((d) => d.k === "b" && d.sunk);
-      const shot = botShot(discs.current, canQueen);
+      const ds = discs.current;
+      const st = rules.current;
+      const mine = st.colours[1];
+      const queenOn = !ds.find((d) => d.k === "q")!.sunk;
+      const mustCover = st.queenDue === 1;
+      const queenAllowed = st.firstGone && queenOn && st.queenBy === null && !mustCover;
+      const ownLeft = mine ? ds.filter((d) => d.k === mine && !d.sunk).length : 9;
+      const lastCoinRisk = ownLeft === 1 && st.queenBy === null && !mustCover;
+      const targets: DiscKind[] = mine ? (lastCoinRisk && queenAllowed ? [] : [mine]) : ["w", "b"];
+      if (queenAllowed) targets.push("q");
+      if (!targets.length) targets.push(mine ?? "b");
+      const shot = botShot(ds, { mine, targets, queenAllowed, mustCover, lastCoinRisk });
       placeStriker(1, shot.x); // slides across (CSS transition while phase is "bot")
       redraw();
       window.setTimeout(() => {
@@ -986,7 +1119,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     const r = boardRef.current!.getBoundingClientRect();
     return [((e.clientX - r.left) / r.width) * 100, ((e.clientY - r.top) / r.height) * 100];
   };
-  const slideTo = (x: number) => { placeStriker(0, Math.max(BASE_MIN, Math.min(BASE_MAX, x))); redraw(); };
+  const slideTo = (x: number) => { placeStriker(0, x); redraw(); };
   const onDown = (e: React.PointerEvent) => {
     if (phase !== "aim" || done !== null) return;
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -1021,6 +1154,8 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     const len = Math.hypot(pull.dx, pull.dy);
     const power = Math.min(1, len / 32);
     if (power < 0.08) return setPull(null);
+    const s = striker();
+    if (!baseFree(discs.current, s.x, s.y)) { setPull(null); return setMsg("The striker is on a coin — slide it to a clear spot"); }
     shoot((pull.dx / len) * power * MAX_SPEED, (pull.dy / len) * power * MAX_SPEED, 0);
   };
 
@@ -1034,13 +1169,16 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     setLowBal(false);
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
     discs.current = rackCarrom();
-    queenDue.current = null;
+    rules.current = freshRules();
+    breaker.current = 0;
+    setBoardNo(1);
     setBotAim(null);
-    setScore([0, 0]);
+    setPoints([0, 0]);
+    pointsRef.current = [0, 0];
     setDone(null);
     setWho(0);
     setPull(null);
-    setMsg("Slide the striker, then pull back and let go to shoot");
+    setMsg("Your break — slide the striker, then pull back and let go");
     setPhase("aim");
   };
 
@@ -1053,15 +1191,18 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const power = Math.min(1, pullLen / 32);
   const dir = pull && pullLen > 0 ? [pull.dx / pullLen, pull.dy / pullLen] : [0, 0];
   const coinsLeft = (k: DiscKind) => discs.current.filter((d) => d.k === k && !d.sunk).length;
+  const st = rules.current;
+  const dot = (c: Colour | null) => c === "w" ? "bg-white" : c === "b" ? "bg-stone-900 border border-white/40" : "bg-transparent border border-dashed border-white/40";
+  const queenState = st.queenBy !== null ? `covered by ${st.queenBy === 0 ? "you" : opp.name}` : st.queenDue !== null ? "to be covered" : coinsLeft("q") ? "on board" : "—";
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Carrom" sub={`Table #${table} • First to ${CARROM_WIN} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Carrom" sub={`Table #${table} • First to ${MATCH_POINTS} points • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
         <div className="flex items-center justify-between card px-4 py-2.5">
-          <div className={`flex items-center gap-2 ${who === 0 && started ? "" : "opacity-60"}`}><Avatar size={30} /><span className="text-sm">You <span className="inline-block w-2.5 h-2.5 rounded-full bg-white align-middle ml-0.5" /></span><b className="text-neon-400 ml-1">{score[0]}</b></div>
-          <div className="text-xs text-white/50">vs</div>
-          <div className={`flex items-center gap-2 ${who === 1 && started ? "" : "opacity-60"}`}><b className="text-rose-400 mr-1">{score[1]}</b><span className="text-sm">{opp.name}<BotTag /> <span className="inline-block w-2.5 h-2.5 rounded-full bg-stone-900 border border-white/40 align-middle" /></span><Avatar emoji={opp.emoji} size={30} /></div>
+          <div className={`flex items-center gap-2 ${who === 0 && started ? "" : "opacity-60"}`}><Avatar size={30} /><span className="text-sm">You <span className={`inline-block w-2.5 h-2.5 rounded-full align-middle ml-0.5 ${dot(st.colours[0])}`} /></span><b className="text-neon-400 ml-1">{points[0]}</b></div>
+          <div className="text-center leading-tight"><div className="text-[10px] text-white/50">Board {boardNo}</div><div className="text-[10px] text-white/40">to {MATCH_POINTS}</div></div>
+          <div className={`flex items-center gap-2 ${who === 1 && started ? "" : "opacity-60"}`}><b className="text-rose-400 mr-1">{points[1]}</b><span className="text-sm">{opp.name}<BotTag /> <span className={`inline-block w-2.5 h-2.5 rounded-full align-middle ${dot(st.colours[1])}`} /></span><Avatar emoji={opp.emoji} size={30} /></div>
         </div>
         <div className="relative mt-3 aspect-square rounded-2xl p-[5%] shadow-2xl select-none" style={{ background: "linear-gradient(135deg,#5b3417,#3b2412)" }}>
           <div
@@ -1080,6 +1221,9 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
             {BASELINE.map((y) => (
               <div key={y} className="absolute border-y-2 border-[#8b5a2b]/50" style={{ left: `${BASE_MIN - 4}%`, right: `${100 - BASE_MAX - 4}%`, top: `${y - 4}%`, height: "8%" }} />
             ))}
+            {BASELINE.flatMap((y) => ENDS.map((x) => (
+              <div key={`${x}-${y}`} className="absolute rounded-full -translate-x-1/2 -translate-y-1/2 border border-[#7f1d1d]" style={{ left: `${x}%`, top: `${y}%`, width: `${END_R * 2}%`, height: `${END_R * 2}%`, background: "#dc2626cc" }} />
+            )))}
             <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[30%] h-[30%] rounded-full border-2 border-[#8b5a2b]/60" />
 
             {/* aim guide */}
@@ -1148,14 +1292,17 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
             />
           </label>
           <div className="text-center text-[12px] text-white/50">
-            {phase === "aim" ? "Your turn: slide the striker with your finger, then pull back and let go" : phase === "moving" ? "…" : phase === "bot" ? `${opp.name} is lining up a shot` : ""}
+            {phase === "aim" ? (st.queenDue === 0 ? "Cover the queen: pocket one of your coins now" : "Your turn: slide the striker with your finger, then pull back and let go") : phase === "moving" ? "…" : phase === "bot" ? `${opp.name} is lining up a shot` : ""}
           </div>
-          <div className="flex justify-center gap-4 text-[11px] text-white/45">
-            <span>White left: {coinsLeft("w")}</span><span>Black left: {coinsLeft("b")}</span><span>Queen: {coinsLeft("q") ? "on board" : "pocketed"}</span>
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[11px] text-white/45">
+            <span>You: {colourName(st.colours[0])}{st.colours[0] ? ` (${coinsLeft(st.colours[0])} left)` : ""}</span>
+            <span>{opp.name}: {colourName(st.colours[1])}{st.colours[1] ? ` (${coinsLeft(st.colours[1])} left)` : ""}</span>
+            <span>Queen: {queenState}</span>
+            {(st.debt[0] > 0 || st.debt[1] > 0) && <span>Penalty owed: you {st.debt[0]} • {opp.name} {st.debt[1]}</span>}
           </div>
         </div>
       </div>
-      <ResultSheet open={done !== null} won={!!done} title={done ? `You won ${inr(Math.floor(buyIn * 2 * keep))}!` : `${opp.name} wins`} left={nextIn} onLeave={nav.back} onClose={() => {}} />
+      <ResultSheet open={done !== null} won={!!done} title={done ? `You won ${inr(Math.floor(buyIn * 2 * keep))}!` : `${opp.name} wins`} sub={`Match ${points[0]} : ${points[1]}`} left={nextIn} onLeave={nav.back} onClose={() => {}} />
     </div>
   );
 }

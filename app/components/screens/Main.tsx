@@ -197,7 +197,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const maxPts = cards === 21 ? 120 : 80;
   const online = SERVER_GAMES.includes(gameId);
   const [mode, setMode] = useState<RummyMode>("points");
-  const seats = game.id === "ludo" || game.id === "carrom" ? 4 : game.id === "chess" ? 2 : 6;
+  const seats = game.id === "ludo" ? 4 : game.id === "chess" || game.id === "carrom" ? 2 : 6;
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
   const privMin = rummy && mode !== "points" ? 10 : 1;
@@ -208,10 +208,11 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     ? RUMMY_STAKES[mode].map((v, i, all) => ({ id: String(101 + i * 103), seated: RUMMY_TABLES[i % RUMMY_TABLES.length].seated, seats: 6, buyIn: v, stake: rummyTier(i, all.length) }))
     : TABLES;
   // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
-  // show 2…seats-1 already seated (1 for 2-player games), drifting a little every few seconds like a real lobby.
+  // show 2…seats-1 already seated, drifting a little every few seconds like a real lobby. One-on-one games
+  // (Carrom, Chess) show the pair: 2/2.
   const [drift, setDrift] = useState(0);
   useEffect(() => { const t = setInterval(() => setDrift((d) => d + 1), 7000); return () => clearInterval(t); }, []);
-  const practiceSeated = (i: number) => (seats <= 2 ? 1 : 2 + ((i * 5 + drift * (i % 2 ? 1 : 2)) % (seats - 2)));
+  const practiceSeated = (i: number) => (seats <= 2 ? 2 : 2 + ((i * 5 + drift * (i % 2 ? 1 : 2)) % (seats - 2)));
   const tables = base
     .map((t, i) => ({ ...t, seats, seated: online ? t.seated : practiceSeated(i), buyIn: rummy ? RUMMY_STAKES[mode][i] : t.buyIn * m, deals: rummy && mode === "deals" ? (i % 2 ? 3 : 2) : 0 }))
     .filter((t) => stake === "All" || t.stake === stake);
