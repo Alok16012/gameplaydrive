@@ -3,7 +3,7 @@
 import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, ChevronLeft, Hand, Layers, Menu, Plus } from "lucide-react";
+import { ArrowDownUp, ChevronLeft, Hand, Layers, ListOrdered, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
@@ -69,6 +69,10 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const showRef = useRef<HTMLButtonElement | null>(null);
   const [menu, setMenu] = useState(false);
   const [moves, setMoves] = useState(false);
+  // Scoreboard and the last deal: kept after the next deal starts, so you can look back any time.
+  const [scores, setScores] = useState(false);
+  const [lastOpen, setLastOpen] = useState(false);
+  const [lastRes, setLastRes] = useState<Result | null>(null);
   // The table scales with the stage: 1 = a typical phone held sideways (844 × 390).
   const [stage, setStage] = useState({ w: 844, h: 390 });
   const ro = useRef<ResizeObserver | null>(null);
@@ -265,6 +269,8 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v]);
 
+  useEffect(() => { if (v?.result) setLastRes(v.result); }, [v?.result]);
+
   // Show the scoreboard a moment after the deal ends.
   useEffect(() => {
     if (v?.status !== "dealdone" || !v.result) return;
@@ -278,6 +284,15 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const away = () => {
     showToast("Your seat is kept — tap Rejoin to come back");
     nav.back();
+  };
+
+  // Dropped (or a wrong show): move on to another table at the same stake instead of sitting out.
+  const joinAnother = () => {
+    if (mode !== "points" && !window.confirm("Leaving now gives up this match — your entry is not returned. Join another table?")) return;
+    if (tableId.current) fire(supabase().rpc("rm_leave", { p_table: tableId.current }));
+    clearActive();
+    nav.back();
+    nav.push({ name: "rummy", table: `S-${askedStake}-${Date.now() % 1000000}`, buyIn: askedStake, mode: askedMode, deals: askedDeals, cards });
   };
 
   const leave = () => {
@@ -476,7 +491,8 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               <div className="absolute right-0 top-11 w-48 rounded-xl bg-[#1a1e1a] border border-white/10 shadow-xl overflow-hidden text-[13px]">
                 <button onClick={() => { setMenu(false); sortHand(); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Sort cards</button>
                 {v?.log && <button onClick={() => { setMenu(false); setMoves(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Table moves &amp; discards</button>}
-                {res && <button onClick={() => { setMenu(false); setSheetFor(key); setPeek(false); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Last deal score</button>}
+                <button onClick={() => { setMenu(false); setScores(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Scoreboard</button>
+                {lastRes && <button onClick={() => { setMenu(false); setLastOpen(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Last deal — all hands</button>}
                 <button onClick={() => { setMenu(false); leave(); }} className="w-full text-left px-4 py-2.5 text-rose-300 hover:bg-white/5">Leave table</button>
               </div>
             )}
@@ -489,10 +505,22 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             <span className="text-white/60">Points</span> <b>{sc.points}</b>{sc.valid && <span className="text-neon-400"> ✓</span>}
           </div>
         ) : playing && v ? (
-          <div className="absolute left-[3%] top-[17%] z-20 rounded-lg bg-[#1a1e1a] border border-white/10 px-2.5 py-1 text-[12px] text-white/75 whitespace-nowrap">
-            {mySeat?.out ? "Out — watching" : mySeat?.dropped ? "Dropped — next deal soon" : mySeat?.wrong ? `Wrong show (${maxPts})` : v.queued ? "Joining next game" : "Watching"}
+          <div className="absolute left-[3%] top-[17%] z-20 flex flex-col items-start gap-1.5">
+            <div className="rounded-lg bg-[#1a1e1a] border border-white/10 px-2.5 py-1 text-[12px] text-white/75 whitespace-nowrap">
+              {mySeat?.out ? "Out — watching" : mySeat?.dropped ? (mode === "points" ? "Dropped" : "Dropped — next deal soon") : mySeat?.wrong ? `Wrong show (${maxPts})` : v.queued ? "Joining next game" : "Watching"}
+            </div>
+            {(mySeat?.dropped || mySeat?.wrong || mySeat?.out) && (
+              <button onClick={joinAnother} className="rounded-full px-3 py-1.5 text-[12px] font-semibold bg-neon-500 text-slate-900 shadow-lg whitespace-nowrap">Join another table →</button>
+            )}
           </div>
         ) : null}
+
+        {/* Scoreboard — who is on how many points, and the last deal */}
+        {v && v.status !== "waiting" && (
+          <button onClick={() => setScores(true)} className="absolute right-[3%] top-[17%] z-20 rounded-lg bg-[#1a1e1a] border border-white/10 px-2.5 py-1 text-[12px] flex items-center gap-1.5">
+            <ListOrdered size={14} /> Scores
+          </button>
+        )}
 
         {/* Last move on the table — tap for every move and the discard pile */}
         {inDeal && v?.log && cards === 13 && (
@@ -674,6 +702,70 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </div>
         );
       })}
+
+      <Sheet open={scores} onClose={() => setScores(false)} title="Scoreboard">
+        <div className="text-[12px] text-white/50 mb-2">
+          {mode === "points" ? `Points Rummy • ${stakeText}` : mode === "deals" ? `Deals • best of ${v?.deals ?? askedDeals} • deal ${v?.deal_no ?? 1}` : `Pool ${pool} • over ${pool} is out • deal ${v?.deal_no ?? 1}`}
+        </div>
+        <div className="rounded-xl bg-white/5 overflow-hidden text-sm">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 text-[12px] text-white/50 border-b border-white/5">
+            <span>Player</span><span className="text-right">Last deal</span><span className="text-right w-20">{mode === "points" ? "Status" : mode === "deals" ? "Chips" : "Total"}</span>
+          </div>
+          {(v?.seats ?? []).map((st, i) => {
+            if (!st || (!st.in_match && !st.playing)) return null;
+            const last = lastRes?.rows.find((r) => r.seat === i);
+            const status = st.left ? "Left" : st.out ? "Out" : st.wrong ? "Wrong show" : st.dropped ? "Dropped" : st.playing ? "Playing" : "Waiting";
+            return (
+              <div key={i} className={`grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 ${i === me ? "bg-neon-400/10" : ""}`}>
+                <span className="truncate">{i === me ? "You" : st.name}{st.bot && <BotTag />} <span className="text-[11px] text-white/40">{status}</span></span>
+                <span className="text-right tabular-nums text-white/70">{last ? last.pts ?? "—" : "—"}</span>
+                <span className={`text-right tabular-nums w-20 ${st.out ? "text-rose-300" : ""}`}>
+                  {mode === "points" ? status : mode === "deals" ? `${(st.score ?? 0) >= 0 ? "+" : ""}${st.score ?? 0}` : `${st.score ?? 0}/${pool}`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {lastRes ? (
+          <button onClick={() => { setScores(false); setLastOpen(true); }} className="btn-green w-full rounded-xl py-2.5 text-sm mt-3">See the last deal — every player&apos;s hand</button>
+        ) : (
+          <div className="text-[12px] text-white/40 mt-3 text-center">No deal finished yet at this table.</div>
+        )}
+      </Sheet>
+
+      <Sheet open={lastOpen && !!lastRes} onClose={() => setLastOpen(false)} title={lastRes ? `Last deal • Deal ${lastRes.deal_no}` : "Last deal"}>
+        {lastRes && (
+          <div className="text-sm">
+            <div className="mb-2">
+              <b>{lastRes.winner === me ? "You" : lastRes.winner_name}</b>{" "}
+              {lastRes.rows.find((r) => r.seat === lastRes.winner)?.note === "Declared" ? "declared and won" : "won"}
+              {lastRes.wild && <span className="text-white/50"> • joker {lastRes.wild.r}{lastRes.wild.s}</span>}
+            </div>
+            <div className="space-y-2.5">
+              {[...lastRes.rows].sort((a, b) => (a.seat === lastRes.winner ? -1 : b.seat === lastRes.winner ? 1 : (a.pts ?? 0) - (b.pts ?? 0))).map((r) => (
+                <div key={r.seat} className={`rounded-xl p-2.5 ${r.seat === lastRes.winner ? "bg-gold-400/10 border border-gold-300/40" : "bg-white/5"}`}>
+                  <div className="flex items-center gap-2 text-[13px]">
+                    <span className="flex-1 truncate">{r.seat === lastRes.winner && "🏆 "}{r.seat === me ? "You" : r.name}{r.bot && <BotTag />} <span className="text-white/45 text-[12px]">{r.note}</span></span>
+                    <span className="tabular-nums">{r.pts ?? "—"} pts</span>
+                    {lastRes && (mode === "points"
+                      ? r.coins !== null && <span className={`tabular-nums w-16 text-right ${r.coins >= 0 ? "text-neon-400" : "text-rose-300"}`}>{r.coins >= 0 ? "+" : "-"}{inr(Math.abs(r.coins))}</span>
+                      : <span className="tabular-nums w-16 text-right text-white/60">{mode === "deals" ? `${r.score >= 0 ? "+" : ""}${r.score}` : r.out ? `${r.score} out` : r.score}</span>)}
+                  </div>
+                  {r.hand && r.hand.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {r.hand.map((g, gi) => (
+                        <div key={gi} className="flex -space-x-3">{g.map((c, ci) => <PlayingCard key={`${c.id}:${ci}`} card={c} size="xs" />)}</div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-white/40 mt-1">{r.note || "No cards shown"}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Sheet>
 
       <Sheet open={moves} onClose={() => setMoves(false)} title="Table moves">
         <div className="text-[13px]">
