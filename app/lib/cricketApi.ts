@@ -1,16 +1,21 @@
-// Cricket Exchange API Client & Data Models
+// Sports Exchange API Client & Data Models (Cricket, Tennis, Football/Soccer)
+
+export type SportType = "cricket" | "tennis" | "soccer";
 
 export interface CricketMatch {
   marketId: string | null;
   eventId: string;
+  gameId?: string;
   eventName: string;
   eventTime: string;
   seriesName: string;
   scoreBoardId: string | null;
+  inPlay: boolean;
   isLive: boolean;
   hasFancy: boolean;
   hasBookmaker: boolean;
   status: "OPEN" | "INPLAY" | "UPCOMING" | "CLOSED";
+  sport: SportType;
   team1: { name: string; short: string; score?: string; overs?: string };
   team2: { name: string; short: string; score?: string; overs?: string };
   back1?: number;
@@ -70,6 +75,7 @@ export interface CricketBet {
   exposure: number;
   status: "OPEN" | "WON" | "LOST" | "VOID";
   placedAt: string;
+  sport?: SportType;
 }
 
 export interface CricketScorecard {
@@ -88,15 +94,14 @@ export interface CricketScorecard {
   lastWicket?: string;
 }
 
-// Fetch matches list
-export async function fetchCricketMatches(): Promise<CricketMatch[]> {
+// Fetch matches list for specific sport (cricket, tennis, soccer)
+export async function fetchCricketMatches(sport: SportType = "cricket"): Promise<CricketMatch[]> {
   try {
-    const res = await fetch("/api/cricket/matches");
+    const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}`);
     if (!res.ok) throw new Error("Failed to fetch matches");
     const json = await res.json();
     const rawList = json?.data || [];
     
-    // Normalize in case diamondexch raw structure comes
     return rawList.map((m: any) => {
       let t1 = m.team1;
       let t2 = m.team2;
@@ -105,35 +110,39 @@ export async function fetchCricketMatches(): Promise<CricketMatch[]> {
         t1 = { name: parts[0]?.trim() || "Team 1", short: parts[0]?.slice(0, 3).toUpperCase() || "T1" };
         t2 = { name: parts[1]?.trim() || "Team 2", short: parts[1]?.slice(0, 3).toUpperCase() || "T2" };
       }
+      const isLiveMatch = Boolean(m.inPlay === true || m.inPlay === "true" || m.isLive === true || m.status === "INPLAY");
       return {
         marketId: m.marketId || m.market_id || null,
-        eventId: String(m.eventId || m.event_id || m.id),
+        eventId: String(m.eventId || m.gameId || m.id),
+        gameId: String(m.gameId || m.eventId || m.id),
         eventName: m.eventName || m.event_name || `${t1.name} vs ${t2.name}`,
         eventTime: m.eventTime || m.event_time || new Date().toISOString(),
-        seriesName: m.seriesName || m.series_name || "Cricket Tournament",
+        seriesName: m.seriesName || m.series_name || "Tournament",
         scoreBoardId: m.scoreBoardId || null,
-        isLive: Boolean(m.isLive ?? m.is_live ?? (m.status === "INPLAY")),
-        hasFancy: Boolean(m.hasFancy ?? m.has_fancy ?? true),
-        hasBookmaker: Boolean(m.hasBookmaker ?? m.has_bookmaker ?? true),
-        status: m.status || (m.isLive ? "INPLAY" : "UPCOMING"),
+        inPlay: isLiveMatch,
+        isLive: isLiveMatch,
+        hasFancy: Boolean(m.hasFancy ?? true),
+        hasBookmaker: Boolean(m.hasBookmaker ?? true),
+        status: isLiveMatch ? "INPLAY" : "UPCOMING",
+        sport: (m.sport || sport) as SportType,
         team1: t1,
         team2: t2,
-        back1: Number(m.back1 || 1.65),
-        lay1: Number(m.lay1 || 1.68),
-        back2: Number(m.back2 || 2.45),
-        lay2: Number(m.lay2 || 2.52),
+        back1: Number(m.back1 || 1.85),
+        lay1: Number(m.lay1 || 1.89),
+        back2: Number(m.back2 || 2.05),
+        lay2: Number(m.lay2 || 2.12),
       };
     });
   } catch (err) {
-    console.error("Error fetching cricket matches:", err);
+    console.error("Error fetching sports matches:", err);
     return [];
   }
 }
 
 // Fetch live odds for event
-export async function fetchCricketOdds(eventId: string): Promise<CricketOddsResponse> {
+export async function fetchCricketOdds(eventId: string, sport: SportType = "cricket"): Promise<CricketOddsResponse> {
   try {
-    const res = await fetch(`/api/cricket/odds?eventId=${encodeURIComponent(eventId)}`);
+    const res = await fetch(`/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`);
     if (!res.ok) throw new Error("Failed to fetch odds");
     const json = await res.json();
     const data = json?.data || {};
@@ -147,7 +156,7 @@ export async function fetchCricketOdds(eventId: string): Promise<CricketOddsResp
 
     return { matchOdds, bookMakerOdds, fancyOdds };
   } catch (err) {
-    console.error("Error fetching cricket odds:", err);
+    console.error("Error fetching sports odds:", err);
     return { matchOdds: [], bookMakerOdds: [], fancyOdds: [] };
   }
 }

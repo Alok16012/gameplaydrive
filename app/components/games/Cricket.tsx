@@ -17,8 +17,7 @@ import {
   TrendingUp,
   Clock,
   Activity,
-  ChevronDown,
-  ChevronUp,
+  Calendar,
 } from "lucide-react";
 import type { Nav } from "../nav";
 import { Header, Money } from "../ui";
@@ -28,13 +27,12 @@ import { sfx } from "../../lib/sound";
 import {
   fetchCricketMatches,
   fetchCricketOdds,
-  fetchCricketScorecard,
   loadStoredBets,
   saveStoredBet,
   type CricketBet,
   type CricketMatch,
   type CricketOddsResponse,
-  type CricketScorecard,
+  type SportType,
 } from "../../lib/cricketApi";
 
 interface BetSlipState {
@@ -49,11 +47,18 @@ interface BetSlipState {
   max: number;
 }
 
+const SPORTS_CONFIG: Array<{ id: SportType; label: string; icon: string; name: string }> = [
+  { id: "cricket", label: "Cricket", icon: "🏏", name: "Cricket Live Exchange" },
+  { id: "tennis", label: "Tennis", icon: "🎾", name: "Tennis Exchange" },
+  { id: "soccer", label: "Football", icon: "⚽", name: "Football Exchange" },
+];
+
 export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
   const { total, debit, credit, showToast } = useStore();
+  const [selectedSport, setSelectedSport] = useState<SportType>("cricket");
   const [matches, setMatches] = useState<CricketMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(matchId || null);
-  const [tab, setTab] = useState<"inplay" | "upcoming" | "all">("inplay");
+  const [statusTab, setStatusTab] = useState<"inplay" | "upcoming" | "all">("inplay");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -66,30 +71,34 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
   const [betSlip, setBetSlip] = useState<BetSlipState | null>(null);
   const [stake, setStake] = useState<number>(500);
 
-  // Load matches
-  const loadMatches = async () => {
+  // Load matches for selected sport
+  const loadMatches = async (sport = selectedSport) => {
     setLoading(true);
-    const list = await fetchCricketMatches();
+    const list = await fetchCricketMatches(sport);
     setMatches(list);
     setLoading(false);
   };
 
   useEffect(() => {
-    loadMatches();
+    loadMatches(selectedSport);
     setMyBets(loadStoredBets());
-    const t = setInterval(loadMatches, 10000);
+    const t = setInterval(() => loadMatches(selectedSport), 10000);
     return () => clearInterval(t);
-  }, []);
+  }, [selectedSport]);
 
   const activeMatch = useMemo(
     () => matches.find((m) => m.eventId === selectedMatchId),
     [matches, selectedMatchId]
   );
 
+  const inPlayMatches = useMemo(() => matches.filter((m) => m.inPlay || m.isLive), [matches]);
+  const upcomingMatches = useMemo(() => matches.filter((m) => !m.inPlay && !m.isLive), [matches]);
+
   const filteredMatches = useMemo(() => {
     return matches.filter((m) => {
-      if (tab === "inplay" && !m.isLive) return false;
-      if (tab === "upcoming" && m.isLive) return false;
+      const isLive = m.inPlay || m.isLive;
+      if (statusTab === "inplay" && !isLive) return false;
+      if (statusTab === "upcoming" && isLive) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         return (
@@ -101,7 +110,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
       }
       return true;
     });
-  }, [matches, tab, searchQuery]);
+  }, [matches, statusTab, searchQuery]);
 
   // Open Bet Slip
   const openBet = (
@@ -144,7 +153,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
       return showToast("Insufficient coins for this bet exposure!");
     }
 
-    const ok = debit(exposure, `Cricket: ${activeMatch.eventName} • ${betSlip.runnerName}`);
+    const ok = debit(exposure, `${activeMatch.sport.toUpperCase()}: ${activeMatch.eventName} • ${betSlip.runnerName}`);
     if (!ok) {
       return showToast("Failed to place bet. Please check coin balance.");
     }
@@ -169,12 +178,13 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
       exposure,
       status: "OPEN",
       placedAt: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+      sport: activeMatch.sport,
     };
 
     const updated = saveStoredBet(newBet);
     setMyBets(updated);
     sfx.win();
-    showToast(`Bet Placed on ${betSlip.runnerName}! 🏏`);
+    showToast(`Bet Placed on ${betSlip.runnerName}! ⚡`);
     setBetSlip(null);
   };
 
@@ -185,8 +195,9 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
     const matchBets = myBets.filter((b) => b.eventId === selectedMatchId);
 
     // Direct DiamondExch Iframe URLs
-    const tvIframeUrl = `https://apis.diamondexchapi.com/api/tv?eventId=${activeMatch.eventId}&sport=cricket`;
-    const scorecardIframeUrl = `https://apis.diamondexchapi.com/api/scorecard?eventId=${activeMatch.eventId}&sport=cricket`;
+    const sportApiName = activeMatch.sport === "soccer" ? "football" : activeMatch.sport;
+    const tvIframeUrl = `https://apis.diamondexchapi.com/api/tv?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
+    const scorecardIframeUrl = `https://apis.diamondexchapi.com/api/scorecard?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
@@ -255,7 +266,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
             <iframe
               src={mediaMode === "tv" ? tvIframeUrl : scorecardIframeUrl}
               className="w-full h-full border-0"
-              title={mediaMode === "tv" ? "Live TV Stream" : "Live Cricket Scorecard"}
+              title={mediaMode === "tv" ? "Live TV Stream" : "Live Match Scorecard"}
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen
             />
@@ -273,7 +284,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                {activeMatch.isLive ? (
+                {activeMatch.inPlay || activeMatch.isLive ? (
                   <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-600 text-[10px] font-extrabold uppercase tracking-wider text-white shadow-sm animate-pulse">
                     <Radio size={12} /> Live In-Play
                   </span>
@@ -282,7 +293,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
                     Upcoming
                   </span>
                 )}
-                <span className="text-xs text-emerald-200/80 font-medium">T20 International</span>
+                <span className="text-xs text-emerald-200/80 font-medium capitalize">{activeMatch.sport} Match</span>
               </div>
               <div className="text-xs text-white/60 flex items-center gap-1">
                 <Clock size={12} /> {new Date(activeMatch.eventTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -294,41 +305,17 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
               <div className="bg-black/35 rounded-xl p-2.5 border border-white/5">
                 <div className="text-xs text-white/70 font-semibold">{activeMatch.team1.name}</div>
                 <div className="text-lg font-extrabold text-white mt-0.5">
-                  {activeMatch.team1.score || "168/4"}
-                  <span className="text-xs font-normal text-white/60 ml-1.5">({activeMatch.team1.overs || "16.2"} ov)</span>
+                  {activeMatch.team1.score || (activeMatch.inPlay ? "168/4" : "-")}
+                  {activeMatch.team1.overs && <span className="text-xs font-normal text-white/60 ml-1.5">({activeMatch.team1.overs} ov)</span>}
                 </div>
               </div>
               <div className="bg-black/35 rounded-xl p-2.5 border border-white/5">
                 <div className="text-xs text-white/70 font-semibold">{activeMatch.team2.name}</div>
                 <div className="text-lg font-extrabold text-white/80 mt-0.5">
-                  {activeMatch.team2.score || "182/6"}
+                  {activeMatch.team2.score || (activeMatch.inPlay ? "182/6" : "-")}
                   {activeMatch.team2.overs && <span className="text-xs font-normal text-white/60 ml-1.5">({activeMatch.team2.overs} ov)</span>}
                 </div>
               </div>
-            </div>
-
-            {/* Ball-by-Ball strip */}
-            <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-xs text-white/70">
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                <span className="text-[10px] text-white/50 uppercase font-semibold mr-1">Over:</span>
-                {["1", "4", "0", "6", "W", "2", "1", "4"].map((b, i) => (
-                  <span
-                    key={i}
-                    className={`w-5 h-5 rounded-full text-[10px] font-extrabold grid place-items-center ${
-                      b === "6"
-                        ? "bg-purple-600 text-white"
-                        : b === "4"
-                        ? "bg-blue-600 text-white"
-                        : b === "W"
-                        ? "bg-rose-600 text-white"
-                        : "bg-white/15 text-white"
-                    }`}
-                  >
-                    {b}
-                  </span>
-                ))}
-              </div>
-              <div className="text-[11px] font-bold text-amber-400">Target: 183</div>
             </div>
           </div>
         </div>
@@ -379,7 +366,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
 
             {/* Back / Lay Legend Header */}
             <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
-              <div className="col-span-6 text-left pl-1">Teams</div>
+              <div className="col-span-6 text-left pl-1">Selection</div>
               <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">BACK (Lagai)</div>
               <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">LAY (Khai)</div>
             </div>
@@ -387,8 +374,8 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
             {/* Runners */}
             <div className="divide-y divide-white/5">
               {[
-                { name: activeMatch.team1.name, back: activeMatch.back1 || 1.62, lay: activeMatch.lay1 || 1.65, volB: "1.5L", volL: "1.2L" },
-                { name: activeMatch.team2.name, back: activeMatch.back2 || 2.54, lay: activeMatch.lay2 || 2.60, volB: "95K", volL: "1.1L" },
+                { name: activeMatch.team1.name, back: activeMatch.back1 || 1.85, lay: activeMatch.lay1 || 1.89, volB: "1.5L", volL: "1.2L" },
+                { name: activeMatch.team2.name, back: activeMatch.back2 || 2.05, lay: activeMatch.lay2 || 2.12, volB: "95K", volL: "1.1L" },
               ].map((runner, idx) => (
                 <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2 hover:bg-white/[0.02]">
                   <div className="col-span-6 font-semibold text-sm pl-1 truncate">{runner.name}</div>
@@ -423,8 +410,8 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
 
             <div className="divide-y divide-white/5">
               {[
-                { name: activeMatch.team1.name, back: 62, lay: 65 },
-                { name: activeMatch.team2.name, back: 154, lay: 160 },
+                { name: activeMatch.team1.name, back: 85, lay: 89 },
+                { name: activeMatch.team2.name, back: 105, lay: 112 },
               ].map((bm, idx) => (
                 <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
                   <div className="col-span-6 font-semibold text-sm pl-1 truncate">{bm.name}</div>
@@ -447,51 +434,52 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
             </div>
           </div>
 
-          {/* 3. FANCY / SESSION MARKETS */}
-          <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
-            <div className="px-4 py-2.5 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
-              <div className="flex items-center gap-2">
-                <Flame size={16} className="text-amber-400" />
-                <span className="font-bold text-sm">Session & Fancy Markets</span>
-              </div>
-              <span className="text-[10px] text-amber-400 font-semibold">Live Ball by Ball</span>
-            </div>
-
-            <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
-              <div className="col-span-6 text-left pl-1">Session / Fancy</div>
-              <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">NO (Khai)</div>
-              <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">YES (Lagai)</div>
-            </div>
-
-            <div className="divide-y divide-white/5">
-              {[
-                { name: `6 Over Runs ${activeMatch.team1.short || "IND"}`, no: 46, yes: 48, rate: "100" },
-                { name: `10 Over Runs ${activeMatch.team1.short || "IND"}`, no: 84, yes: 86, rate: "100" },
-                { name: `15 Over Runs ${activeMatch.team1.short || "IND"}`, no: 132, yes: 135, rate: "100" },
-                { name: "Total Match Sixes", no: 13, yes: 14, rate: "100" },
-                { name: "Fall of Next Wicket (Runs)", no: 180, yes: 185, rate: "100" },
-                { name: "Virat Kohli 50+ Runs", no: 48, yes: 50, rate: "100" },
-              ].map((fancy, idx) => (
-                <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
-                  <div className="col-span-6 font-semibold text-xs pl-1 truncate">{fancy.name}</div>
-                  <button
-                    onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (NO: ${fancy.no})`, "LAY", 2.0, fancy.no)}
-                    className="col-span-3 py-2 rounded-xl bg-pink-600/90 hover:bg-pink-500 text-white active:scale-95 transition-all text-center"
-                  >
-                    <div className="text-sm font-extrabold">{fancy.no}</div>
-                    <div className="text-[9px] text-pink-200">{fancy.rate}</div>
-                  </button>
-                  <button
-                    onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (YES: ${fancy.yes})`, "BACK", 2.0, fancy.yes)}
-                    className="col-span-3 py-2 rounded-xl bg-blue-600/90 hover:bg-blue-500 text-white active:scale-95 transition-all text-center"
-                  >
-                    <div className="text-sm font-extrabold">{fancy.yes}</div>
-                    <div className="text-[9px] text-blue-200">{fancy.rate}</div>
-                  </button>
+          {/* 3. FANCY / SESSION MARKETS (If Cricket) */}
+          {activeMatch.sport === "cricket" && (
+            <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
+              <div className="px-4 py-2.5 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <Flame size={16} className="text-amber-400" />
+                  <span className="font-bold text-sm">Session & Fancy Markets</span>
                 </div>
-              ))}
+                <span className="text-[10px] text-amber-400 font-semibold">Live Ball by Ball</span>
+              </div>
+
+              <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
+                <div className="col-span-6 text-left pl-1">Session / Fancy</div>
+                <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">NO (Khai)</div>
+                <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">YES (Lagai)</div>
+              </div>
+
+              <div className="divide-y divide-white/5">
+                {[
+                  { name: `6 Over Runs ${activeMatch.team1.short || "T1"}`, no: 46, yes: 48, rate: "100" },
+                  { name: `10 Over Runs ${activeMatch.team1.short || "T1"}`, no: 84, yes: 86, rate: "100" },
+                  { name: `15 Over Runs ${activeMatch.team1.short || "T1"}`, no: 132, yes: 135, rate: "100" },
+                  { name: "Total Match Sixes", no: 13, yes: 14, rate: "100" },
+                  { name: "Fall of Next Wicket (Runs)", no: 180, yes: 185, rate: "100" },
+                ].map((fancy, idx) => (
+                  <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
+                    <div className="col-span-6 font-semibold text-xs pl-1 truncate">{fancy.name}</div>
+                    <button
+                      onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (NO: ${fancy.no})`, "LAY", 2.0, fancy.no)}
+                      className="col-span-3 py-2 rounded-xl bg-pink-600/90 hover:bg-pink-500 text-white active:scale-95 transition-all text-center"
+                    >
+                      <div className="text-sm font-extrabold">{fancy.no}</div>
+                      <div className="text-[9px] text-pink-200">{fancy.rate}</div>
+                    </button>
+                    <button
+                      onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (YES: ${fancy.yes})`, "BACK", 2.0, fancy.yes)}
+                      className="col-span-3 py-2 rounded-xl bg-blue-600/90 hover:bg-blue-500 text-white active:scale-95 transition-all text-center"
+                    >
+                      <div className="text-sm font-extrabold">{fancy.yes}</div>
+                      <div className="text-[9px] text-blue-200">{fancy.rate}</div>
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* ----------------- BET SLIP MODAL (BOTTOM DRAWER) ----------------- */}
@@ -588,16 +576,18 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
   }
 
   // -------------------------------------------------------------
-  // RENDER: Match Lobby View (Match List)
+  // RENDER: Match Lobby View (Match List with Cricket / Tennis / Football Selector)
   // -------------------------------------------------------------
+  const activeSportConfig = SPORTS_CONFIG.find((s) => s.id === selectedSport) || SPORTS_CONFIG[0];
+
   return (
     <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
       <Header
-        title="Cricket Live Exchange"
+        title="Sports Live Exchange"
         onBack={() => nav.reset({ name: "home" })}
         right={
           <button
-            onClick={loadMatches}
+            onClick={() => loadMatches(selectedSport)}
             className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 grid place-items-center active:scale-95 transition-transform"
             aria-label="Refresh matches"
           >
@@ -609,7 +599,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
       <div className="px-4 pt-2">
         {/* Banner */}
         <div
-          className="rounded-3xl p-5 border border-emerald-500/30 relative overflow-hidden mb-5"
+          className="rounded-3xl p-5 border border-emerald-500/30 relative overflow-hidden mb-4"
           style={{
             background: "linear-gradient(135deg, #064e3b 0%, #065f46 50%, #022c22 100%)",
             boxShadow: "0 12px 36px rgba(5,150,105,0.25)",
@@ -621,57 +611,80 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
                 ⚡ Real-time Exchange
               </span>
               <div className="text-2xl font-extrabold text-white mt-1.5 leading-tight">
-                Cricket Betting & Live TV
+                {activeSportConfig.name}
               </div>
               <div className="text-xs text-emerald-100/75 mt-1">
-                Back & Lay Odds • Bookmaker • Session Fancy • Radar Scorecard
+                Back & Lay Odds • Bookmaker • Live TV • Scorecard
               </div>
             </div>
-            <span className="text-5xl drop-shadow-lg">🏏</span>
+            <span className="text-5xl drop-shadow-lg">{activeSportConfig.icon}</span>
           </div>
         </div>
 
-        {/* Search & Tabs */}
-        <div className="flex items-center gap-2 mb-4">
-          <div className="relative flex-1">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search team or tournament…"
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none focus:border-emerald-400"
-            />
-          </div>
+        {/* 1. TOP SPORTS SELECTOR: Cricket | Tennis | Football */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          {SPORTS_CONFIG.map((sport) => {
+            const isSelected = selectedSport === sport.id;
+            return (
+              <button
+                key={sport.id}
+                onClick={() => {
+                  sfx.click();
+                  setSelectedSport(sport.id);
+                }}
+                className={`py-3 px-2 rounded-2xl font-extrabold text-xs flex flex-col items-center gap-1.5 transition-all active:scale-95 border ${
+                  isSelected
+                    ? "bg-gradient-to-b from-emerald-500 to-teal-700 text-white border-emerald-400 shadow-lg shadow-emerald-500/30"
+                    : "bg-[#0f172a] text-white/70 border-white/10 hover:bg-white/5"
+                }`}
+              >
+                <span className="text-2xl">{sport.icon}</span>
+                <span>{sport.label}</span>
+              </button>
+            );
+          })}
         </div>
 
-        {/* Filter Tabs */}
+        {/* Search Input */}
+        <div className="relative mb-3">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Search ${activeSportConfig.label} team or tournament…`}
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none focus:border-emerald-400"
+          />
+        </div>
+
+        {/* 2. MATCH STATUS TABS: In-Play | Upcoming | All */}
         <div className="flex gap-2 mb-4">
           <button
-            onClick={() => setTab("inplay")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-              tab === "inplay"
+            onClick={() => setStatusTab("inplay")}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              statusTab === "inplay"
                 ? "bg-rose-600 text-white shadow-lg shadow-rose-600/30"
                 : "bg-white/5 text-white/70 hover:bg-white/10"
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-            In-Play ({matches.filter((m) => m.isLive).length})
+            In-Play ({inPlayMatches.length})
           </button>
           <button
-            onClick={() => setTab("upcoming")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              tab === "upcoming"
+            onClick={() => setStatusTab("upcoming")}
+            className={`flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              statusTab === "upcoming"
                 ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
                 : "bg-white/5 text-white/70 hover:bg-white/10"
             }`}
           >
-            Upcoming ({matches.filter((m) => !m.isLive).length})
+            <Calendar size={13} />
+            Upcoming ({upcomingMatches.length})
           </button>
           <button
-            onClick={() => setTab("all")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              tab === "all"
+            onClick={() => setStatusTab("all")}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              statusTab === "all"
                 ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
                 : "bg-white/5 text-white/70 hover:bg-white/10"
             }`}
@@ -680,11 +693,11 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
           </button>
         </div>
 
-        {/* Match List */}
+        {/* 3. MATCH LISTING CARDS */}
         <div className="space-y-3">
           {filteredMatches.length === 0 ? (
-            <div className="text-center py-12 text-white/50 text-sm">
-              No matches found.
+            <div className="text-center py-12 text-white/50 text-sm bg-[#0f172a] rounded-2xl border border-white/5">
+              No {statusTab === "inplay" ? "live in-play" : statusTab === "upcoming" ? "upcoming" : ""} {activeSportConfig.label} matches found right now.
             </div>
           ) : (
             filteredMatches.map((match) => (
@@ -694,26 +707,26 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
               >
                 {/* Series & Status Header */}
                 <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-                  <div className="flex items-center gap-2">
-                    {match.isLive ? (
-                      <span className="px-2 py-0.5 rounded-full bg-rose-600 text-[10px] font-extrabold uppercase tracking-wider text-white animate-pulse">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {match.inPlay || match.isLive ? (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-600 text-[10px] font-extrabold uppercase tracking-wider text-white animate-pulse shrink-0">
                         ● Live
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded-full bg-slate-700 text-[10px] font-bold text-slate-300">
+                      <span className="px-2 py-0.5 rounded-full bg-slate-700 text-[10px] font-bold text-slate-300 shrink-0">
                         Upcoming
                       </span>
                     )}
-                    <span className="text-xs text-white/60 font-medium truncate max-w-[200px]">
+                    <span className="text-xs text-white/60 font-medium truncate">
                       {match.seriesName}
                     </span>
                   </div>
-                  <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                  <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1 shrink-0">
                     <Tv size={13} /> Live TV
                   </div>
                 </div>
 
-                {/* Match Card Body (Teams + Quick Odds) */}
+                {/* Match Card Body (Teams + Scores / Schedule Time) */}
                 <div
                   onClick={() => setSelectedMatchId(match.eventId)}
                   className="cursor-pointer"
@@ -722,14 +735,30 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
                     <div className="space-y-1.5 flex-1 pr-2">
                       <div className="flex items-center justify-between font-bold text-sm">
                         <span>{match.team1.name}</span>
-                        {match.team1.score && <span className="text-emerald-400">{match.team1.score} ({match.team1.overs} ov)</span>}
+                        {match.team1.score && (
+                          <span className="text-emerald-400 font-extrabold">
+                            {match.team1.score} {match.team1.overs ? `(${match.team1.overs} ov)` : ""}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center justify-between font-bold text-sm text-white/80">
                         <span>{match.team2.name}</span>
-                        {match.team2.score && <span className="text-white/60">{match.team2.score}</span>}
+                        {match.team2.score && (
+                          <span className="text-white/60 font-extrabold">
+                            {match.team2.score} {match.team2.overs ? `(${match.team2.overs} ov)` : ""}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
+
+                  {/* Scheduled Match Time if Upcoming */}
+                  {(!match.inPlay && !match.isLive) && (
+                    <div className="text-[11px] text-amber-300/90 flex items-center gap-1.5 mt-1 font-medium">
+                      <Clock size={12} />
+                      Starts: {new Date(match.eventTime).toLocaleString("en-IN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Quick Back / Lay Odds Row */}
@@ -739,14 +768,14 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
                     className="py-2 px-3 rounded-xl bg-blue-950/60 border border-blue-500/30 hover:bg-blue-900/60 flex items-center justify-between transition-all"
                   >
                     <span className="text-xs font-semibold text-blue-200 truncate">{match.team1.short || "T1"}</span>
-                    <span className="text-xs font-extrabold text-blue-400">Back {match.back1?.toFixed(2) || "1.65"}</span>
+                    <span className="text-xs font-extrabold text-blue-400">Back {match.back1?.toFixed(2) || "1.85"}</span>
                   </button>
                   <button
                     onClick={() => setSelectedMatchId(match.eventId)}
                     className="py-2 px-3 rounded-xl bg-pink-950/60 border border-pink-500/30 hover:bg-pink-900/60 flex items-center justify-between transition-all"
                   >
                     <span className="text-xs font-semibold text-pink-200 truncate">{match.team2.short || "T2"}</span>
-                    <span className="text-xs font-extrabold text-pink-400">Back {match.back2?.toFixed(2) || "2.45"}</span>
+                    <span className="text-xs font-extrabold text-pink-400">Back {match.back2?.toFixed(2) || "2.05"}</span>
                   </button>
                 </div>
               </div>
