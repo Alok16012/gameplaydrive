@@ -221,3 +221,13 @@ body {
 @keyframes prop { from { transform: scaleY(1); } 50% { transform: scaleY(0.15); } to { transform: scaleY(1); } }
 @keyframes av-rays { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .av-rays { animation: av-rays 40s linear infinite; }
+
+/* A card sliding out of the blackjack shoe (top right) onto the table. */
+@keyframes dealin { from { transform: translate(110px, -230px) rotate(-30deg) scale(.6); opacity: 0; } 25% { opacity: 1; } to { transform: none; opacity: 1; } }
+@keyframes dealin-d { from { transform: translate(120px, -40px) rotate(-30deg) scale(.6); opacity: 0; } 25% { opacity: 1; } to { transform: none; opacity: 1; } }
+.dealin { animation: dealin .55s cubic-bezier(.2, .8, .25, 1) both; }
+.dealin-d { animation: dealin-d .5s cubic-bezier(.2, .8, .25, 1) both; }
+
+/* Ludo turn clock: the ring empties over the turn, green → amber → red. */
+@keyframes ludo-timer { from { stroke-dashoffset: 0; stroke: #22c55e; } 55% { stroke: #facc15; } 80% { stroke: #ef4444; } to { stroke-dashoffset: 100; stroke: #ef4444; } }
+.ludo-timer { animation: ludo-timer linear forwards; }

@@ -70,6 +70,7 @@ function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling
 
 // Animation pacing: tokens walk one square at a time so every move can be followed.
 const STEP_MS = 170;
+const LUDO_TURN_SECS = 20; // each player's turn; when yours runs out the game rolls and moves for you
 const BOT_STEP_MS = 260; // bots walk their tokens a little slower, like a person tapping square by square
 const ROLL_MS = 560;
 /** A human-looking pause: usually between a and b ms, now and then a longer think. */
@@ -101,6 +102,19 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
   const gameNo = useRef(0); // bumps on every new game so a bot loop from the last game stops
+
+  // Turn clock: a ring runs round the active player's photo. Restarted for every turn (and bonus roll).
+  const [clock, setClock] = useState<{ p: number; id: number } | null>(null);
+  const clockId = useRef(0);
+  const startClock = (p: number) => setClock({ p, id: ++clockId.current });
+  const autoRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!clock || clock.p !== 0) return;
+    const id = clock.id;
+    const timers = [15, 16, 17, 18, 19].map((sec) => window.setTimeout(() => { if (clockId.current === id) sfx.tickUrgent(); }, sec * 1000));
+    timers.push(window.setTimeout(() => { if (clockId.current === id) autoRef.current(); }, LUDO_TURN_SECS * 1000));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [clock]);
 
   useEffect(() => {
     alive.current = true;
@@ -165,6 +179,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
   const finish = (p: number) => {
     over.current = true;
     setMoving(false);
+    setClock(null);
     setWinner(p);
     if (p === 0) credit(Math.floor(buyIn * 4 * keep), label);
   };
@@ -174,6 +189,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     const n = (from + 1) % 4;
     sixes.current = 0;
     setTurn(n);
+    startClock(n);
     if (n !== 0) botPlay(n);
     else setMsg("Your turn — roll the dice");
   };
@@ -199,6 +215,14 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     return d;
   };
 
+  // Prefer a capture, then the most advanced token.
+  const pickToken = (p: number, d: number, opts: number[]) =>
+    opts.find((i) => {
+      const prog = tokRef.current[p][i] === -1 ? 0 : tokRef.current[p][i] + d;
+      const a = absIdx(p, prog);
+      return a >= 0 && !SAFE.has(a) && tokRef.current.some((row, q) => q !== p && row.some((op) => absIdx(q, op) === a));
+    }) ?? [...opts].sort((x, y) => tokRef.current[p][y] - tokRef.current[p][x])[0];
+
   const botPlay = async (p: number) => {
     const g = gameNo.current;
     setMsg(`${names[p]}'s turn`);
@@ -215,22 +239,17 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     }
     setMsg(`${names[p]} rolled ${d}`);
     await think(opts.length > 1 ? 800 : 500, opts.length > 1 ? 1600 : 900); // decides which token to move
-    // prefer a capture, then the most advanced token
-    const pick = opts.find((i) => {
-      const prog = tokRef.current[p][i] === -1 ? 0 : tokRef.current[p][i] + d;
-      const a = absIdx(p, prog);
-      return a >= 0 && !SAFE.has(a) && tokRef.current.some((row, q) => q !== p && row.some((op) => absIdx(q, op) === a));
-    }) ?? opts.sort((x, y) => tokRef.current[p][y] - tokRef.current[p][x])[0];
+    const pick = pickToken(p, d, opts);
     setMsg(`${names[p]} rolled ${d}`);
     const again = await move(p, pick, d);
     if (!alive.current || again === "win" || again === "stop") return;
-    if (again) botPlay(p);
+    if (again) { startClock(p); botPlay(p); }
     else nextTurn(p);
   };
 
   const afterMyMove = (again: boolean | "win" | "stop") => {
     if (again === "win" || again === "stop") return;
-    if (again) setMsg("Bonus roll! Roll again");
+    if (again) { setMsg("Bonus roll! Roll again"); startClock(0); }
     else nextTurn(0);
   };
 
@@ -249,6 +268,23 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     if (opts.length === 1 || lands.size === 1) return afterMyMove(await move(0, opts[0], d));
     setAwaitMove(true);
     setMsg(`You rolled ${d} — tap a glowing token`);
+  };
+
+  // Your clock ran out: roll (if you hadn't) and make the best move for you.
+  autoRef.current = async () => {
+    if (turn !== 0 || winner !== null || over.current || rolling || moving) return;
+    setMsg("Time's up — auto move");
+    if (awaitMove) {
+      const opts = movable(0, dice);
+      setAwaitMove(false);
+      if (opts.length) return afterMyMove(await move(0, pickToken(0, dice, opts), dice));
+      return nextTurn(0);
+    }
+    const d = await roll(0);
+    if (d < 0) return nextTurn(0);
+    const opts = movable(0, d);
+    if (!opts.length) { await sleep(600); return nextTurn(0); }
+    afterMyMove(await move(0, pickToken(0, d, opts), d));
   };
 
   const tapToken = async (p: number, i: number) => {
@@ -274,6 +310,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     setMoving(false);
     setRolling(false);
     setTurn(0);
+    startClock(0);
     setWinner(null);
     setStarted(true);
     setMsg("Your turn — roll the dice");
@@ -286,7 +323,9 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   // Player badges sit at the board corners next to their yards (red top-left, green top-right, blue bottom-left,
   // yellow bottom-right); the one whose turn it is glows and shows the dice.
-  const Badge = ({ p, align }: { p: number; align: "left" | "right" }) => {
+  // (A plain render function, not a component: a component defined in here would be rebuilt on every render and
+  // restart the timer ring.)
+  const badge = (p: number, align: "left" | "right") => {
     const pl = LPLAYERS[p];
     const active = started && turn === p && winner === null;
     const home = tokens[p].filter((x) => x === 56).length;
@@ -294,6 +333,12 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
         <div className={`relative rounded-full p-[3px] transition-shadow ${active ? "shadow-[0_0_16px_4px_rgba(255,255,255,.35)]" : ""}`} style={{ background: pl.color }}>
           <Avatar size={34} emoji={p === 0 ? "🧑🏽" : ["", "👨🏻", "👩🏽", "🧔🏾"][p]} />
+          {active && clock?.p === p && (
+            <svg key={clock.id} viewBox="0 0 52 52" className="absolute -inset-[6px] w-[calc(100%+12px)] h-[calc(100%+12px)] -rotate-90 pointer-events-none">
+              <circle cx="26" cy="26" r="24" fill="none" stroke="rgba(0,0,0,.35)" strokeWidth="4" />
+              <circle cx="26" cy="26" r="24" fill="none" strokeWidth="4" strokeLinecap="round" pathLength={100} strokeDasharray="100" className="ludo-timer" style={{ animationDuration: `${LUDO_TURN_SECS}s` }} />
+            </svg>
+          )}
           {active && p !== 0 && <div className="absolute -bottom-1 -right-1 scale-[.42] origin-bottom-right"><DiceFace v={dice} rolling={rolling} size={56} /></div>}
         </div>
         <div className="min-w-0">
@@ -311,7 +356,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     <div className="min-h-dvh flex flex-col pb-5 fadein" style={{ background: "radial-gradient(120% 70% at 50% 35%, #1d3a8a 0%, #0b1438 60%, #070b22 100%)" }}>
       <Header title="Ludo" sub={`Table #${table} • 4 Players • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <div className="flex justify-between items-center mb-2 px-1"><Badge p={0} align="left" /><Badge p={1} align="right" /></div>
+        <div className="flex justify-between items-center mb-2 px-1">{badge(0, "left")}{badge(1, "right")}</div>
 
         {/* Board in a wooden frame */}
         <div className="rounded-[22px] p-[2.6%] shadow-[0_18px_40px_rgba(0,0,0,.55)]" style={{ background: "linear-gradient(145deg,#8a5a2b,#5a3416 55%,#3f2410)" }}>
@@ -395,7 +440,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
         </div>
         </div>
 
-        <div className="flex justify-between items-center mt-2 px-1"><Badge p={3} align="left" /><Badge p={2} align="right" /></div>
+        <div className="flex justify-between items-center mt-2 px-1">{badge(3, "left")}{badge(2, "right")}</div>
 
         {/* Your dice */}
         <div className="mt-4 flex flex-col items-center">

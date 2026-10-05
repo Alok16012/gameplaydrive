@@ -2,6 +2,7 @@
 
 import type { Card, Game, GameId } from "../lib/data";
 import { Chip, PlayingCard } from "./ui";
+import { Plane } from "./games/Aviator";
 
 // Illustrations for each game, drawn with CSS/emoji so the demo needs no image assets.
 
@@ -93,7 +94,7 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
     case "chess":
       return <span style={{ fontSize: 44 * s, lineHeight: 1, color: "#f8fafc", filter: "drop-shadow(0 4px 6px rgba(0,0,0,.6))" }}>♞</span>;
     case "aviator":
-      return <span style={{ fontSize: 40 * s, lineHeight: 1, display: "inline-block", transform: "rotate(-12deg)", filter: "drop-shadow(0 4px 8px rgba(0,0,0,.55))" }}>✈️</span>;
+      return <span style={{ display: "inline-block", transform: "rotate(-14deg)" }}><Plane width={78 * s} /></span>;
     case "roulette":
       return (
         <div

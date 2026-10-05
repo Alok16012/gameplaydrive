@@ -27,7 +27,7 @@ interface View {
 const histColor = (m: number) => (m >= 10 ? "text-fuchsia-400" : m >= 2 ? "text-violet-400" : "text-sky-400");
 
 /** Red propeller plane (drawn for this app), nose to the right; the propeller spins while it flies. */
-function Plane({ width = 84, spinning = true }: { width?: number; spinning?: boolean }) {
+export function Plane({ width = 84, spinning = true }: { width?: number; spinning?: boolean }) {
   return (
     <svg viewBox="0 0 120 64" width={width} height={(width * 64) / 120} className="drop-shadow-[0_6px_10px_rgba(225,29,72,.45)]">
       <g fill="#e50914">
