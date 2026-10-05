@@ -25,6 +25,7 @@ import { Aviator } from "./games/Aviator";
 import { Roulette } from "./games/Roulette";
 import { Blackjack } from "./games/Blackjack";
 import { Plinko } from "./games/Plinko";
+import { StockMarket } from "./games/StockMarket";
 import { Cricket } from "./games/Cricket";
 
 const TAB_OF: Partial<Record<Route["name"], Tab>> = { home: "home", games: "games", wallet: "wallet", more: "more" };
@@ -55,7 +56,7 @@ function Shell() {
   );
 
   // Rejoin: server tables keep your seat when the screen closes, so remember the one you're at and offer it on
-  // Home. (Ludo, Carrom, Poker and Blackjack mark themselves when a game is actually under way.)
+  // Home. (Ludo, Chess, Poker and Blackjack mark themselves when a game is actually under way.)
   useEffect(() => {
     if (route.name === "rummy") markActive(route, `${route.cards === 21 ? "21 Card Rummy" : "Rummy"} • Table #${route.table}`);
     else if (route.name === "cardtable" && route.game === "teen-patti") markActive(route, `Teen Patti • Boot 🪙 ${route.buyIn}`);
@@ -127,6 +128,7 @@ function Shell() {
     case "roulette": screen = <Roulette nav={nav} />; break;
     case "blackjack": screen = <Blackjack nav={nav} />; break;
     case "plinko": screen = <Plinko nav={nav} />; break;
+    case "stockmarket": screen = <StockMarket nav={nav} />; break;
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"
       ? <TeenPattiAuto key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />

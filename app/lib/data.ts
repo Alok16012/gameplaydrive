@@ -2,7 +2,7 @@
 // the real app reads it from the backend (PRD §4: Node + Socket.io, PostgreSQL ledger, Redis lobbies).
 
 export type GameCategory = "sports" | "card" | "casino" | "board";
-export type GameKind = "cricket" | "rummy" | "cardtable" | "casino" | "board" | "aviator" | "roulette" | "blackjack" | "plinko";
+export type GameKind = "cricket" | "rummy" | "cardtable" | "casino" | "board" | "aviator" | "roulette" | "blackjack" | "plinko" | "stockmarket";
 
 export type GameId =
   | "cricket"
@@ -13,7 +13,7 @@ export type GameId =
   | "lucky-7"
   | "poker"
   | "ludo"
-  | "carrom"
+  | "stock-market"
   | "chess"
   | "aviator"
   | "rummy21"
@@ -46,7 +46,7 @@ export const GAMES: Game[] = [
   { id: "lucky-7", name: "Lucky 7", tag: "Casino Style", meta: "Casino Style • 2-7 Players", category: "casino", kind: "casino", from: "#23a058", to: "#0b4424", glow: "#3ddc84", players: "2-7", online: 5270, phase: 1 },
   { id: "poker", name: "Poker", tag: "Texas Hold'em", meta: "Texas Hold'em • 2-6 Players", category: "card", kind: "cardtable", from: "#2459e0", to: "#0b1f6b", glow: "#3d7bff", players: "2-6", online: 7840, phase: 3 },
   { id: "ludo", name: "Ludo", tag: "Board Game", meta: "Board Game • 2-4 Players", category: "board", kind: "board", from: "#14a0b4", to: "#063f4a", glow: "#2fd3e8", players: "2-4", online: 15360, phase: 2 },
-  { id: "carrom", name: "Carrom", tag: "Board Game", meta: "Board Game • 2 Players", category: "board", kind: "board", from: "#d8691e", to: "#6b2a06", glow: "#ff8a3d", players: "2", online: 3920, phase: 3 },
+  { id: "stock-market", name: "Stock Market", tag: "Up or Down", meta: "Up / Down • Live rounds", category: "casino", kind: "stockmarket", from: "#0e7c5a", to: "#0a1230", glow: "#22d39a", players: "Live", online: 10380, phase: 1 },
   { id: "aviator", name: "Aviator", tag: "Crash Game", meta: "Crash • Live rounds", category: "casino", kind: "aviator", from: "#2a0a10", to: "#0b0b0f", glow: "#e50914", players: "Live", online: 11240, phase: 1 },
   { id: "roulette", name: "Roulette", tag: "Casino Style", meta: "European • Single zero", category: "casino", kind: "roulette", from: "#15803d", to: "#052e16", glow: "#22c55e", players: "Live", online: 8650, phase: 1 },
   { id: "blackjack", name: "Blackjack", tag: "21", meta: "Blackjack • vs Dealer", category: "card", kind: "blackjack", from: "#334155", to: "#0b1220", glow: "#94a3b8", players: "1", online: 7120, phase: 1 },

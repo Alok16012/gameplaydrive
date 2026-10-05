@@ -33,7 +33,7 @@ There is no self sign-up. Freezing an account blocks its sign-in and all coin/ga
 - **Poker (Hold'em)**: pre-flop → flop → turn → river → showdown, with best-5-of-7 evaluation.
 - **13 Card Rummy** (server): Points, Pool 101, Pool 201 and Deals (best of 2/3); 30 s per move; sort, group, drop, declare; per-deal scoreboard with the winning hand.
 - **Ludo**: 4 players, 52-step track + home column, safe squares, captures, 6 bonus roll, three-sixes rule. Tokens walk square by square with a hop; the dice tumbles before it lands.
-- **Carrom**: real physics (friction, rebounds, collisions, pockets). Slide the striker, drag back and release to shoot. White vs the bot's black: own coin +1 and shoot again, queen +2, striker in a pocket is a foul (−1); first to 5.
+- **Stock Market** (server): Up / Down on a live market line. 10 s to put chips on UP and/or DOWN, then 20 s of market (a tick every 0.25 s). UP is worth stake × price, DOWN stake × (2 − price); cash out the whole portfolio any time or hold to the close. Fee on every payout (default 1%, set in Game Config). The price path is drawn by the server and is a fair martingale.
 - **Roulette** (server): European single-zero wheel; numbers ×36, dozens/columns ×3, red/black, even/odd, 1-18/19-36 ×2; undo/clear/rebet/double and your last 20 numbers.
 - **Blackjack** (server): six decks shuffled per hand, dealer stands on all 17s, blackjack pays 3:2, hit/stand/double/split (one split; split aces get one card). An unfinished hand resumes when you return.
 - **Plinko** (server): 8/12/16 rows × low/medium/high risk, ~99% return on every board, several balls in the air at once.
@@ -72,7 +72,7 @@ Games that run on the server — the database shuffles, deals, times turns, play
 
 Each player only ever receives their own cards. Clients follow tables through Supabase Realtime and call `tp_tick()` / `rm_tick()` when a deadline passes (turn timeout, bot move, next deal). Platform fee, turn time and on/off per game are set by the Super Admin in **Admin → Game Config**.
 
-Still on-device practice (payouts capped server-side at 100× recent stakes): Poker, Ludo, Chess, Carrom. Moving to a dedicated Node server (e.g. Railway) later keeps the same tables and rules.
+Still on-device practice (payouts capped server-side at 100× recent stakes): Poker, Ludo, Chess. Moving to a dedicated Node server (e.g. Railway) later keeps the same tables and rules.
 
 ## Coins & accounts
 
@@ -84,6 +84,6 @@ Still on-device practice (payouts capped server-side at 100× recent stakes): Po
 
 - `app/components/GameHubApp.tsx`: app shell, navigation stack, bottom nav
 - `app/components/screens/`: Auth (splash/login), Main (home/games/lobby), WalletScreens, Account
-- `app/components/games/`: Casino, CardTable (Teen Patti/Poker), Rummy, Board (Ludo/Chess/Carrom)
+- `app/components/games/`: Casino, CardTable (Teen Patti/Poker), Rummy, Board (Ludo/Chess), StockMarket
 - `app/lib/store.tsx`: in-memory wallet + ledger; `app/lib/hands.ts`: hand evaluators; `app/lib/data.ts`: demo data
 - `app/admin/AdminApp.tsx`: admin console

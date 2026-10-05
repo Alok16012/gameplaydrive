@@ -16,6 +16,9 @@ import {
   CheckCircle2,
   TrendingUp,
   Clock,
+  Activity,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { Nav } from "../nav";
 import { Header, Money } from "../ui";
@@ -32,7 +35,6 @@ import {
   type CricketMatch,
   type CricketOddsResponse,
   type CricketScorecard,
-  type RunnerOdd,
 } from "../../lib/cricketApi";
 
 interface BetSlipState {
@@ -55,10 +57,9 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Selected Match Live State
-  const [oddsData, setOddsData] = useState<CricketOddsResponse | null>(null);
-  const [scorecard, setScorecard] = useState<CricketScorecard | null>(null);
-  const [activeView, setActiveView] = useState<"markets" | "tv" | "mybets">("markets");
+  // Match Media Mode: 'tv' | 'scorecard' | 'none'
+  const [mediaMode, setMediaMode] = useState<"tv" | "scorecard" | "none">("scorecard");
+  const [showMyBets, setShowMyBets] = useState(false);
   const [myBets, setMyBets] = useState<CricketBet[]>([]);
 
   // Bet Slip State
@@ -76,27 +77,9 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
   useEffect(() => {
     loadMatches();
     setMyBets(loadStoredBets());
-    const t = setInterval(loadMatches, 8000);
+    const t = setInterval(loadMatches, 10000);
     return () => clearInterval(t);
   }, []);
-
-  // Poll live odds & scorecard for selected match
-  useEffect(() => {
-    if (!selectedMatchId) return;
-
-    const loadMatchDetails = async () => {
-      const [odds, score] = await Promise.all([
-        fetchCricketOdds(selectedMatchId),
-        fetchCricketScorecard(selectedMatchId),
-      ]);
-      setOddsData(odds);
-      if (score) setScorecard(score);
-    };
-
-    loadMatchDetails();
-    const t = setInterval(loadMatchDetails, 3000);
-    return () => clearInterval(t);
-  }, [selectedMatchId]);
 
   const activeMatch = useMemo(
     () => matches.find((m) => m.eventId === selectedMatchId),
@@ -196,13 +179,17 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
   };
 
   // -------------------------------------------------------------
-  // RENDER: Match Detail / Live Arena View
+  // RENDER: Match Detail / Live Arena View (Like My99Exch / DiamondExch)
   // -------------------------------------------------------------
   if (selectedMatchId && activeMatch) {
     const matchBets = myBets.filter((b) => b.eventId === selectedMatchId);
 
+    // Direct DiamondExch Iframe URLs
+    const tvIframeUrl = `https://apis.diamondexchapi.com/api/tv?eventId=${activeMatch.eventId}&sport=cricket`;
+    const scorecardIframeUrl = `https://apis.diamondexchapi.com/api/scorecard?eventId=${activeMatch.eventId}&sport=cricket`;
+
     return (
-      <div className="min-h-screen bg-[#070b19] text-white pb-24 fadein">
+      <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
         {/* Sticky Header */}
         <div className="sticky top-0 z-30 bg-[#0c122c]/95 backdrop-blur-md border-b border-white/10 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -213,7 +200,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
               <ArrowLeft size={18} />
             </button>
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-emerald-400 truncate">{activeMatch.seriesName}</div>
+              <div className="text-[11px] font-semibold text-emerald-400 truncate">{activeMatch.seriesName}</div>
               <div className="text-sm font-bold truncate">{activeMatch.eventName}</div>
             </div>
           </div>
@@ -225,7 +212,57 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
           </div>
         </div>
 
-        {/* Live Scorecard Bar */}
+        {/* Media Toggle Bar (Live TV / Scorecard Radar / My Bets) */}
+        <div className="px-4 py-2 bg-[#0a0f24] border-b border-white/5 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMediaMode(mediaMode === "tv" ? "none" : "tv")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                mediaMode === "tv"
+                  ? "bg-rose-600 text-white shadow-lg shadow-rose-600/30"
+                  : "bg-white/5 text-white/70 hover:bg-white/10"
+              }`}
+            >
+              <Tv size={13} /> Live TV
+            </button>
+            <button
+              onClick={() => setMediaMode(mediaMode === "scorecard" ? "none" : "scorecard")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+                mediaMode === "scorecard"
+                  ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
+                  : "bg-white/5 text-white/70 hover:bg-white/10"
+              }`}
+            >
+              <Activity size={13} /> Live Scorecard
+            </button>
+          </div>
+
+          <button
+            onClick={() => setShowMyBets(!showMyBets)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
+              showMyBets
+                ? "bg-blue-600 text-white"
+                : "bg-white/5 text-white/70 hover:bg-white/10"
+            }`}
+          >
+            📜 My Bets {matchBets.length > 0 && `(${matchBets.length})`}
+          </button>
+        </div>
+
+        {/* Embedded Live Media Frame (16:9 Iframe Container) */}
+        {mediaMode !== "none" && (
+          <div className="bg-black border-b border-white/10 relative w-full aspect-video max-h-[300px] overflow-hidden">
+            <iframe
+              src={mediaMode === "tv" ? tvIframeUrl : scorecardIframeUrl}
+              className="w-full h-full border-0"
+              title={mediaMode === "tv" ? "Live TV Stream" : "Live Cricket Scorecard"}
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        )}
+
+        {/* Match Header Score Card */}
         <div className="p-4">
           <div
             className="rounded-2xl p-4 border border-emerald-500/20 relative overflow-hidden"
@@ -238,7 +275,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
               <div className="flex items-center gap-2">
                 {activeMatch.isLive ? (
                   <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-600 text-[10px] font-extrabold uppercase tracking-wider text-white shadow-sm animate-pulse">
-                    <Radio size={12} /> Live
+                    <Radio size={12} /> Live In-Play
                   </span>
                 ) : (
                   <span className="px-2.5 py-0.5 rounded-full bg-slate-700 text-[10px] font-bold text-slate-300">
@@ -253,274 +290,209 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
             </div>
 
             {/* Teams & Scores */}
-            <div className="grid grid-cols-2 gap-4 my-2">
-              <div className="bg-black/25 rounded-xl p-2.5 border border-white/5">
+            <div className="grid grid-cols-2 gap-3 my-2">
+              <div className="bg-black/35 rounded-xl p-2.5 border border-white/5">
                 <div className="text-xs text-white/70 font-semibold">{activeMatch.team1.name}</div>
-                <div className="text-xl font-extrabold text-white mt-0.5">
-                  {scorecard?.runs ? `${scorecard.runs}/${scorecard.wickets}` : activeMatch.team1.score || "0/0"}
-                  <span className="text-xs font-normal text-white/60 ml-1.5">({scorecard?.overs || activeMatch.team1.overs || "0.0"} ov)</span>
+                <div className="text-lg font-extrabold text-white mt-0.5">
+                  {activeMatch.team1.score || "168/4"}
+                  <span className="text-xs font-normal text-white/60 ml-1.5">({activeMatch.team1.overs || "16.2"} ov)</span>
                 </div>
               </div>
-              <div className="bg-black/25 rounded-xl p-2.5 border border-white/5">
+              <div className="bg-black/35 rounded-xl p-2.5 border border-white/5">
                 <div className="text-xs text-white/70 font-semibold">{activeMatch.team2.name}</div>
-                <div className="text-xl font-extrabold text-white/80 mt-0.5">
-                  {activeMatch.team2.score || "Yet to bat"}
+                <div className="text-lg font-extrabold text-white/80 mt-0.5">
+                  {activeMatch.team2.score || "182/6"}
                   {activeMatch.team2.overs && <span className="text-xs font-normal text-white/60 ml-1.5">({activeMatch.team2.overs} ov)</span>}
                 </div>
               </div>
             </div>
 
-            {/* Ball-by-Ball & Batsmen / Bowler */}
-            {scorecard && (
-              <div className="mt-3 pt-3 border-t border-white/10 text-xs">
-                <div className="flex items-center justify-between text-white/70 mb-2">
-                  <span>CRR: <strong className="text-white">{scorecard.crr}</strong></span>
-                  {scorecard.target && <span>Target: <strong className="text-amber-400">{scorecard.target}</strong></span>}
-                  <span>RRR: <strong className="text-rose-400">{scorecard.rrr || "4.5"}</strong></span>
-                </div>
-
-                {/* Recent Balls */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  <span className="text-[10px] text-white/50 uppercase font-semibold mr-1">This Over:</span>
-                  {scorecard.recentBalls.map((b, i) => (
-                    <span
-                      key={i}
-                      className={`w-6 h-6 rounded-full text-[11px] font-extrabold grid place-items-center ${
-                        b === "6"
-                          ? "bg-purple-600 text-white"
-                          : b === "4"
-                          ? "bg-blue-600 text-white"
-                          : b === "W"
-                          ? "bg-rose-600 text-white"
-                          : "bg-white/15 text-white"
-                      }`}
-                    >
-                      {b}
-                    </span>
-                  ))}
-                </div>
+            {/* Ball-by-Ball strip */}
+            <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between text-xs text-white/70">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[10px] text-white/50 uppercase font-semibold mr-1">Over:</span>
+                {["1", "4", "0", "6", "W", "2", "1", "4"].map((b, i) => (
+                  <span
+                    key={i}
+                    className={`w-5 h-5 rounded-full text-[10px] font-extrabold grid place-items-center ${
+                      b === "6"
+                        ? "bg-purple-600 text-white"
+                        : b === "4"
+                        ? "bg-blue-600 text-white"
+                        : b === "W"
+                        ? "bg-rose-600 text-white"
+                        : "bg-white/15 text-white"
+                    }`}
+                  >
+                    {b}
+                  </span>
+                ))}
               </div>
-            )}
+              <div className="text-[11px] font-bold text-amber-400">Target: 183</div>
+            </div>
           </div>
         </div>
 
-        {/* Navigation Tabs (Markets / Live TV / My Bets) */}
-        <div className="px-4 flex gap-2 border-b border-white/10 pb-3">
-          <button
-            onClick={() => setActiveView("markets")}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeView === "markets"
-                ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
-                : "bg-white/5 text-white/70 hover:bg-white/10"
-            }`}
-          >
-            📊 All Markets
-          </button>
-          <button
-            onClick={() => setActiveView("tv")}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-              activeView === "tv"
-                ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
-                : "bg-white/5 text-white/70 hover:bg-white/10"
-            }`}
-          >
-            <Tv size={14} /> Live Stream
-          </button>
-          <button
-            onClick={() => setActiveView("mybets")}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all relative ${
-              activeView === "mybets"
-                ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/25"
-                : "bg-white/5 text-white/70 hover:bg-white/10"
-            }`}
-          >
-            📜 My Bets {matchBets.length > 0 && `(${matchBets.length})`}
-          </button>
+        {/* My Bets Slide-Down Panel */}
+        {showMyBets && (
+          <div className="px-4 mb-4 fadein">
+            <div className="rounded-2xl p-4 bg-[#0f172a] border border-blue-500/30 shadow-xl space-y-3">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <div className="font-bold text-sm text-blue-300">Open Bets on this Match ({matchBets.length})</div>
+                <button onClick={() => setShowMyBets(false)} className="text-white/60 hover:text-white"><X size={16} /></button>
+              </div>
+              {matchBets.length === 0 ? (
+                <div className="text-center py-4 text-xs text-white/50">No bets placed yet on this match.</div>
+              ) : (
+                matchBets.map((b) => (
+                  <div key={b.id} className="rounded-xl p-2.5 bg-black/40 border border-white/5 space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black ${b.betType === "BACK" ? "bg-blue-600" : "bg-pink-600"}`}>
+                        {b.betType}
+                      </span>
+                      <span className="text-white/50">{b.placedAt}</span>
+                    </div>
+                    <div className="font-semibold text-white">{b.runnerName}</div>
+                    <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[11px]">
+                      <span>Stake: <strong>{inr(b.stake)}</strong></span>
+                      <span>Odds: <strong>{b.odds.toFixed(2)}</strong></span>
+                      <span className="text-emerald-400 font-bold">Profit: +{inr(b.profit)}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ----------------- BETTING MARKETS (SAME PAGE FLOW) ----------------- */}
+        <div className="px-4 space-y-4">
+          {/* 1. MATCH ODDS (Betfair Back / Lay Table) */}
+          <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
+            <div className="px-4 py-2.5 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                <span className="font-bold text-sm">Match Odds (Exchange)</span>
+              </div>
+              <span className="text-[10px] text-white/50">Max: 🪙 5,00,000</span>
+            </div>
+
+            {/* Back / Lay Legend Header */}
+            <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
+              <div className="col-span-6 text-left pl-1">Teams</div>
+              <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">BACK (Lagai)</div>
+              <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">LAY (Khai)</div>
+            </div>
+
+            {/* Runners */}
+            <div className="divide-y divide-white/5">
+              {[
+                { name: activeMatch.team1.name, back: activeMatch.back1 || 1.62, lay: activeMatch.lay1 || 1.65, volB: "1.5L", volL: "1.2L" },
+                { name: activeMatch.team2.name, back: activeMatch.back2 || 2.54, lay: activeMatch.lay2 || 2.60, volB: "95K", volL: "1.1L" },
+              ].map((runner, idx) => (
+                <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2 hover:bg-white/[0.02]">
+                  <div className="col-span-6 font-semibold text-sm pl-1 truncate">{runner.name}</div>
+                  <button
+                    onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.name, "BACK", runner.back)}
+                    className="col-span-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white active:scale-95 transition-all text-center shadow-md shadow-blue-600/30"
+                  >
+                    <div className="text-sm font-extrabold leading-none">{runner.back.toFixed(2)}</div>
+                    <div className="text-[9px] text-blue-200 mt-0.5">{runner.volB}</div>
+                  </button>
+                  <button
+                    onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.name, "LAY", runner.lay)}
+                    className="col-span-3 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white active:scale-95 transition-all text-center shadow-md shadow-pink-600/30"
+                  >
+                    <div className="text-sm font-extrabold leading-none">{runner.lay.toFixed(2)}</div>
+                    <div className="text-[9px] text-pink-200 mt-0.5">{runner.volL}</div>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 2. BOOKMAKER MARKET (Fixed 100% Market) */}
+          <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
+            <div className="px-4 py-2.5 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-bold text-sm">Bookmaker Odds (0% Comm)</span>
+              </div>
+              <span className="text-[10px] text-white/50">Min: 🪙 100 • Max: 🪙 2,00,000</span>
+            </div>
+
+            <div className="divide-y divide-white/5">
+              {[
+                { name: activeMatch.team1.name, back: 62, lay: 65 },
+                { name: activeMatch.team2.name, back: 154, lay: 160 },
+              ].map((bm, idx) => (
+                <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
+                  <div className="col-span-6 font-semibold text-sm pl-1 truncate">{bm.name}</div>
+                  <button
+                    onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.name, "BACK", (1 + bm.back / 100))}
+                    className="col-span-3 py-2 rounded-xl bg-blue-700/90 hover:bg-blue-600 text-white active:scale-95 transition-all text-center"
+                  >
+                    <div className="text-sm font-extrabold">{bm.back}</div>
+                    <div className="text-[9px] text-blue-200">100K</div>
+                  </button>
+                  <button
+                    onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.name, "LAY", (1 + bm.lay / 100))}
+                    className="col-span-3 py-2 rounded-xl bg-pink-700/90 hover:bg-pink-600 text-white active:scale-95 transition-all text-center"
+                  >
+                    <div className="text-sm font-extrabold">{bm.lay}</div>
+                    <div className="text-[9px] text-pink-200">100K</div>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 3. FANCY / SESSION MARKETS */}
+          <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
+            <div className="px-4 py-2.5 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Flame size={16} className="text-amber-400" />
+                <span className="font-bold text-sm">Session & Fancy Markets</span>
+              </div>
+              <span className="text-[10px] text-amber-400 font-semibold">Live Ball by Ball</span>
+            </div>
+
+            <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
+              <div className="col-span-6 text-left pl-1">Session / Fancy</div>
+              <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">NO (Khai)</div>
+              <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">YES (Lagai)</div>
+            </div>
+
+            <div className="divide-y divide-white/5">
+              {[
+                { name: `6 Over Runs ${activeMatch.team1.short || "IND"}`, no: 46, yes: 48, rate: "100" },
+                { name: `10 Over Runs ${activeMatch.team1.short || "IND"}`, no: 84, yes: 86, rate: "100" },
+                { name: `15 Over Runs ${activeMatch.team1.short || "IND"}`, no: 132, yes: 135, rate: "100" },
+                { name: "Total Match Sixes", no: 13, yes: 14, rate: "100" },
+                { name: "Fall of Next Wicket (Runs)", no: 180, yes: 185, rate: "100" },
+                { name: "Virat Kohli 50+ Runs", no: 48, yes: 50, rate: "100" },
+              ].map((fancy, idx) => (
+                <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
+                  <div className="col-span-6 font-semibold text-xs pl-1 truncate">{fancy.name}</div>
+                  <button
+                    onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (NO: ${fancy.no})`, "LAY", 2.0, fancy.no)}
+                    className="col-span-3 py-2 rounded-xl bg-pink-600/90 hover:bg-pink-500 text-white active:scale-95 transition-all text-center"
+                  >
+                    <div className="text-sm font-extrabold">{fancy.no}</div>
+                    <div className="text-[9px] text-pink-200">{fancy.rate}</div>
+                  </button>
+                  <button
+                    onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (YES: ${fancy.yes})`, "BACK", 2.0, fancy.yes)}
+                    className="col-span-3 py-2 rounded-xl bg-blue-600/90 hover:bg-blue-500 text-white active:scale-95 transition-all text-center"
+                  >
+                    <div className="text-sm font-extrabold">{fancy.yes}</div>
+                    <div className="text-[9px] text-blue-200">{fancy.rate}</div>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-
-        {/* ----------------- VIEW: MARKETS ----------------- */}
-        {activeView === "markets" && (
-          <div className="p-4 space-y-5">
-            {/* 1. MATCH ODDS (Betfair Exchange Back/Lay) */}
-            <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
-              <div className="px-4 py-3 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-                  <span className="font-bold text-sm">Match Odds (Exchange)</span>
-                </div>
-                <span className="text-[10px] text-white/50">Max: 🪙 5,00,000</span>
-              </div>
-
-              {/* Back / Lay Legend */}
-              <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
-                <div className="col-span-6 text-left pl-1">Teams</div>
-                <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">BACK (Lagai)</div>
-                <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">LAY (Khai)</div>
-              </div>
-
-              {/* Runners */}
-              <div className="divide-y divide-white/5">
-                {[
-                  { name: activeMatch.team1.name, back: activeMatch.back1 || 1.62, lay: activeMatch.lay1 || 1.65, volB: "1.5L", volL: "1.2L" },
-                  { name: activeMatch.team2.name, back: activeMatch.back2 || 2.54, lay: activeMatch.lay2 || 2.60, volB: "95K", volL: "1.1L" },
-                ].map((runner, idx) => (
-                  <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2 hover:bg-white/[0.02]">
-                    <div className="col-span-6 font-semibold text-sm pl-1">{runner.name}</div>
-                    <button
-                      onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.name, "BACK", runner.back)}
-                      className="col-span-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white active:scale-95 transition-all text-center shadow-md shadow-blue-600/30"
-                    >
-                      <div className="text-sm font-extrabold leading-none">{runner.back.toFixed(2)}</div>
-                      <div className="text-[9px] text-blue-200 mt-0.5">{runner.volB}</div>
-                    </button>
-                    <button
-                      onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.name, "LAY", runner.lay)}
-                      className="col-span-3 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white active:scale-95 transition-all text-center shadow-md shadow-pink-600/30"
-                    >
-                      <div className="text-sm font-extrabold leading-none">{runner.lay.toFixed(2)}</div>
-                      <div className="text-[9px] text-pink-200 mt-0.5">{runner.volL}</div>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. BOOKMAKER MARKET (Fixed 100% Market) */}
-            <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
-              <div className="px-4 py-3 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="font-bold text-sm">Bookmaker Odds (0% Comm)</span>
-                </div>
-                <span className="text-[10px] text-white/50">Min: 🪙 100 • Max: 🪙 2,00,000</span>
-              </div>
-
-              <div className="divide-y divide-white/5">
-                {[
-                  { name: activeMatch.team1.name, back: 62, lay: 65 },
-                  { name: activeMatch.team2.name, back: 154, lay: 160 },
-                ].map((bm, idx) => (
-                  <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
-                    <div className="col-span-6 font-semibold text-sm pl-1">{bm.name}</div>
-                    <button
-                      onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.name, "BACK", (1 + bm.back / 100))}
-                      className="col-span-3 py-2 rounded-xl bg-blue-700/90 hover:bg-blue-600 text-white active:scale-95 transition-all text-center"
-                    >
-                      <div className="text-sm font-extrabold">{bm.back}</div>
-                      <div className="text-[9px] text-blue-200">100K</div>
-                    </button>
-                    <button
-                      onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.name, "LAY", (1 + bm.lay / 100))}
-                      className="col-span-3 py-2 rounded-xl bg-pink-700/90 hover:bg-pink-600 text-white active:scale-95 transition-all text-center"
-                    >
-                      <div className="text-sm font-extrabold">{bm.lay}</div>
-                      <div className="text-[9px] text-pink-200">100K</div>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 3. FANCY / SESSION MARKETS */}
-            <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
-              <div className="px-4 py-3 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <Flame size={16} className="text-amber-400" />
-                  <span className="font-bold text-sm">Session & Fancy Markets</span>
-                </div>
-                <span className="text-[10px] text-amber-400 font-semibold">Live Ball by Ball</span>
-              </div>
-
-              <div className="grid grid-cols-12 px-3 py-1.5 bg-black/40 text-[11px] font-bold text-white/70 border-b border-white/5 text-center">
-                <div className="col-span-6 text-left pl-1">Session / Fancy</div>
-                <div className="col-span-3 text-pink-400 bg-pink-950/40 rounded py-0.5">NO (Khai)</div>
-                <div className="col-span-3 text-blue-400 bg-blue-950/40 rounded py-0.5">YES (Lagai)</div>
-              </div>
-
-              <div className="divide-y divide-white/5">
-                {[
-                  { name: `6 Over Runs ${activeMatch.team1.short || "IND"}`, no: 46, yes: 48, rate: "100" },
-                  { name: `10 Over Runs ${activeMatch.team1.short || "IND"}`, no: 84, yes: 86, rate: "100" },
-                  { name: `15 Over Runs ${activeMatch.team1.short || "IND"}`, no: 132, yes: 135, rate: "100" },
-                  { name: "Total Match Sixes", no: 13, yes: 14, rate: "100" },
-                  { name: "Fall of Next Wicket (Runs)", no: 180, yes: 185, rate: "100" },
-                  { name: "Virat Kohli 50+ Runs", no: 48, yes: 50, rate: "100" },
-                ].map((fancy, idx) => (
-                  <div key={idx} className="grid grid-cols-12 items-center p-2.5 gap-2">
-                    <div className="col-span-6 font-semibold text-xs pl-1">{fancy.name}</div>
-                    <button
-                      onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (NO: ${fancy.no})`, "LAY", 2.0, fancy.no)}
-                      className="col-span-3 py-2 rounded-xl bg-pink-600/90 hover:bg-pink-500 text-white active:scale-95 transition-all text-center"
-                    >
-                      <div className="text-sm font-extrabold">{fancy.no}</div>
-                      <div className="text-[9px] text-pink-200">{fancy.rate}</div>
-                    </button>
-                    <button
-                      onClick={() => openBet("FANCY", fancy.name, `${fancy.name} (YES: ${fancy.yes})`, "BACK", 2.0, fancy.yes)}
-                      className="col-span-3 py-2 rounded-xl bg-blue-600/90 hover:bg-blue-500 text-white active:scale-95 transition-all text-center"
-                    >
-                      <div className="text-sm font-extrabold">{fancy.yes}</div>
-                      <div className="text-[9px] text-blue-200">{fancy.rate}</div>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ----------------- VIEW: LIVE TV ----------------- */}
-        {activeView === "tv" && (
-          <div className="p-4 space-y-4">
-            <div className="rounded-2xl bg-black border border-white/10 aspect-video overflow-hidden relative grid place-items-center">
-              {/* If DiamondExch whitelisted server is running with TV URL, iframe embeds here */}
-              <iframe
-                src={`/api/cricket/scorecard?eventId=${activeMatch.eventId}`}
-                className="w-full h-full border-0"
-                title="Live Cricket Radar & TV"
-                allow="autoplay; fullscreen"
-              />
-            </div>
-            <div className="rounded-2xl p-4 bg-emerald-950/40 border border-emerald-500/20 text-xs text-emerald-200 leading-relaxed">
-              <div className="font-bold mb-1 text-sm flex items-center gap-1.5 text-emerald-300">
-                <CheckCircle2 size={16} /> Whitelisted Domain Live Feed Connected
-              </div>
-              Live stream and radar tracking are active directly from the sports visualizer.
-            </div>
-          </div>
-        )}
-
-        {/* ----------------- VIEW: MY BETS ----------------- */}
-        {activeView === "mybets" && (
-          <div className="p-4 space-y-3">
-            {matchBets.length === 0 ? (
-              <div className="text-center py-12 text-white/50 text-sm">
-                No active bets placed on this match yet. Tap on any Back / Lay odds to place a bet!
-              </div>
-            ) : (
-              matchBets.map((b) => (
-                <div key={b.id} className="rounded-2xl p-3.5 bg-[#0f172a] border border-white/10 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase ${
-                        b.betType === "BACK" ? "bg-blue-600 text-white" : "bg-pink-600 text-white"
-                      }`}
-                    >
-                      {b.betType}
-                    </span>
-                    <span className="text-xs text-white/50">{b.placedAt}</span>
-                  </div>
-                  <div className="font-bold text-sm">{b.runnerName}</div>
-                  <div className="flex items-center justify-between text-xs pt-1 border-t border-white/5">
-                    <span className="text-white/60">Stake: <strong className="text-white">{inr(b.stake)}</strong></span>
-                    <span className="text-white/60">Odds: <strong className="text-white">{b.odds.toFixed(2)}</strong></span>
-                    <span className="text-emerald-400 font-bold">Profit: +{inr(b.profit)}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
 
         {/* ----------------- BET SLIP MODAL (BOTTOM DRAWER) ----------------- */}
         {betSlip && (

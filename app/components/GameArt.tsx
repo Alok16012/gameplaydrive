@@ -91,17 +91,13 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
       );
     case "ludo":
       return <span style={{ fontSize: 40 * s, filter: "drop-shadow(0 4px 8px rgba(0,0,0,.5))" }}>🎲</span>;
-    case "carrom":
+    case "stock-market":
       return (
-        <div
-          className="rounded-full grid place-items-center"
-          style={{
-            width: 44 * s,
-            height: 44 * s,
-            background: "radial-gradient(circle,#fff7ed 18%,#fb923c 20%,#fb923c 34%,#fff7ed 36%,#fff7ed 44%,#ea580c 46%)",
-            boxShadow: "0 5px 12px rgba(0,0,0,.45)",
-          }}
-        />
+        <svg viewBox="0 0 60 44" width={60 * s} height={44 * s} style={{ filter: "drop-shadow(0 4px 8px rgba(0,0,0,.5))" }}>
+          <path d="M3 34 L13 27 L20 31 L30 18 L38 23 L49 9" fill="none" stroke="#34f5b0" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M42 8 L52 6 L50 16 Z" fill="#34f5b0" />
+          <path d="M8 40 L52 40" stroke="rgba(255,255,255,.35)" strokeWidth="2" strokeLinecap="round" />
+        </svg>
       );
     case "chess":
       return <span style={{ fontSize: 44 * s, lineHeight: 1, color: "#f8fafc", filter: "drop-shadow(0 4px 6px rgba(0,0,0,.6))" }}>♞</span>;

@@ -6,7 +6,7 @@ import type { Route } from "../components/nav";
 // "Rejoin game": the table you were last playing at, so you can go back to it from Home.
 //   • Server tables (Teen Patti, Rummy, Blackjack) keep your seat / hand on the server; rejoining just opens the
 //     table again.
-//   • Games that run on the phone (Ludo, Carrom, Poker) also save their state here after every move, so the game
+//   • Games that run on the phone (Ludo, Chess, Poker) also save their state here after every move, so the game
 //     carries on from where you left it — the entry is not charged again.
 // Everything lives in this browser only (localStorage) and expires after a few hours.
 

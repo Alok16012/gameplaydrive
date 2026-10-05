@@ -910,11 +910,11 @@ const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "andar-bahar", fields: ["bets"], note: "Limits apply to the total staked per round" },
   { id: "lucky-7", fields: ["bets"], note: "Limits apply to the total staked per round" },
   { id: "aviator", fields: ["bets"], note: "Limits apply to each bet slot" },
+  { id: "stock-market", fields: ["bets", "rake"], note: "Limits apply to each chip placed on Up / Down. Fee is taken from every payout (default 1%)" },
   { id: "roulette", fields: ["bets"], note: "Limits apply to the total staked per spin" },
   { id: "plinko", fields: ["bets"], note: "Limits apply to each ball" },
   { id: "blackjack", fields: ["bets"], note: "Limits apply to each hand (double / split too)" },
   { id: "ludo", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
-  { id: "carrom", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "chess", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "poker", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table boot" },
 ];
@@ -973,7 +973,7 @@ export function ConfigView() {
                       <label className="text-xs text-white/60">Min bet (coins)<input type="number" min={1} placeholder="No limit" value={d.min_bet ?? ""} onChange={(e) => set(id, { min_bet: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>
                       <label className="text-xs text-white/60">Max bet (coins)<input type="number" min={1} placeholder="No limit" value={d.max_bet ?? ""} onChange={(e) => set(id, { max_bet: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>
                     </>}
-                    {fields.includes("rake") && <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} placeholder={id === "teen-patti" || id === "poker" ? "5" : "10"} value={d.rake ?? ""} onChange={(e) => set(id, { rake: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
+                    {fields.includes("rake") && <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} placeholder={id === "teen-patti" || id === "poker" ? "5" : id === "stock-market" ? "1" : "10"} value={d.rake ?? ""} onChange={(e) => set(id, { rake: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("turn") && <label className="text-xs text-white/60">Turn time (seconds)<input type="number" min={10} max={90} placeholder={id === "rummy" ? "30" : "15"} value={d.turn ?? ""} onChange={(e) => set(id, { turn: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("blind_limit") && <label className="text-xs text-white/60">Blind chaals per player<input type="number" min={1} max={10} placeholder="4" value={d.blind_limit ?? ""} onChange={(e) => set(id, { blind_limit: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("bot_speed") && (

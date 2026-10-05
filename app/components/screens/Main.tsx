@@ -17,7 +17,7 @@ const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
   if (game.kind === "cricket") nav.push({ name: "cricket" });
-  else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko") nav.push({ name: game.kind });
+  else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko" || game.kind === "stockmarket") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
 }
@@ -218,7 +218,7 @@ const RUMMY_STAKES: Record<RummyMode, number[]> = {
 /** Low / Mid / High filter for a rummy stake, by its place in the ladder. */
 const rummyTier = (i: number, n: number): Stake => (i < Math.ceil(n * 0.375) ? "Low" : i < Math.ceil(n * 0.625) ? "Mid" : "High");
 
-const MULT: Partial<Record<GameId, number>> = { ludo: 1, carrom: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1, rummy21: 1 };
+const MULT: Partial<Record<GameId, number>> = { ludo: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1, rummy21: 1 };
 
 export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
@@ -236,7 +236,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const maxPts = cards === 21 ? 120 : 80;
   const online = SERVER_GAMES.includes(gameId);
   const [mode, setMode] = useState<RummyMode>("points");
-  const seats = game.id === "ludo" ? 4 : game.id === "chess" || game.id === "carrom" ? 2 : 6;
+  const seats = game.id === "ludo" ? 4 : game.id === "chess" ? 2 : 6;
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
   const privMin = rummy && mode !== "points" ? 10 : 1;
@@ -248,7 +248,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     : TABLES;
   // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
   // show 2…seats-1 already seated, drifting a little every few seconds like a real lobby. One-on-one games
-  // (Carrom, Chess) show the pair: 2/2.
+  // (Chess) show the pair: 2/2.
   const [drift, setDrift] = useState(0);
   useEffect(() => { const t = setInterval(() => setDrift((d) => d + 1), 7000); return () => clearInterval(t); }, []);
   const practiceSeated = (i: number) => (seats <= 2 ? 2 : 2 + ((i * 5 + drift * (i % 2 ? 1 : 2)) % (seats - 2)));

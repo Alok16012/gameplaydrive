@@ -86,10 +86,6 @@ const GAME_CONTROL_DETAILS: Record<string, { lossNote: string; winNote: string }
     lossNote: "AI bots roll strategically; win claim rejected on force loss",
     winNote: "AI bots blunder; player receives favorable dice rolls",
   },
-  carrom: {
-    lossNote: "AI bots play with laser precision; win claim rejected on loss",
-    winNote: "AI bots miss easy shots; player wins game comfortably",
-  },
   chess: {
     lossNote: "AI bot plays Grandmaster depth; win claim rejected on loss",
     winNote: "AI bot plays at beginner depth with blunder openings",

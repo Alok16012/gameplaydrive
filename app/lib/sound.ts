@@ -216,21 +216,10 @@ export const sfx = {
       tone(1400 - i * 80, 0.03, { type: "triangle", vol: 0.08 - i * 0.012, at: s * 0.75 + d });
     });
   })(),
-  /** Carrom: wooden knock; `power` 0…1. */
-  knock: (power: number) => play(() => {
-    const v = Math.max(0.05, Math.min(1, power));
-    tone(260 + v * 140, 0.07, { type: "triangle", vol: 0.3 * v });
-    noise(0.04, { freq: 1500, q: 2, vol: 0.35 * v });
-  })(),
-  /** Something dropped into a carrom pocket. */
-  pocket: play(() => {
-    noise(0.14, { filter: "lowpass", freq: 500, vol: 0.45 });
-    tone(110, 0.18, { vol: 0.3, slide: 60 });
-  }),
-  /** Striker flicked. */
-  strike: play(() => {
-    noise(0.05, { freq: 1200, q: 1.5, vol: 0.5 });
-    tone(200, 0.07, { type: "triangle", vol: 0.25 });
+  /** Stock Market: the bell when the market opens / closes. */
+  bell: play(() => {
+    tone(NOTE(88), 0.9, { type: "sine", vol: 0.14 });
+    tone(NOTE(95), 0.7, { type: "sine", vol: 0.07, at: 0.01 });
   }),
   /** Ludo token hops one square. */
   hop: play(() => tone(680, 0.07, { vol: 0.12, slide: 980 })),
