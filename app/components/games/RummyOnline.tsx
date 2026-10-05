@@ -325,7 +325,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const me = v?.me ?? null;
   const mySeat = v && me !== null ? v.seats[me] : null;
   const n = v?.seats.length ?? 6;
-  const others = v ? (me !== null ? Array.from({ length: n - 1 }, (_, k) => (me + 1 + k) % n) : v.seats.map((_, i) => i)) : [];
+  // Seats round the table run anticlockwise, like a real Rummy table: the player after you sits on your right,
+  // so the turn (and the dealer, deal to deal) moves right-to-left across the top.
+  const others = v ? (me !== null ? Array.from({ length: n - 1 }, (_, k) => (me + n - 1 - k) % n) : v.seats.map((_, i) => i)) : [];
   const playing = v?.status === "playing";
   const inDeal = playing && !!mySeat?.playing && !mySeat.dropped && !mySeat.wrong;
   const myTurn = inDeal && v?.turn === me;
