@@ -145,30 +145,8 @@ function parseMatchesList(rawList: any[], sport: SportType, isReal = false): Cri
   });
 }
 
-// Fetch matches list for specific sport (cricket, tennis, soccer)
+// Fetch matches list for specific sport (cricket, tennis, soccer) via backend proxy
 export async function fetchCricketMatches(sport: SportType = "cricket"): Promise<CricketMatch[]> {
-  const sportName = sport === "soccer" ? "soccer" : sport;
-
-  // 1. First Attempt: Direct Client-Side Fetch to DiamondExch API (CORS origin)
-  try {
-    const directRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-      cache: "no-store",
-    });
-
-    if (directRes.ok) {
-      const json = await directRes.json();
-      const rawMatches = json?.data?.data || json?.data || json;
-      if (Array.isArray(rawMatches) && rawMatches.length > 0) {
-        return parseMatchesList(rawMatches, sport, true);
-      }
-    }
-  } catch (err) {
-    // Direct client fetch fallback to backend proxy
-  }
-
-  // 2. Second Attempt: Next.js Backend Proxy Route
   try {
     const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}`, {
       cache: "no-store",
