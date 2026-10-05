@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   try {
     const railwayRes = await fetch(`${railwayHost}/api/sports/matches?sport=${sportName}`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(3500),
+      signal: AbortSignal.timeout(8000),
     });
     if (railwayRes.ok) {
       const json = await railwayRes.json();
