@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from "lucide-react";
 import { gameById, inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
@@ -10,11 +10,11 @@ import { LandscapeStage } from "./LandscapeStage";
 import type { Nav } from "../nav";
 
 // European roulette (single zero), laid out like casino roulette apps: a landscape green table, the wheel
-// peeking in from the left, timed rounds (15 s to bet, then the wheel slides in and spins).
+// peeking in from the left, timed rounds that run on their own (25 s to bet, then the wheel slides in and spins).
 // The database spins and pays every bet (supabase/migrations/012_roulette_blackjack_plinko.sql); a round you
 // didn't bet on is spun on the device just for show.
 
-const BET_SECS = 15;
+const BET_SECS = 25;
 const SPIN_MS = 5200;
 const RESULT_MS = 3800;
 const MAX_STAKE = 100000;
@@ -280,6 +280,7 @@ export function Roulette({ nav }: { nav: Nav }) {
               left: 0,
               transform: `translate(${spinning ? "6%" : "-58%"}, -50%)`,
               transition: "transform .7s cubic-bezier(.3,.8,.3,1)",
+              willChange: "transform",
             }}
           >
             <Wheel rot={wheelRot} ball={ballRot} ballIn={ballIn} visible={spinning} />
@@ -357,7 +358,9 @@ function MiniChip({ v, size, faded, ring }: { v: number; size: number; faded?: b
 }
 
 /** Wooden wheel: numbers on the outer ring, pockets inside, gold turret; the ball drops into the pocket on top. */
-function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ballIn: boolean; visible: boolean }) {
+// The rotating parts are HTML layers turned with CSS transforms (will-change), so the browser spins them on the
+// GPU; the wheel is memoised so the round clock re-rendering the table doesn't touch it mid-spin.
+const Wheel = memo(function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ballIn: boolean; visible: boolean }) {
   const seg = 360 / ORDER.length;
   const p = (r: number, a: number) => `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
   const ring = (r0: number, r1: number, i: number) => {
@@ -373,19 +376,26 @@ function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ball
             <stop offset=".7" stopColor="#5e3518" />
             <stop offset="1" stopColor="#3a1f0d" />
           </radialGradient>
-          <radialGradient id="rl-cone" cx=".45" cy=".4">
-            <stop offset="0" stopColor="#7a4a26" />
-            <stop offset="1" stopColor="#3f220f" />
-          </radialGradient>
-          <radialGradient id="rl-gold" cx=".4" cy=".35">
-            <stop offset="0" stopColor="#fff3c4" />
-            <stop offset=".5" stopColor="#d4a640" />
-            <stop offset="1" stopColor="#7c5a12" />
-          </radialGradient>
         </defs>
         <circle r="111" fill="url(#rl-wood)" stroke="#2a1608" strokeWidth="2" />
         <circle r="97" fill="#2a1608" />
-        <g style={{ transform: `rotate(${rot}deg)`, transition: visible ? `transform ${SPIN_MS}ms cubic-bezier(.12,.6,.18,1)` : "none" }}>
+      </svg>
+      <div
+        className="absolute inset-0"
+        style={{ transform: `rotate(${rot}deg)`, transition: visible ? `transform ${SPIN_MS}ms cubic-bezier(.15,.55,.2,1)` : "none", willChange: "transform", backfaceVisibility: "hidden" }}
+      >
+        <svg viewBox="-112 -112 224 224" className="absolute inset-0 w-full h-full">
+          <defs>
+            <radialGradient id="rl-cone" cx=".45" cy=".4">
+              <stop offset="0" stopColor="#7a4a26" />
+              <stop offset="1" stopColor="#3f220f" />
+            </radialGradient>
+            <radialGradient id="rl-gold" cx=".4" cy=".35">
+              <stop offset="0" stopColor="#fff3c4" />
+              <stop offset=".5" stopColor="#d4a640" />
+              <stop offset="1" stopColor="#7c5a12" />
+            </radialGradient>
+          </defs>
           {ORDER.map((n, i) => {
             const mid = (i * seg - 90) * (Math.PI / 180);
             const tx = 86 * Math.cos(mid), ty = 86 * Math.sin(mid);
@@ -406,19 +416,19 @@ function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ball
           ))}
           <circle r="13" fill="url(#rl-gold)" stroke="#7c5a12" />
           <circle r="5" fill="#fff3c4" />
-        </g>
-      </svg>
+        </svg>
+      </div>
       {/* Ball */}
       {visible && (
-        <div className="absolute inset-0" style={{ transform: `rotate(${ball}deg)`, transition: `transform ${SPIN_MS}ms cubic-bezier(.2,.65,.25,1)` }}>
+        <div className="absolute inset-0" style={{ transform: `rotate(${ball}deg)`, transition: `transform ${SPIN_MS}ms cubic-bezier(.2,.65,.25,1)`, willChange: "transform" }}>
           <div
             className="absolute left-1/2 rounded-full"
             style={{
               width: "5%",
               height: "5%",
-              top: ballIn ? "16.7%" : "3%",
-              transform: "translateX(-50%)",
-              transition: "top .9s cubic-bezier(.5,0,.4,1.4)",
+              top: "3%",
+              transform: `translate(-50%, ${ballIn ? 274 : 0}%)`,
+              transition: "transform .9s cubic-bezier(.5,0,.4,1.4)",
               background: "radial-gradient(circle at 35% 35%, #fff, #e5e7eb 60%, #9ca3af)",
               boxShadow: "0 1px 3px rgba(0,0,0,.6)",
             }}
@@ -427,4 +437,4 @@ function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ball
       )}
     </div>
   );
-}
+});
