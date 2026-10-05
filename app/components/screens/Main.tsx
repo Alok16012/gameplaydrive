@@ -249,6 +249,19 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     return () => clearInterval(t);
   }, [online, gameId]);
 
+  // Rejoin: the table you're still seated at (or the game you left mid-way) in this lobby.
+  const active = useActiveGame();
+  const ar = active?.route;
+  const activeHere = !!ar && (
+    (ar.name === "rummy" && rummy && (ar.cards ?? 13) === cards) ||
+    ((ar.name === "cardtable" || ar.name === "board") && ar.game === gameId));
+  const isActiveRow = (tableId: string, buyIn: number, deals: number) => {
+    if (!activeHere || !ar) return false;
+    if (ar.name === "rummy") return ar.mode === mode && ar.buyIn === buyIn && (mode !== "deals" || (ar.deals ?? 0) === deals);
+    if (ar.name === "cardtable" || ar.name === "board") return ar.buyIn === buyIn && ar.table === (online ? `S-${buyIn}` : tableId);
+    return false;
+  };
+
   const join = (table: string, buyIn: number, deals?: number) => {
     if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn, mode, deals, cards });
     else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn });
@@ -294,6 +307,15 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
           : <div className="text-[11px] text-white/50">Practice vs bots</div>}
       />
       <div className="px-4">
+        {activeHere && active && (
+          <button onClick={() => nav.push(active.route)} className="w-full mb-3 rounded-2xl p-3 flex items-center gap-3 text-left border border-neon-400/40 active:scale-[.98] transition-transform" style={{ background: "linear-gradient(90deg,#14532d,#15803d)" }}>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[11px] uppercase tracking-wider text-white/70">You're still at a table</span>
+              <span className="block font-semibold truncate">{active.title}</span>
+            </span>
+            <span className="rounded-full bg-white text-slate-900 font-bold text-sm px-4 py-1.5 shrink-0">Rejoin</span>
+          </button>
+        )}
         {rummy && (
           <>
             <div className="grid grid-cols-4 gap-1 p-1 rounded-2xl bg-white/5 mb-2">
@@ -329,9 +351,13 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                       : <>{t.seated}/{t.seats} Players • {inr(t.buyIn)} Entry</>}
                   </div>
                 </div>
-                <button disabled={full} onClick={() => join(online ? `S-${t.buyIn}` : t.id, t.buyIn, t.deals)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
-                  {full ? "Full" : online ? "Play" : "Join"}
-                </button>
+                {isActiveRow(t.id, t.buyIn, t.deals) && active ? (
+                  <button onClick={() => nav.push(active.route)} className="pill px-4 py-2 text-xs font-bold bg-gradient-to-b from-amber-300 to-amber-500 text-slate-900 animate-pulse">Rejoin</button>
+                ) : (
+                  <button disabled={full} onClick={() => join(online ? `S-${t.buyIn}` : t.id, t.buyIn, t.deals)} className={`pill px-5 py-2 text-xs ${full ? "bg-white/10 text-white/60" : "btn-green"}`}>
+                    {full ? "Full" : online ? "Play" : "Join"}
+                  </button>
+                )}
               </div>
             );
           })}

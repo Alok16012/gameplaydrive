@@ -3,7 +3,7 @@
 import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, Hand, Layers, LogOut, Menu, Plus } from "lucide-react";
+import { ArrowDownUp, ChevronLeft, Hand, Layers, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
@@ -166,6 +166,13 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     return () => clearTimeout(t);
   }, [v?.status, v?.match_no, v?.deal_no, v?.result]);
 
+  // Back to the lobby without giving up the seat: the server keeps you at the table (your turn clock runs
+  // as usual) and Home / the lobby offer Rejoin. Only "Leave table" gives the seat up.
+  const away = () => {
+    showToast("Your seat is kept — tap Rejoin to come back");
+    nav.back();
+  };
+
   const leave = () => {
     if (tableId.current) fire(supabase().rpc("rm_leave", { p_table: tableId.current }));
     clearActive();
@@ -319,7 +326,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 
         {/* Top bar */}
         <div className="absolute left-[7%] right-[7%] top-2 z-30 h-12 rounded-2xl bg-[#121512]/95 border border-white/10 flex items-center px-3 gap-3">
-          <button onClick={leave} aria-label="Leave table" className="w-9 h-9 grid place-items-center rounded-full hover:bg-white/10"><LogOut size={22} className="-scale-x-100" /></button>
+          <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-9 h-9 grid place-items-center rounded-full hover:bg-white/10"><ChevronLeft size={24} /></button>
           <div className="flex-1 min-w-0 text-center leading-tight">
             <div className="text-[15px] font-semibold truncate">
               {cards === 21 ? "21 Card • " : ""}{mode === "pool101" ? "101 Pool" : mode === "pool201" ? "201 Pool" : mode === "deals" ? `Deals ×${deals}` : "Points"} • {mode === "points" ? `${inr(stake)}/pt` : inr(stake)}

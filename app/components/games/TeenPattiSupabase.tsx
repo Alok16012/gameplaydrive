@@ -167,6 +167,13 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
     return () => clearTimeout(t);
   }, [v?.status, v?.hand_no, v?.result]);
 
+  // Back to the lobby without giving up the seat: the server keeps you at the table (your turn clock runs
+  // as usual) and Home / the lobby offer Rejoin. Only "Leave table" gives the seat up.
+  const away = () => {
+    showToast("Your seat is kept — tap Rejoin to come back");
+    nav.back();
+  };
+
   const leave = () => {
     if (tableId.current) fire(supabase().rpc("tp_leave", { p_table: tableId.current }));
     clearActive();
@@ -233,7 +240,7 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
       <div className="relative w-full h-full flex flex-col select-none">
         {/* Top bar */}
         <div className="h-11 shrink-0 flex items-center gap-2 px-3 bg-black/30">
-          <button onClick={leave} aria-label="Leave table" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
+          <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
           <div className="leading-tight">
             <div className="text-sm font-semibold">Teen Patti</div>
             <div className="text-[11px] text-white/60">Boot {inr(v?.boot ?? buyIn)} • {humans} real player{humans === 1 ? "" : "s"}{v?.hand_no ? ` • Hand #${v.hand_no}` : ""}</div>
