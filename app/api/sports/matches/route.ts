@@ -32,8 +32,57 @@ export async function GET(req: NextRequest) {
 
   const apiKey = process.env.DIAMONDEXCH_API_KEY || process.env.CRICKET_API_KEY;
   const baseUrl = process.env.DIAMONDEXCH_BASE_URL || "https://apis.diamondexchapi.com";
+  const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
 
-  // Attempt live DiamondExch API call
+  // 1. Attempt via Railway Proxy first (if deployed with static/whitelisted IP)
+  try {
+    const railwayRes = await fetch(`${railwayHost}/api/sports/matches?sport=${sportName}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3500),
+    });
+    if (railwayRes.ok) {
+      const json = await railwayRes.json();
+      const rawMatches = json?.data?.data || json?.data || json;
+      if (Array.isArray(rawMatches) && rawMatches.length > 0) {
+        const parsed = rawMatches.map((m: any) => {
+          const parts = (m.eventName || "").split(/ v | vs | VS /i);
+          const t1 = parts[0]?.trim() || "Team 1";
+          const t2 = parts[1]?.trim() || "Team 2";
+          const isLive = Boolean(m.inPlay === true || m.inPlay === "true" || m.isLive === true || m.status === "INPLAY");
+          return {
+            gameId: String(m.gameId || m.eventId || m.id),
+            marketId: m.marketId || null,
+            eventId: String(m.eventId || m.gameId || m.id),
+            eventName: m.eventName || `${t1} v ${t2}`,
+            eventTime: m.eventTime || new Date().toISOString(),
+            seriesId: m.seriesId || undefined,
+            seriesName: m.seriesName || "Tournament",
+            scoreBoardId: m.scoreBoardId || null,
+            inPlay: isLive,
+            tv: m.tv || null,
+            back1: Number(m.back1 || m.b1 || 1.85),
+            lay1: Number(m.lay1 || m.l1 || 1.89),
+            back2: Number(m.back2 || m.b2 || 2.05),
+            lay2: Number(m.lay2 || m.l2 || 2.12),
+            sport: sportName,
+            team1: { name: t1, short: t1.slice(0, 3).toUpperCase() },
+            team2: { name: t2, short: t2.slice(0, 3).toUpperCase() },
+          };
+        });
+
+        return NextResponse.json({
+          success: true,
+          source: "railway_diamondexch_live",
+          sport: sportName,
+          data: parsed,
+        });
+      }
+    }
+  } catch (err: unknown) {
+    // continue to direct fetch
+  }
+
+  // 2. Attempt direct DiamondExch API call
   try {
     const headers: Record<string, string> = {
       "Accept": "application/json",
@@ -49,6 +98,7 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`${baseUrl}/api/${sportName}/matches`, {
       headers,
       cache: "no-store",
+      signal: AbortSignal.timeout(3500),
     });
 
     if (res.ok) {

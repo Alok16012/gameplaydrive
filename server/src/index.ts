@@ -132,17 +132,109 @@ async function onMessage(c: Conn, raw: string) {
   }
 }
 
-// ------------------------------------------------------------------ HTTP: health + lobby counts
+// ------------------------------------------------------------------ HTTP: health + lobby counts + sports proxy
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  if (req.url === "/health") { res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ ok: true, tables: tables.size, players: conns.size })); }
-  if (req.url === "/lobby") {
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204).end();
+    return;
+  }
+
+  const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+  const pathname = parsedUrl.pathname;
+
+  if (pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ ok: true, tables: tables.size, players: conns.size }));
+  }
+
+  if (pathname === "/lobby") {
     const tp: Record<string, number> = {};
     for (const t of tables.values()) if (!t.code) tp[t.boot] = (tp[t.boot] ?? 0) + t.humans();
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     return res.end(JSON.stringify({ "teen-patti": tp }));
   }
+
+  // 1. Diagnostics: Check Railway Outbound IP as seen by public internet & DiamondExch
+  if (pathname === "/check-ip") {
+    const diag: Record<string, any> = { timestamp: new Date().toISOString() };
+    try {
+      const ipRes = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
+      diag.railwayPublicIP = (await ipRes.json()).ip;
+    } catch (e: any) {
+      diag.railwayPublicIPError = e.message;
+    }
+
+    try {
+      const dRes = await fetch("https://apis.diamondexchapi.com/check-ip", { cache: "no-store" });
+      diag.diamondExchCheckIp = (await dRes.text()).trim();
+    } catch (e: any) {
+      diag.diamondExchCheckIpError = e.message;
+    }
+
+    try {
+      const matchRes = await fetch("https://apis.diamondexchapi.com/api/cricket/matches", {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      });
+      diag.diamondExchStatus = matchRes.status;
+      const text = await matchRes.text();
+      diag.diamondExchSnippet = text.slice(0, 300);
+    } catch (e: any) {
+      diag.diamondExchError = e.message;
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    return res.end(JSON.stringify(diag, null, 2));
+  }
+
+  // 2. Proxy: Sports Matches from DiamondExch
+  if (pathname === "/api/sports/matches" || pathname === "/api/cricket/matches") {
+    const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
+    const sportName = sportParam === "football" ? "soccer" : sportParam;
+    try {
+      const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
+        headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+        cache: "no-store",
+      });
+      const text = await dRes.text();
+      res.writeHead(dRes.status, {
+        "Content-Type": dRes.headers.get("content-type") || "application/json",
+        "Cache-Control": "no-store",
+      });
+      return res.end(text);
+    } catch (err: any) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Failed to fetch from DiamondExch", details: err.message }));
+    }
+  }
+
+  // 3. Proxy: Match Odds from DiamondExch
+  if (pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
+    const eventId = parsedUrl.searchParams.get("eventId") || "";
+    const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
+    const sportName = sportParam === "football" ? "soccer" : sportParam;
+    try {
+      const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?eventId=${encodeURIComponent(eventId)}`, {
+        headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+        cache: "no-store",
+      });
+      const text = await dRes.text();
+      res.writeHead(dRes.status, {
+        "Content-Type": dRes.headers.get("content-type") || "application/json",
+        "Cache-Control": "no-store",
+      });
+      return res.end(text);
+    } catch (err: any) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Failed to fetch odds from DiamondExch", details: err.message }));
+    }
+  }
+
   res.writeHead(404).end();
 });
 
