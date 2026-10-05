@@ -7,7 +7,16 @@ import { supabase } from "./supabase";
 // matter (closed games, bet limits, daily limits); the app reads them to show "Closed" tiles and to pace bots and
 // work out fees in the browser-played games.
 
-export interface GameSettings { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast" }
+export interface GameSettings {
+  enabled?: boolean;
+  min_bet?: number;
+  max_bet?: number;
+  rake?: number;
+  turn?: number;
+  blind_limit?: number;
+  bot_speed?: "slow" | "normal" | "fast";
+  outcome_mode?: "fair" | "force_win" | "force_loss";
+}
 type All = Record<string, GameSettings>;
 
 let cache: { at: number; p: Promise<All> } | null = null;

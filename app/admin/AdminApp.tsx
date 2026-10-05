@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -11,12 +11,13 @@ import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOpt
 import { staffEmail } from "../lib/loginEmail";
 import { errText, supabase } from "../lib/supabase";
 import { AgentPaymentView } from "./AgentPaymentView";
+import { OutcomeControlView } from "./OutcomeControlView";
 
 // Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "payment" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
+type Section = "dashboard" | "outcome" | "payment" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -27,6 +28,7 @@ export default function AdminApp() {
 
   const all: { id: Section; label: string; icon: React.ReactNode; roles: Role[] }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
+    { id: "outcome", label: "Win / Loss Control", icon: <Sliders size={18} />, roles: ["superadmin"] },
     { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
     { id: "agents", label: "Agents", icon: <Briefcase size={18} />, roles: ["superadmin", "admin"] },
@@ -71,6 +73,7 @@ export default function AdminApp() {
         </div>
         <div className="p-4 lg:p-8 max-w-6xl">
           {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
+          {sec === "outcome" && <OutcomeControlView me={me} accounts={accounts} />}
           {sec === "payment" && <AgentPaymentView me={me} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
           {sec === "agents" && <AccountsView key="agent" role="agent" {...ctx} />}
@@ -219,6 +222,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [limitFor, setLimitFor] = useState<Account | null>(null);
   const [editing, setEditing] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
+  const [outcomeFor, setOutcomeFor] = useState<Account | null>(null);
   const [err, setErr] = useState("");
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
@@ -280,6 +284,15 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                   <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Pencil size={13} />Edit</button>
                   <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
                   {u.role === "player" && <button onClick={() => setLimitFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Gauge size={13} />{u.dailyLimit ? coins(u.dailyLimit) + "/day" : "Limit"}</button>}
+                  {u.role === "player" && me.role === "superadmin" && (
+                    <button
+                      onClick={() => setOutcomeFor(u)}
+                      className="rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition"
+                      title="Set Win/Loss Command"
+                    >
+                      <Sliders size={13} />Outcome
+                    </button>
+                  )}
                   <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2">{u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
                   {me.role === "superadmin" && (
                     <button
@@ -300,6 +313,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} />}
       {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
       {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
+      {outcomeFor && <PlayerOutcomeModal target={outcomeFor} onClose={() => setOutcomeFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
       {deleting && <DeleteAccountModal target={deleting} me={me} accounts={accounts} reload={reload} onClose={() => setDeleting(null)} />}
     </>
@@ -413,6 +427,112 @@ function DeleteAccountModal({
             {busy ? "Deleting…" : `Delete ${ROLE_LABEL[target.role]}`}
           </button>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () => void }) {
+  const [mode, setMode] = useState<"fair" | "force_win" | "force_loss">("fair");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    supabase().auth.getSession().then(({ data }) => {
+      const token = data.session?.access_token;
+      if (!token) { setLoading(false); return; }
+      fetch("/api/outcome-control", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.outcome_control?.players?.[target.id]) {
+            setMode(json.outcome_control.players[target.id]);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    });
+  }, [target.id]);
+
+  const save = async (newMode: "fair" | "force_win" | "force_loss") => {
+    setSaving(true);
+    setMsg("");
+    try {
+      const { data } = await supabase().auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Please sign in again");
+      const body = newMode === "fair" ? { clear_player_id: target.id } : { player_id: target.id, player_mode: newMode };
+      const res = await fetch("/api/outcome-control", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update outcome");
+      setMode(newMode);
+      setMsg("Saved! Applied to all games for this player.");
+      setTimeout(onClose, 1000);
+    } catch (e) {
+      setMsg(errText(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={`Outcome Command • ${target.name}`} onClose={onClose}>
+      <div className="space-y-4 pt-3 text-sm">
+        <div className="text-xs text-white/60">
+          Target outcome command for <span className="text-white font-medium">{target.name}</span> ({target.code}):
+        </div>
+        {loading ? (
+          <div className="text-xs text-white/50 py-4 text-center">Loading…</div>
+        ) : (
+          <div className="space-y-2">
+            <button
+              onClick={() => save("force_loss")}
+              disabled={saving}
+              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${
+                mode === "force_loss" ? "bg-rose-500/20 border-rose-500 text-rose-300" : "bg-white/5 border-white/10 hover:bg-rose-500/10 text-white/80"
+              }`}
+            >
+              <div>
+                <div className="font-bold text-sm">🔴 Force Player Loss (Always Loses)</div>
+                <div className="text-xs text-white/50 mt-0.5">House wins against this player on every game</div>
+              </div>
+              {mode === "force_loss" && <span className="text-xs font-bold text-rose-400">Active</span>}
+            </button>
+
+            <button
+              onClick={() => save("fair")}
+              disabled={saving}
+              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${
+                mode === "fair" ? "bg-blue-500/20 border-blue-400 text-blue-300" : "bg-white/5 border-white/10 hover:bg-blue-500/10 text-white/80"
+              }`}
+            >
+              <div>
+                <div className="font-bold text-sm">⚖️ Normal / Fair (Follows Game Rules)</div>
+                <div className="text-xs text-white/50 mt-0.5">Player plays according to general game settings</div>
+              </div>
+              {mode === "fair" && <span className="text-xs font-bold text-blue-300">Active</span>}
+            </button>
+
+            <button
+              onClick={() => save("force_win")}
+              disabled={saving}
+              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${
+                mode === "force_win" ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-white/5 border-white/10 hover:bg-emerald-500/10 text-white/80"
+              }`}
+            >
+              <div>
+                <div className="font-bold text-sm">🟢 Force Player Win (Always Wins)</div>
+                <div className="text-xs text-white/50 mt-0.5">Player receives winning bets and lucky cards</div>
+              </div>
+              {mode === "force_win" && <span className="text-xs font-bold text-emerald-400">Active</span>}
+            </button>
+          </div>
+        )}
+        {msg && <div className={`text-xs ${msg.startsWith("Saved") ? "text-neon-400" : "text-rose-300"}`}>{msg}</div>}
       </div>
     </Modal>
   );
@@ -763,7 +883,7 @@ function BotsView() {
 }
 
 /** One game's admin settings (app_settings.games[id]). The same values apply to every player. */
-type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast" };
+type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast"; outcome_mode?: "fair" | "force_win" | "force_loss" };
 type Field = "bets" | "rake" | "turn" | "blind_limit" | "bot_speed";
 const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "teen-patti", fields: ["rake", "turn", "blind_limit"], note: "Fee is taken from each pot. Boots follow the table list" },
@@ -797,11 +917,11 @@ export function ConfigView() {
   const save = async (id: string) => {
     const d = get(id), old = cfg?.[id] ?? {};
     const changed: Record<string, unknown> = {};
-    for (const k of ["enabled", "min_bet", "max_bet", "rake", "turn", "blind_limit", "bot_speed"] as (keyof GameCfg)[]) {
+    for (const k of ["enabled", "min_bet", "max_bet", "rake", "turn", "blind_limit", "bot_speed", "outcome_mode"] as (keyof GameCfg)[]) {
       if (d[k] !== old[k]) changed[k] = d[k] === undefined || (d[k] as unknown) === "" ? null : d[k];
     }
     const { error } = await supabase().rpc("set_game_settings", { p_game: id, p_cfg: changed });
-    setMsg((m) => ({ ...m, [id]: error ? (/set_game_settings/.test(errText(error)) ? "Run migration 018 first" : errText(error)) : "Saved — applies to new bets and tables" }));
+    setMsg((m) => ({ ...m, [id]: error ? (/set_game_settings/.test(errText(error)) ? "Run migration 018/020 first" : errText(error)) : "Saved — applies to new bets and tables" }));
     if (!error) load();
   };
   const num = (v: string) => (v === "" ? undefined : Number(v));
@@ -844,6 +964,13 @@ export function ConfigView() {
                         </select>
                       </label>
                     )}
+                    <label className="text-xs text-white/60">Win / Loss Command
+                      <select value={d.outcome_mode ?? "fair"} onChange={(e) => set(id, { outcome_mode: e.target.value as GameCfg["outcome_mode"] })} className={`${inputCls} mt-1`}>
+                        <option value="fair">⚖️ Fair (RNG)</option>
+                        <option value="force_loss">🔴 Force Loss (House Win)</option>
+                        <option value="force_win">🟢 Force Win (Player Win)</option>
+                      </select>
+                    </label>
                   </div>
                   <div className="text-[11px] text-white/40 mt-2">{note}.</div>
                   <div className="flex items-center justify-between mt-3">
