@@ -71,7 +71,7 @@ function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling
 // Animation pacing: tokens walk one square at a time so every move can be followed.
 const STEP_MS = 170;
 const LUDO_TURN_SECS = 20; // each player's turn; when yours runs out the game rolls and moves for you
-const BOT_STEP_MS = 260; // bots walk their tokens a little slower, like a person tapping square by square
+const BOT_STEP_MS = 320; // bots walk their tokens a little slower, like a person tapping square by square
 const ROLL_MS = 560;
 /** A human-looking pause: usually between a and b ms, now and then a longer think. */
 /** Bot pacing from the admin's "bot speed" setting (1 = normal); set by each table on mount. */
@@ -264,7 +264,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
   const botPlay = async (p: number) => {
     const g = gameNo.current;
     setMsg(`${namesRef.current[p]}'s turn`);
-    await think(900, 1800); // picks up the dice
+    await think(1500, 3200); // picks up the dice
     if (!alive.current || over.current || g !== gameNo.current) return;
     const d = await roll(p);
     if (g !== gameNo.current) return;
@@ -276,7 +276,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       return nextTurn(p);
     }
     setMsg(`${namesRef.current[p]} rolled ${d}`);
-    await think(opts.length > 1 ? 800 : 500, opts.length > 1 ? 1600 : 900); // decides which token to move
+    await think(opts.length > 1 ? 1300 : 700, opts.length > 1 ? 3000 : 1500); // decides which token to move
     const pick = pickToken(p, d, opts);
     setMsg(`${namesRef.current[p]} rolled ${d}`);
     const again = await move(p, pick, d);
@@ -582,15 +582,18 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clock]);
 
-  // Computer's turn: think for a moment, then play the engine's move.
+  // Computer's turn: it takes its time like a person playing 10-minute blitz (see chessThinkMs), then plays.
+  const botMoves = useRef(0);
   useEffect(() => {
     if (!started || white || done !== null) return;
     const g = gameNo.current;
+    const wait = chessThinkMs(pos, last, botMoves.current, clock[1]) * pace;
     const t = setTimeout(() => {
       if (g !== gameNo.current) return;
       const m = bestMove(pos, 2);
+      botMoves.current += 1;
       if (m) play(pos, m);
-    }, (450 + Math.random() * 900) * pace);
+    }, wait);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, started, done]);
@@ -621,6 +624,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     gameNo.current += 1;
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
     setPos(startPos());
+    botMoves.current = 0;
     setSel(null);
     setLast(null);
     setTaken({ w: [], b: [] });
@@ -705,11 +709,34 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   );
 }
 
+/**
+ * How long the computer spends on a chess move, in ms — like a person at 10-minute blitz: quick in the opening,
+ * on forced moves and on obvious recaptures, longer in the middle game with the odd long think, longer when in
+ * check, and faster as its own clock runs down.
+ */
+function chessThinkMs(pos: Pos, last: Move | null, played: number, clockLeft: number) {
+  const between = (a: number, b: number) => a + Math.random() * (b - a);
+  const n = legalMoves(pos).length;
+  let s: number;
+  if (n <= 1) s = between(0.8, 2);
+  else if (inCheck(pos, pos.turn)) s = between(3, 8);
+  else if (last && last.captured !== "." && Math.random() < 0.55) s = between(1.5, 4); // takes back
+  else if (played < 4) s = between(1, 3.5); // opening moves it knows
+  else {
+    const r = Math.random();
+    s = r < 0.6 ? between(3, 9) : r < 0.9 ? between(8, 16) : between(15, 28);
+  }
+  return Math.max(800, Math.min(s, Math.max(1.2, clockLeft / 20)) * 1000);
+}
+
 function PlayerBar({ name, emoji, time, active, bot }: { name: string; emoji: string; time: string; active: boolean; bot?: boolean }) {
   return (
     <div className="flex items-center gap-3 card px-3 py-2">
       <Avatar emoji={emoji} size={34} />
-      <div className="flex-1 text-sm font-medium">{name}{bot && <BotTag />}</div>
+      <div className="flex-1 text-sm font-medium leading-tight">
+        {name}{bot && <BotTag />}
+        {bot && active && <div className="text-[11px] font-normal text-white/50">thinking<span className="inline-block w-4 text-left animate-pulse">…</span></div>}
+      </div>
       <div className={`font-mono text-sm px-2.5 py-1 rounded-lg ${active ? "bg-white text-slate-900" : "bg-white/10 text-white/60"}`}>{time}</div>
     </div>
   );

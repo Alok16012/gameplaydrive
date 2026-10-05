@@ -16,9 +16,9 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function humanDelay(limit = TURN_SECS): number {
   const r = Math.random();
   const between = (a: number, b: number) => a + Math.random() * (b - a);
-  if (r < 0.3) return between(0.8, 2.5); // snap decision
-  if (r < 0.72) return between(3, 7); // normal
-  if (r < 0.94) return between(7.5, 12.5); // thinking hard
+  if (r < 0.18) return between(1.5, 3); // quick decision
+  if (r < 0.68) return between(3, 7); // normal
+  if (r < 0.97) return between(7, Math.min(12.5, limit - 1)); // thinking hard
   return limit; // ran out of time
 }
 

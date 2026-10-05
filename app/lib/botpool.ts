@@ -103,6 +103,11 @@ export function useBotConfig() {
     setAuto: (on: boolean) => run(sb.from("app_settings").update({ value: on }).eq("key", "bots_auto"), ["Auto-generate bots", on ? "Off" : "On", on ? "On" : "Off"]),
     add: (bots: { name: string; emoji: string; bal: number }[], label: string) => run(sb.from("bots").insert(bots), [label, String(cached.custom.length), String(cached.custom.length + bots.length)]),
     toggle: (b: BotProfile) => run(sb.from("bots").update({ active: !b.active }).eq("id", b.id), [`Bot ${b.name}`, b.active ? "Active" : "Disabled", b.active ? "Disabled" : "Active"]),
+    /** Add to (or take from, with a negative amount) the table balance a custom bot sits down with. */
+    addBal: (b: BotProfile, amount: number) => {
+      const next = Math.max(0, Number(b.bal) + amount);
+      return run(sb.from("bots").update({ bal: next }).eq("id", b.id), [`Bot balance • ${b.name}`, String(b.bal), String(next)]);
+    },
     remove: (b: BotProfile) => run(sb.from("bots").delete().eq("id", b.id), [`Bot deleted • ${b.name}`, "Active", "Deleted"]),
   };
 }

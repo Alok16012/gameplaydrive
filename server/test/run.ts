@@ -17,7 +17,7 @@ async function teenPatti() {
   const t = new TPTable("t1", 50, null, clock, wallet, () => { views++; });
   t.join(A, "Asha", "🧑🏽"); t.join(B, "Bala", "👩🏽");
   let hands = 0, last = 0, maxBlinds = 0, showdowns = 0, sideshows = 0, packs = 0, maxPot = 0, leaks = 0, errors = 0, potLimitShows = 0;
-  for (let step = 0; step < 60000 && hands < 400; step++) {
+  for (let step = 0; step < 120000 && hands < 400; step++) {
     await clock.run(500);
     for (const uid of [A, B]) {
       const v = t.view(uid);
@@ -64,7 +64,7 @@ async function teenPatti() {
 
   // Leave mid-hand: seat packs, hand continues, player is gone next hand.
   t.leave(B);
-  await clock.run(60000);
+  await clock.run(180000); // bots think like people (up to ~12 s a move), so let the hand play out
   check(!t.view(A).seats.some((s) => s.uid === B), "player who left is not seated next hand");
 
   // Private table: waits for 2 friends, plays with no bots.

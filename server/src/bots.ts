@@ -30,12 +30,15 @@ function generated(): string {
   }
 }
 
-export function makeBot(exclude: string[]): BotInfo {
+/** A table stack that fits the stakes: 60× to ~460× the boot, so the balance on show always covers its chaals. */
+export const botStack = (boot: number) => Math.round((boot * (60 + Math.random() * Math.random() * 400)) / 10) * 10;
+
+export function makeBot(exclude: string[], boot = 10): BotInfo {
   if ((!auto || Math.random() < 0.3) && custom.length) {
     const c = custom.filter((b) => !exclude.includes(b.name));
-    if (c.length) { const b = pick(c); return { name: b.name, emoji: b.emoji, bal: Math.max(Number(b.bal), 500), bot: true }; }
+    if (c.length) { const b = pick(c); return { name: b.name, emoji: b.emoji, bal: Math.max(Number(b.bal), botStack(boot)), bot: true }; }
   }
   let name = generated();
   for (let i = 0; i < 20 && exclude.includes(name); i++) name = generated();
-  return { name, emoji: pick(EMOJI), bal: Math.floor((300 + Math.random() * Math.random() * 24000) / 10) * 10 + 500, bot: true };
+  return { name, emoji: pick(EMOJI), bal: botStack(boot), bot: true };
 }

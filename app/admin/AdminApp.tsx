@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
-import { BOT_AVATARS, randomBal, randomName, useBotConfig } from "../lib/botpool";
+import { BOT_AVATARS, randomBal, randomName, useBotConfig, type BotProfile } from "../lib/botpool";
 import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, updateAccount, useAccounts, type Account, type Role } from "../lib/hierarchy";
 import { staffEmail } from "../lib/loginEmail";
 import { errText, supabase } from "../lib/supabase";
@@ -777,7 +777,13 @@ function NetworkView({ me, accounts }: Ctx) {
 }
 
 function BotsView() {
-  const { cfg, err: saveErr, setAuto: saveAuto, add: saveAdd, toggle, remove } = useBotConfig();
+  const { cfg, err: saveErr, setAuto: saveAuto, add: saveAdd, toggle, remove, addBal } = useBotConfig();
+  const topUp = (b: BotProfile) => {
+    const v = window.prompt(`Add coins to ${b.name}'s table balance (now ${b.bal.toLocaleString("en-IN")}). Use a minus sign to take away.`, "10000");
+    const n = Number((v ?? "").replace(/[^\d-]/g, ""));
+    if (!v || !Number.isFinite(n) || n === 0) return;
+    addBal(b, n);
+  };
   const [sample, setSample] = useState<string[]>([]);
   const [form, setForm] = useState<{ name: string; emoji: string; bal: string } | null>(null);
   const [err, setErr] = useState("");
@@ -863,6 +869,7 @@ function BotsView() {
                 <td className="px-4 py-2.5 text-white/70">{b.created}</td>
                 <td className="px-4 py-2.5"><Pill tone={b.active ? "green" : "gray"}>{b.active ? "Active" : "Disabled"}</Pill></td>
                 <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                  <button onClick={() => topUp(b)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs mr-1.5">+ Balance</button>
                   <button onClick={() => toggle(b)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs">{b.active ? "Disable" : "Enable"}</button>
                   <button onClick={() => remove(b)} aria-label="Delete" className="btn-ghost rounded-lg px-2 py-1.5 text-xs ml-2 inline-flex items-center"><Trash2 size={13} /></button>
                 </td>

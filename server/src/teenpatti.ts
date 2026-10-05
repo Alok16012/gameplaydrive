@@ -6,7 +6,7 @@
 import { compare, deck, tpHandName, tpScore, type Card } from "./cards.js";
 import type { Clock } from "./clock.js";
 import { cfg } from "./config.js";
-import { makeBot } from "./bots.js";
+import { botStack, makeBot } from "./bots.js";
 import type { Wallet } from "./wallet.js";
 
 export interface TPSeat {
@@ -118,7 +118,7 @@ export class TPTable {
       s.push(q);
     }
     this.queue = this.queue.filter((q) => !s.includes(q));
-    if (!this.private) while (s.length < MAX_SEATS) s.push({ ...makeBot(s.map((x) => x.name)), playing: false, packed: false, seen: false, action: null, left: false, blinds: 0, online: true, lastSeen: now });
+    if (!this.private) while (s.length < MAX_SEATS) s.push({ ...makeBot(s.map((x) => x.name), this.boot), playing: false, packed: false, seen: false, action: null, left: false, blinds: 0, online: true, lastSeen: now });
 
     // Not enough people who can pay (no player, or fewer than 2 friends at a private table): wait, take nothing.
     const canPay = s.filter((x) => !x.bot && this.wallet.balance(x.uid!) >= this.boot).length;
@@ -130,6 +130,8 @@ export class TPTable {
       this.changed();
       return;
     }
+    // A bot running low adds chips before the hand, like a player buying back in.
+    for (const x of s) if (x.bot && x.bal < this.boot * 40) x.bal = Math.max(x.bal, botStack(this.boot));
     // Collect boots from players (confirmed with the database) — bots pay from their table balance.
     const takes = await Promise.all(s.map((x) => (x.bot ? Promise.resolve(1) : this.wallet.take(x.uid!, this.boot, `Teen Patti • Boot ${this.boot}`))));
     s.forEach((x, i) => {
@@ -176,15 +178,16 @@ export class TPTable {
     // Blind limit: after N blind chaals this hand, the player must play Seen — their cards open now.
     if (!x.seen && x.blinds >= (c.blind_limit ?? 4)) { x.seen = true; x.action = "Blind limit • Seen"; }
     if (x.bot) {
+      // Thinks like a person: a few quick calls, mostly a few seconds, sometimes a long think.
       const r = Math.random();
-      const delay = r < 0.45 ? 0.8 + Math.random() * 1.7 : r < 0.85 ? 2.5 + Math.random() * 2.5 : r < 0.98 ? Math.min(5 + Math.random() * 4, secs - 1) : secs;
+      const delay = r < 0.2 ? 1.5 + Math.random() * 1.5 : r < 0.72 ? 3 + Math.random() * 4 : r < 0.98 ? Math.min(7 + Math.random() * 5, secs - 1) : secs;
       this.botAt = now + delay * 1000;
     } else this.botAt = null;
   }
 
   private pay(seat: number, amt: number): boolean {
     const x = this.seats[seat];
-    if (x.bot) x.bal -= amt;
+    if (x.bot) { if (x.bal < amt) return false; x.bal -= amt; }
     else {
       if (!this.wallet.spend(x.uid!, amt, `Teen Patti • Hand #${this.hand}`)) return false;
       x.bal = this.wallet.balance(x.uid!);
@@ -295,13 +298,14 @@ export class TPTable {
     if (sc) packP *= sc[0] >= 3 ? 0.2 : sc[0] === 2 ? 0.6 : 1.6;
     const act = this.active();
     if (Math.random() < packP) return void this.apply(seat, "pack");
-    if (act.length === 2 && this.round >= 3 && Math.random() < 0.5) return void this.apply(seat, "show");
+    if (act.length === 2 && this.round >= 3 && Math.random() < 0.5) { if (this.apply(seat, "show")) this.apply(seat, "pack"); return; }
     if (sc && sc[0] >= 2 && act.length >= 3 && Math.random() < 0.15) {
       const prev = this.prevActive(seat);
       if (prev !== null && this.seats[prev].seen && !this.requestSideshow(seat)) return;
     }
-    if (sc && sc[0] >= 4 && Math.random() < 0.25 && this.stake < this.boot * 8) return void this.apply(seat, "raise");
-    this.apply(seat, "chaal");
+    if (sc && sc[0] >= 4 && Math.random() < 0.25 && this.stake < this.boot * 8 && !this.apply(seat, "raise")) return;
+    // Can't cover the chaal from its table balance: it packs.
+    if (this.apply(seat, "chaal")) this.apply(seat, "pack");
   }
 
   // ------------------------------------------------------------------ timers
