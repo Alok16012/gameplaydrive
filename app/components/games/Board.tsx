@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx, vibrate } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { Star } from "lucide-react";
 import { inr, type GameId } from "../../lib/data";
@@ -125,6 +126,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       const t = tokRef.current.map((r) => [...r]);
       t[p][i] = prog;
       setT(t);
+      if (prog === 56) sfx.home(); else sfx.hop();
       await sleep(p === 0 ? STEP_MS : BOT_STEP_MS);
     }
     if (!alive.current || g !== gameNo.current) return "stop";
@@ -146,6 +148,8 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       }
       if (hit) {
         bonus = true;
+        sfx.capture();
+        if (p !== 0 && t[0].some((x, j) => x === -1 && tokRef.current[0][j] !== -1)) vibrate(120);
         setT(t);
         await sleep(380); // let the captured token slide back to its yard
       }
@@ -176,6 +180,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   const roll = async (p: number) => {
     setRolling(true);
+    sfx.dice();
     // Tumble through faces, then settle on the result.
     const end = Date.now() + ROLL_MS;
     while (Date.now() < end) {
@@ -466,6 +471,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
 
   const play = (p: Pos, m: Move) => {
     const next = makeMove(p, m);
+    if (m.captured !== ".") sfx.capture(); else sfx.move();
     setPos(next);
     setLast(m);
     setSel(null);
@@ -659,7 +665,7 @@ function rackCarrom(): Disc[] {
 }
 
 /** Advance the board by dt seconds. Discs that drop into a pocket are pushed onto `sunk`. */
-function carromStep(ds: Disc[], dt: number, sunk: Disc[]) {
+function carromStep(ds: Disc[], dt: number, sunk: Disc[], hits?: number[]) {
   for (const d of ds) {
     if (d.sunk) continue;
     d.x += d.vx * dt;
@@ -701,6 +707,7 @@ function carromStep(ds: Disc[], dt: number, sunk: Disc[]) {
       const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
       if (rel >= 0) continue;
       const j2 = (-(1 + 0.9) * rel) / (1 / a.m + 1 / b.m);
+      hits?.push(-rel);
       a.vx -= (j2 / a.m) * nx; a.vy -= (j2 / a.m) * ny;
       b.vx += (j2 / b.m) * nx; b.vy += (j2 / b.m) * ny;
     }
@@ -812,6 +819,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const shoot = (vx: number, vy: number, p: number) => {
     const s = striker();
     s.vx = vx; s.vy = vy;
+    sfx.strike();
     setPhase("moving");
     setPull(null);
     const sunk: Disc[] = [];
@@ -820,7 +828,11 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
       if (!alive.current) return;
       acc += Math.min(0.25, (t - last) / 1000); // keep real time even if frames drop
       last = t;
-      while (acc >= PHYS_DT) { carromStep(discs.current, PHYS_DT, sunk); acc -= PHYS_DT; }
+      const before = sunk.length;
+      const hits: number[] = [];
+      while (acc >= PHYS_DT) { carromStep(discs.current, PHYS_DT, sunk, hits); acc -= PHYS_DT; }
+      if (hits.length) { const h = Math.max(...hits); if (h > 12) sfx.knock(h / MAX_SPEED); }
+      if (sunk.length > before) sfx.pocket();
       redraw();
       const still = discs.current.every((d) => d.sunk || Math.hypot(d.vx, d.vy) < 0.8);
       if (!still) return void requestAnimationFrame(loop);

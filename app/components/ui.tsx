@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx } from "../lib/sound";
 import { Component } from "react";
 
 import { ChevronLeft, Gamepad2, Home, Menu, Wallet as WalletIcon } from "lucide-react";
@@ -74,7 +75,8 @@ export function Chip({ value, color = "#e11d48", size = 36, active = false, onCl
   const Tag = onClick ? "button" : "div";
   return (
     <Tag
-      onClick={onClick}
+      onClick={onClick ? () => { sfx.chip(); onClick(); } : undefined}
+      data-sfx="off"
       className={`relative rounded-full grid place-items-center font-bold text-white shrink-0 transition-transform ${active ? "-translate-y-1.5 ring-2 ring-gold-300" : ""}`}
       style={{
         width: size,

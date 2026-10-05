@@ -5,6 +5,7 @@ import { StoreProvider, useStore } from "../lib/store";
 import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
 import { refreshBotConfig } from "../lib/botpool";
 import { supabase } from "../lib/supabase";
+import { sfx, unlockAudio } from "../lib/sound";
 import { BottomNav, ScreenBoundary, Toast, type Tab } from "./ui";
 import type { Nav, Route } from "./nav";
 import { Login, Splash } from "./screens/Auth";
@@ -50,6 +51,18 @@ function Shell() {
     }),
     [signOut],
   );
+
+  // Sound: phones only allow audio after a touch, so wake the engine (and the music) on the first tap; every
+  // button gives a soft click unless it plays its own sound (data-sfx="off").
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      unlockAudio();
+      const b = (e.target as Element | null)?.closest?.("button");
+      if (b && !(b as HTMLButtonElement).disabled && !b.closest("[data-sfx='off']")) sfx.click();
+    };
+    document.addEventListener("pointerdown", onDown, { passive: true });
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, []);
 
   // The phone's back button / back gesture: the screens live in our own stack, not in the browser history, so
   // without this the browser would leave the site. Keep one extra history entry while signed in; each back press

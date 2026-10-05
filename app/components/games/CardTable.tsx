@@ -1,5 +1,6 @@
 "use client";
 
+import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { MoreVertical } from "lucide-react";
 import { deck, gameById, inr, type Card, type GameId } from "../../lib/data";
@@ -82,6 +83,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const [raiseAmt, setRaiseAmt] = useState(0);
   const s = g.current;
   const label = `${game.name} • Table #${table}`;
+  // Sounds: a fresh deal, chips into the pot, and the flop / turn / river.
+  useSoundOnRise(s.hand, () => dealSound(poker ? 8 : 12, 90));
+  useSoundOnRise(s.pot, sfx.chip);
+  useSoundOnRise(poker ? s.stage : 0, () => dealSound(s.stage === 1 ? 3 : 1));
 
   const score = (cards: Card[]) => (poker ? pokerScore([...cards, ...s.community]) : teenPattiScore(cards));
   // Poker: only the board cards turned up so far count (pre-flop none, flop 3, turn 4, river/showdown 5) — the

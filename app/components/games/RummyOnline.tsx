@@ -1,5 +1,6 @@
 "use client";
 
+import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownUp, Hand, Layers, LogOut, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
@@ -38,6 +39,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const gameName = cards === 21 ? "21 Card Rummy" : "Rummy";
   const { total, showToast, applyBalance } = useStore();
   const [v, setV] = useState<View | null>(null);
+  // Sounds: the deal, then every card you pick up.
+  useSoundOnRise(v ? v.match_no * 1000 + v.deal_no : 0, () => dealSound(8, 90));
+  useSoundOnRise(v?.my_cards?.length ?? 0, sfx.card);
   const [err, setErr] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);

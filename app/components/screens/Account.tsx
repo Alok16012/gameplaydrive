@@ -1,5 +1,6 @@
 "use client";
 
+import { setPref, useSoundPrefs } from "../../lib/sound";
 import { useState } from "react";
 import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard } from "lucide-react";
 import { FAQS, GAMES, inr } from "../../lib/data";
@@ -153,8 +154,14 @@ export function Help({ nav }: { nav: Nav }) {
 }
 
 export function Settings({ nav }: { nav: Nav }) {
-  const [s, setS] = useState({ sound: true, music: false, vibration: true, push: true, whatsapp: true });
+  const snd = useSoundPrefs();
+  const [n, setN] = useState({ push: true, whatsapp: true });
+  const s = { ...snd, ...n };
   const rows: [keyof typeof s, string][] = [["sound", "Sound effects"], ["music", "Background music"], ["vibration", "Vibration"], ["push", "Push notifications"], ["whatsapp", "WhatsApp updates"]];
+  const setS = (next: typeof s) => {
+    for (const k of ["sound", "music", "vibration"] as const) if (next[k] !== snd[k]) setPref(k, next[k]);
+    setN({ push: next.push, whatsapp: next.whatsapp });
+  };
   return (
     <div className="pb-10 fadein">
       <Header title="Settings" onBack={nav.back} />

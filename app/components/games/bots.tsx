@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LogOut, Trophy } from "lucide-react";
 import { Avatar, Sheet } from "../ui";
+import { sfx, vibrate } from "../../lib/sound";
 
 // Shared "human-like" opponent helpers for the card tables. Each seat gets a 15 s turn; bots take a
 // varied amount of it (some act at once, some think, a few run the clock out) so the table feels live.
@@ -79,6 +80,10 @@ export function NextGameBar({ left, total = NEXT_GAME_SECS, label = "Next game s
 export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, onClose, children }: {
   open: boolean; won: boolean; title: string; sub?: string; left: number; nextLabel?: string; onLeave: () => void; onClose: () => void; children?: React.ReactNode;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    if (won) { sfx.bigWin(); vibrate([60, 40, 60]); } else sfx.lose();
+  }, [open, won]);
   return (
     <Sheet open={open} onClose={onClose}>
       <div className="text-center">

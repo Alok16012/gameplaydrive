@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { inr } from "../../lib/data";
@@ -58,11 +59,21 @@ export function Plinko({ nav }: { nav: Nav }) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // A tink for every peg a ball passes.
+  const rowSeen = useRef<Record<number, number>>({});
+  useEffect(() => {
+    for (const b of balls) {
+      const r = Math.floor((now - b.start) / ROW_MS);
+      if (r >= 0 && r < b.path.length && rowSeen.current[b.id] !== r) { rowSeen.current[b.id] = r; sfx.peg(); }
+    }
+  }, [now, balls]);
+
   // Balls that reached the bottom: light up the slot and add their winnings to the balance shown.
   useEffect(() => {
     const landed = balls.filter((b) => now >= b.start + (b.path.length + 1) * ROW_MS);
     if (!landed.length) return;
-    for (const b of landed) unlanded.current -= b.payout;
+    for (const b of landed) { unlanded.current -= b.payout; delete rowSeen.current[b.id]; }
+    if (landed.some((b) => b.mult >= 2)) sfx.win(); else sfx.slot();
     applyBalance(latest.current.bal - unlanded.current);
     setHits((h) => ({ ...h, ...Object.fromEntries(landed.map((b) => [b.slot, now])) }));
     setRecent((r) => [...landed.map((b) => ({ mult: b.mult, key: b.id })), ...r].slice(0, 12));

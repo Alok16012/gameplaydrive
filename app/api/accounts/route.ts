@@ -1,8 +1,19 @@
 import { staffEmail, playerEmail } from "../../lib/loginEmail";
-import { createAuthUser, deleteAuthUser, patchRow, rpc, updateAuthUser, userFromToken } from "../../lib/server/supabaseAdmin";
+import {
+  createAuthUser,
+  deleteAuthUser,
+  deleteRow,
+  insertRow,
+  patchRow,
+  rpc,
+  selectOne,
+  updateAuthUser,
+  userFromToken,
+} from "../../lib/server/supabaseAdmin";
 
-// POST  /api/accounts — create an admin, agent or player login under the signed-in account.
-// PATCH /api/accounts — edit an account's details (and optionally set a new password).
+// POST   /api/accounts — create an admin, agent or player login under the signed-in account.
+// PATCH  /api/accounts — edit an account's details (and optionally set a new password).
+// DELETE /api/accounts — delete an admin, agent or player account (Super Admin only).
 // The hierarchy rules are enforced in the database: public.create_profile and public.update_profile.
 
 const ROLES = ["admin", "agent", "player"] as const;
@@ -44,7 +55,7 @@ export async function POST(req: Request) {
   }
 }
 
-interface Profile { id: string; role: string; name: string; phone: string | null; username: string | null; state: string | null }
+interface Profile { id: string; role: string; name: string; phone: string | null; username: string | null; state: string | null; code?: string; status?: string }
 const loginOf = (p: Profile) => (p.role === "player" ? (p.phone ? playerEmail(p.phone) : null) : p.username ? staffEmail(p.username) : null);
 
 export async function PATCH(req: Request) {
@@ -84,3 +95,84 @@ export async function PATCH(req: Request) {
   }
   return Response.json({ profile: res.new });
 }
+
+export async function DELETE(req: Request) {
+  const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
+  const actor = token ? await userFromToken(token) : null;
+  if (!actor) return Response.json({ error: "Please sign in again" }, { status: 401 });
+
+  // 1. Verify caller is Super Admin
+  const actorProfile = await selectOne<Profile>("profiles", `id=eq.${actor.id}`);
+  if (!actorProfile || actorProfile.status !== "active" || actorProfile.role !== "superadmin") {
+    return Response.json({ error: "Only Super Admin can delete accounts" }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  let id = searchParams.get("id");
+  if (!id) {
+    const body = await req.json().catch(() => null);
+    id = body?.id ? String(body.id) : null;
+  }
+  if (!id) return Response.json({ error: "Missing account ID" }, { status: 400 });
+
+  if (id === actor.id) {
+    return Response.json({ error: "Super Admin cannot delete their own account" }, { status: 400 });
+  }
+
+  const target = await selectOne<Profile>("profiles", `id=eq.${id}`);
+  if (!target) return Response.json({ error: "Account not found" }, { status: 404 });
+
+  if (target.role === "superadmin") {
+    return Response.json({ error: "Super Admin account cannot be deleted" }, { status: 400 });
+  }
+
+  // 2. Reassign any children downlines to Super Admin (actor.id) so foreign keys aren't violated
+  try {
+    await patchRow("profiles", `parent_id=eq.${id}`, { parent_id: actor.id });
+  } catch (err) {
+    console.error("Failed to reassign downlines:", err);
+  }
+
+  // 3. Remove agent payment details and app_settings if target was an agent/admin
+  try {
+    await deleteRow("agent_payment_details", `agent_id=eq.${id}`);
+  } catch {}
+  try {
+    await deleteRow("app_settings", `key=eq.agent_payment_${id}`);
+  } catch {}
+
+  // 4. Delete Auth user (cascades to profiles, wallets, ledger, etc.)
+  let authDeleted = false;
+  try {
+    await deleteAuthUser(id);
+    authDeleted = true;
+  } catch (err) {
+    console.error("deleteAuthUser error:", err);
+  }
+
+  // 5. Delete profile directly in case auth user didn't cascade
+  try {
+    await deleteRow("profiles", `id=eq.${id}`);
+  } catch (err) {
+    if (!authDeleted) {
+      const msg = err instanceof Error ? err.message : "Failed to delete account";
+      return Response.json({ error: msg }, { status: 400 });
+    }
+  }
+
+  // 6. Write to audit_log
+  try {
+    await insertRow("audit_log", {
+      actor_id: actor.id,
+      actor_name: actorProfile.username || actorProfile.name,
+      action: `SUPERADMIN • Deleted ${target.role.toUpperCase()} ${target.code || ""} (${target.name})`,
+      before: `Role: ${target.role} • Name: ${target.name}`,
+      after: "Deleted permanently",
+    });
+  } catch (err) {
+    console.error("Audit log error:", err);
+  }
+
+  return Response.json({ success: true, message: `${target.name} deleted successfully` });
+}
+

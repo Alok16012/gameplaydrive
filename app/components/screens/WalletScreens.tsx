@@ -169,8 +169,23 @@ export function AddCash({ nav }: { nav: Nav }) {
   };
 
   const agentName = paymentInfo?.agentName || player?.agent || "Your Agent";
-  const agentPhone = paymentInfo?.agentPhone || "";
-  const cleanPhone = agentPhone.replace(/\D/g, "").slice(-10);
+  const agentPhone = (paymentInfo?.agentPhone || "").trim();
+  const digitsOnly = agentPhone.replace(/\D/g, "");
+  let waNumber = "";
+  let displayPhone = "";
+
+  if (digitsOnly.length >= 7) {
+    if (agentPhone.startsWith("+")) {
+      waNumber = digitsOnly;
+      displayPhone = agentPhone;
+    } else if (digitsOnly.length === 10) {
+      waNumber = `91${digitsOnly}`;
+      displayPhone = `+91 ${digitsOnly}`;
+    } else {
+      waNumber = digitsOnly;
+      displayPhone = `+${digitsOnly}`;
+    }
+  }
 
   const upiUri = paymentInfo?.upiId
     ? `upi://pay?pa=${encodeURIComponent(paymentInfo.upiId)}&pn=${encodeURIComponent(
@@ -296,15 +311,15 @@ export function AddCash({ nav }: { nav: Nav }) {
               </div>
 
               {/* Send WhatsApp Proof */}
-              {cleanPhone ? (
+              {waNumber ? (
                 <a
-                  href={`https://wa.me/91${cleanPhone}?text=${whatsappMsg}`}
+                  href={`https://wa.me/${waNumber}?text=${whatsappMsg}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-3 rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20ba5a] text-slate-950 transition shadow-md"
                 >
                   <MessageCircle size={16} />
-                  Send Payment Proof on WhatsApp (+91 {cleanPhone})
+                  Send Payment Proof on WhatsApp ({displayPhone})
                 </a>
               ) : null}
 
@@ -326,13 +341,13 @@ export function AddCash({ nav }: { nav: Nav }) {
               Ask your agent <b className="text-white">{agentName}</b> to add coins to your account.
             </p>
 
-            {cleanPhone && (
+            {displayPhone && (
               <a
-                href={`tel:${cleanPhone}`}
+                href={`tel:${displayPhone.replace(/[\s\-()]/g, "")}`}
                 className="btn-ghost inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs border border-white/10"
               >
                 <Phone size={14} />
-                Call Agent: +91 {cleanPhone}
+                Call Agent: {displayPhone}
               </a>
             )}
 

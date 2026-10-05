@@ -11,7 +11,7 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   title: "GameHub — Play • Win • Together",
-  description: "9 games, 1 account, 1 wallet. Rummy, Teen Patti, Andar Bahar, Dragon Tiger, Lucky 7, Poker, Ludo, Carrom and Chess.",
+  description: "Sports Betting, Cricket, Football, Tennis, Rummy, Teen Patti, Poker, Ludo, Casino & More. 1 Account • 1 Wallet.",
 };
 
 export const viewport: Viewport = {

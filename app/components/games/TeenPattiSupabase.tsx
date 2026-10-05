@@ -1,5 +1,6 @@
 "use client";
 
+import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, LogOut, Users } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
@@ -58,6 +59,9 @@ function PotStack({ pot, boot }: { pot: number; boot: number }) {
 export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: number; code?: string }) {
   const { total, showToast, applyBalance } = useStore();
   const [v, setV] = useState<View | null>(null);
+  // Sounds: cards dealt for each new hand, chips into the pot.
+  useSoundOnRise(v?.hand_no ?? 0, () => dealSound(9, 110));
+  useSoundOnRise(v?.pot ?? 0, sfx.chip);
   const [err, setErr] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);

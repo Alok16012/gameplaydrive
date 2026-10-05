@@ -1,10 +1,11 @@
 import QRCode from "qrcode";
-import { insertRow, selectOne, upsertRow, userFromToken } from "../../lib/server/supabaseAdmin";
+import { deleteRow, insertRow, patchRow, selectOne, upsertRow, userFromToken } from "../../lib/server/supabaseAdmin";
 
-// GET  /api/agent-payment — retrieve payment details.
-//      • If caller is an Agent / Admin / Super Admin: returns their own payment details.
-//      • If caller is a Player: returns ONLY their direct parent agent's active payment details (strict isolation).
-// POST /api/agent-payment — save / update payment details (Agents & Admins only).
+// GET    /api/agent-payment — retrieve payment details.
+//        • If caller is an Agent / Admin / Super Admin: returns their own payment details.
+//        • If caller is a Player: returns ONLY their direct parent agent's active payment details (strict isolation).
+// POST   /api/agent-payment — save / update payment details (Agents & Admins only).
+// DELETE /api/agent-payment — remove / delete payment details completely (Agents & Admins only).
 
 interface Profile {
   id: string;
@@ -158,9 +159,12 @@ export async function POST(req: Request) {
     }
   }
 
-  // Validate phone if provided
-  if (phone && !/^\d{10}$/.test(phone.replace(/\D/g, "").slice(-10))) {
-    return Response.json({ error: "Enter a valid 10-digit mobile number" }, { status: 400 });
+  // Validate phone if provided (supports international numbers with country codes: 7 to 15 digits)
+  if (phone) {
+    const digits = phone.replace(/\D/g, "");
+    if (digits.length < 7 || digits.length > 15) {
+      return Response.json({ error: "Enter a valid phone number (7 to 15 digits including country code)" }, { status: 400 });
+    }
   }
 
   // Generate UPI QR code automatically if requested or if no custom image was provided
@@ -234,3 +238,62 @@ export async function POST(req: Request) {
     },
   });
 }
+
+export async function DELETE(req: Request) {
+  const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
+  const actor = token ? await userFromToken(token) : null;
+  if (!actor) return Response.json({ error: "Please sign in again" }, { status: 401 });
+
+  const profile = await selectOne<Profile>("profiles", `id=eq.${actor.id}`);
+  if (!profile || profile.status !== "active") {
+    return Response.json({ error: "Account not found or inactive" }, { status: 403 });
+  }
+
+  if (profile.role === "player") {
+    return Response.json({ error: "Only agents and staff can delete payment details" }, { status: 403 });
+  }
+
+  // 1. Delete from app_settings
+  try {
+    await deleteRow("app_settings", `key=eq.agent_payment_${profile.id}`);
+  } catch (err) {
+    console.error("Failed to delete from app_settings:", err);
+  }
+
+  // 2. Delete from agent_payment_details table
+  try {
+    await deleteRow("agent_payment_details", `agent_id=eq.${profile.id}`);
+  } catch {
+    // If delete fails, attempt to nullify via patch
+    try {
+      await patchRow("agent_payment_details", `agent_id=eq.${profile.id}`, {
+        upi_id: null,
+        qr_code_url: null,
+        is_active: false,
+        payment_note: null,
+        updated_at: new Date().toISOString(),
+      });
+    } catch {
+      // Ignore if table does not exist
+    }
+  }
+
+  // 3. Write to audit_log
+  try {
+    await insertRow("audit_log", {
+      actor_id: profile.id,
+      actor_name: profile.username || profile.name,
+      action: `${profile.role.toUpperCase()} ${profile.code} • Deleted UPI / QR Payment Method`,
+      before: "Configured",
+      after: "Deleted / Removed",
+    });
+  } catch (err) {
+    console.error("Failed to write to audit_log:", err);
+  }
+
+  return Response.json({
+    success: true,
+    message: "Payment method deleted successfully",
+  });
+}
+

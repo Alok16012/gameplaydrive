@@ -218,6 +218,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [coinsFor, setCoinsFor] = useState<Account | null>(null);
   const [limitFor, setLimitFor] = useState<Account | null>(null);
   const [editing, setEditing] = useState<Account | null>(null);
+  const [deleting, setDeleting] = useState<Account | null>(null);
   const [err, setErr] = useState("");
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
@@ -280,6 +281,15 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                   <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
                   {u.role === "player" && <button onClick={() => setLimitFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Gauge size={13} />{u.dailyLimit ? coins(u.dailyLimit) + "/day" : "Limit"}</button>}
                   <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2">{u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
+                  {me.role === "superadmin" && (
+                    <button
+                      onClick={() => setDeleting(u)}
+                      className="rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2 text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition"
+                      title={`Delete ${ROLE_LABEL[u.role]}`}
+                    >
+                      <Trash2 size={13} />Delete
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -291,6 +301,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
       {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
+      {deleting && <DeleteAccountModal target={deleting} me={me} accounts={accounts} reload={reload} onClose={() => setDeleting(null)} />}
     </>
   );
 }
@@ -308,6 +319,102 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         {children}
       </div>
     </div>
+  );
+}
+
+function DeleteAccountModal({
+  target,
+  me,
+  accounts,
+  reload,
+  onClose,
+}: {
+  target: Account;
+  me: Account;
+  accounts: Account[];
+  reload: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const children = accounts.filter((a) => a.parentId === target.id);
+  const isStaff = target.role !== "player";
+
+  const confirmDelete = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const { data: s } = await supabase().auth.getSession();
+      const token = s.session?.access_token;
+      if (!token) throw new Error("Please sign in again");
+
+      const res = await fetch(`/api/accounts?id=${target.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to delete account");
+
+      await reload();
+      onClose();
+    } catch (e: unknown) {
+      setErr(errText(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Delete ${ROLE_LABEL[target.role]}`} onClose={onClose}>
+      <div className="space-y-4 pt-3 text-sm">
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-start gap-3 text-rose-300">
+          <Trash2 size={20} className="shrink-0 text-rose-400 mt-0.5" />
+          <div className="text-xs leading-relaxed space-y-1">
+            <div className="font-semibold text-white">Permanently delete {target.name}?</div>
+            <div>
+              This will remove account code <b className="font-mono text-white">{target.code}</b>, their login credentials, and all account data. This action cannot be undone.
+            </div>
+          </div>
+        </div>
+
+        <div className="card p-3 bg-white/5 border border-white/5 space-y-2 text-xs text-white/70">
+          <div className="flex justify-between">
+            <span className="text-white/40">Role:</span>
+            <span className="font-medium text-white">{ROLE_LABEL[target.role]}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">{target.role === "player" ? "Mobile Number" : "Username"}:</span>
+            <span className="font-mono text-white">{target.phone || target.username || "—"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Current Coin Balance:</span>
+            <span className="font-semibold text-gold-300">{coins(target.coins)}</span>
+          </div>
+          {isStaff && children.length > 0 && (
+            <div className="pt-2 border-t border-white/10 text-amber-300/90 leading-relaxed">
+              ⚠️ <b>Downline Notice:</b> This {ROLE_LABEL[target.role].toLowerCase()} has <b>{children.length}</b> {target.role === "admin" ? "agent(s)/player(s)" : "player(s)"} under them. Deleting this account will automatically reassign their downline to your Super Admin account so they are not stranded.
+            </div>
+          )}
+        </div>
+
+        {err && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl">{err}</div>}
+
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button type="button" disabled={busy} onClick={onClose} className="btn-ghost rounded-xl px-4 py-2.5 text-xs font-semibold">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={confirmDelete}
+            className="rounded-xl px-4 py-2.5 text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center gap-1.5 shadow-lg shadow-rose-900/30 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+            {busy ? "Deleting…" : `Delete ${ROLE_LABEL[target.role]}`}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

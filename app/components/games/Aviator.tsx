@@ -1,5 +1,6 @@
 "use client";
 
+import { engine, sfx, vibrate } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { inr } from "../../lib/data";
@@ -96,6 +97,22 @@ export function Aviator({ nav }: { nav: Nav }) {
   }, [pull, flying]);
 
   const m = crashed ? v!.crash ?? 1 : flying ? multAt((serverNow - startsAt) / 1000) : 1;
+
+  // Engine hum while the plane climbs (pitch follows the multiplier), a whoosh on take-off, a crash when it goes.
+  const eng = useRef<ReturnType<typeof engine> | null>(null);
+  const roundSeen = useRef<{ id: number; flew: boolean; crashed: boolean } | null>(null);
+  useEffect(() => {
+    if (!v) return;
+    const r = roundSeen.current?.id === v.id ? roundSeen.current : (roundSeen.current = { id: v.id, flew: false, crashed: false });
+    if (flying && !r.flew) { r.flew = true; sfx.takeoff(); eng.current?.stop(); eng.current = engine(); }
+    if (crashed && !r.crashed) {
+      r.crashed = true;
+      eng.current?.stop(); eng.current = null;
+      if (r.flew) sfx.crash();
+    }
+  }, [v, flying, crashed]);
+  useEffect(() => { if (flying) eng.current?.set(m); }, [flying, m]);
+  useEffect(() => () => eng.current?.stop(), []);
   const secsToStart = Math.max(0, (startsAt - serverNow) / 1000);
 
   const act = async (fn: "av_bet" | "av_cancel" | "av_cashout", slot: number, args: Record<string, unknown> = {}) => {
@@ -106,7 +123,7 @@ export function Aviator({ nav }: { nav: Nav }) {
     take(data as View);
     if (fn === "av_cashout") {
       const b = (data as View).mine.find((x) => x.slot === slot);
-      if (b?.cash_mult) showToast(`Cashed out at ${b.cash_mult.toFixed(2)}x • +${inr(b.payout)}`);
+      if (b?.cash_mult) { sfx.win(); vibrate(50); showToast(`Cashed out at ${b.cash_mult.toFixed(2)}x • +${inr(b.payout)}`); }
     }
   };
 

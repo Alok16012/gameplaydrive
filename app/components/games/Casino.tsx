@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx, useResultSound, useSoundOnRise } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { History, RotateCcw, Repeat, Undo2, Users } from "lucide-react";
 import { deck, gameById, inr, rankValue, randomCard, type Card, type GameId } from "../../lib/data";
@@ -196,9 +197,19 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     }
   }, [now, endsAt, phase, round, gameId, roundNo, showToast, applyBalance]);
 
+  // Sounds: the two Dragon Tiger cards land, and a win / lose cue when the round settles.
+  useEffect(() => {
+    if (!round || gameId !== "dragon-tiger") return;
+    sfx.card();
+    const t = window.setTimeout(() => sfx.flip(), 400);
+    return () => window.clearTimeout(t);
+  }, [round, gameId]);
+  useResultSound(phase === "result", won);
+
   const place = (side: string, v = chip) => {
     if (phase !== "betting") return;
     if (pending + v > total) return showToast("Not enough coins — ask your agent");
+    sfx.chip();
     setBets((b) => [...b, { side, v }]);
   };
 
@@ -426,6 +437,7 @@ function AndarBaharTable({ round, phase }: { round: Round | null; phase: Phase }
     return () => clearTimeout(t);
   }, [round, total]);
   const shown = phase === "result" ? total : Math.min(dealt, total);
+  useSoundOnRise(Math.min(dealt, total), sfx.card);
   const showA = andar.slice(0, Math.ceil(shown / 2));
   const showB = bahar.slice(0, Math.floor(shown / 2));
   const done = phase === "result" || (total > 0 && shown >= total);

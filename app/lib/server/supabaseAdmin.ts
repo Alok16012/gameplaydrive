@@ -61,3 +61,10 @@ export const upsertRow = (table: string, body: Record<string, unknown> | Record<
     body: JSON.stringify(body),
   });
 
+export const deleteRow = (table: string, query: string) =>
+  call<unknown>(`/rest/v1/${table}?${query}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+
+

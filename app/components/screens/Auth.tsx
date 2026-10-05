@@ -68,15 +68,25 @@ export function Splash({ onDone }: { onDone: () => void }) {
         <div className="w-12 h-12 rounded-full" style={{ background: "radial-gradient(circle,#1f2937 50%,transparent 51%),repeating-conic-gradient(#6b7280 0 12deg,#1f2937 12deg 30deg)" }} />
       </Floaty>
 
-      <div className="relative z-10 flex flex-col items-center pt-[30dvh] px-6 text-center">
+      <div className="relative z-10 flex flex-col items-center pt-[22dvh] px-6 text-center">
         <Logo />
-        <div className="mt-10 text-[15px] text-white/85">9 Games &nbsp;|&nbsp; 1 Account &nbsp;|&nbsp; 1 Wallet</div>
+        <div className="mt-7 flex flex-col items-center gap-2 max-w-[360px]">
+          <div className="text-[13px] sm:text-[14px] font-medium tracking-wide text-amber-300/90 leading-snug">
+            Sports Betting • Cricket • Football • Tennis
+          </div>
+          <div className="text-[13px] sm:text-[14px] font-medium tracking-wide text-white/85 leading-snug">
+            Rummy • Teen Patti • Poker • Ludo • Casino &amp; More
+          </div>
+          <div className="mt-1 text-[14px] sm:text-[15px] font-semibold tracking-wider text-white">
+            1 Account • 1 Wallet
+          </div>
+        </div>
       </div>
-      <div className="absolute bottom-20 inset-x-0 flex flex-col items-center gap-4">
+      <div className="absolute bottom-16 inset-x-0 flex flex-col items-center gap-4">
         <div className="w-16 h-1 rounded-full bg-white/10 overflow-hidden">
           <div className="h-full loadbar rounded-full" style={{ background: "linear-gradient(90deg,#fbbf24,#f59e0b)" }} />
         </div>
-        <div className="text-xs text-white/60">Loading your gaming world...</div>
+        <div className="text-xs text-white/60">Loading your gaming world…</div>
       </div>
     </div>
   );

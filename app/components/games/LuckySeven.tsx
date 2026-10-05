@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx, useResultSound } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { Lock, Repeat, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { gameById, inr, randomCard, type Card } from "../../lib/data";
@@ -130,9 +131,13 @@ export function LuckySeven({ nav }: { nav: Nav }) {
     }
   }, [now, endsAt, phase, card, roundNo, showToast, applyBalance]);
 
+  useEffect(() => { if (card) sfx.flip(); }, [card]);
+  useResultSound(phase === "result", won);
+
   const place = (side: string) => {
     if (!open) return;
     if (pending + chip > total) return showToast("Not enough coins — ask your agent");
+    sfx.chip();
     setBets((b) => [...b, { side, v: chip }]);
   };
 

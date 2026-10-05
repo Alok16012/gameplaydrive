@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx, vibrate } from "../../lib/sound";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from "lucide-react";
 import { gameById, inr } from "../../lib/data";
@@ -104,6 +105,7 @@ export function Roulette({ nav }: { nav: Nav }) {
     setBallIn(false);
     setWheelRot((cur) => cur - norm(cur) + 360 * 4 + norm(-(idx * 360) / ORDER.length));
     setBallRot((cur) => cur - norm(cur) - 360 * 7);
+    sfx.wheel(SPIN_MS);
     window.setTimeout(() => setBallIn(true), SPIN_MS * 0.72);
   }, []);
 
@@ -119,6 +121,7 @@ export function Roulette({ nav }: { nav: Nav }) {
         spinTo(n);
         window.setTimeout(() => {
           setResult({ n, payout, stake });
+          if (payout > 0) { sfx.win(); vibrate(50); } else if (stake > 0) sfx.lose();
           setHist((h) => [n, ...h].slice(0, 20));
           if (balance !== null) applyBalance(balance);
           setPhase("result");
@@ -154,39 +157,27 @@ export function Roulette({ nav }: { nav: Nav }) {
   const crowdTotal = crowd.reduce((a, b) => a + b.v, 0);
   const mine = (side: string) => bets.filter((b) => b.side === side).reduce((a, b) => a + b.v, 0);
   const secs = Math.max(0, Math.ceil((endsAt - now) / 1000));
+  const lastTick = useRef(-1);
+  useEffect(() => {
+    if (phase !== "betting" || secs === lastTick.current) return;
+    lastTick.current = secs;
+    if (secs <= 5 && secs > 0) sfx.tickUrgent();
+  }, [secs, phase]);
   const shown = phase === "result" && result ? result.n : null;
 
   const place = (side: string) => {
     if (phase !== "betting") return showToast("Wait for the next round");
     if (pending + chip > total) return showToast("Not enough coins — ask your agent");
     if (pending + chip > MAX_STAKE) return showToast("Max 1,00,000 coins per round");
+    sfx.chip();
     setBets((b) => [...b, { side, v: chip }]);
   };
   const rebet = () => {
     if (phase !== "betting" || bets.length || !lastBets.length) return;
     const sum = lastBets.reduce((a, b) => a + b.v, 0);
     if (sum > total) return showToast("Not enough balance to rebet");
+    sfx.chip();
     setBets(lastBets);
-  };
-
-  // One betting spot: your stack and the win glow. (Spot re-renders every tick, so no entry animation here — it would blink.)
-  const Spot = ({ side, children, className = "", style }: { side: string; children: React.ReactNode; className?: string; style?: React.CSSProperties }) => {
-    const my = mine(side);
-    const win = shown !== null && wins(side, shown);
-    return (
-      <button
-        onClick={() => place(side)}
-        className={`relative grid place-items-center border border-[#9fd8a9]/45 text-white transition-[filter,box-shadow] active:brightness-125 ${win ? "z-10 shadow-[inset_0_0_0_3px_#fde047,0_0_16px_#fde047]" : ""} ${className}`}
-        style={style}
-      >
-        {children}
-        {my > 0 && (
-          <span className="absolute pointer-events-none z-10" style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}>
-            <MiniChip v={my} size={24} />
-          </span>
-        )}
-      </button>
-    );
   };
 
   const spinning = phase === "spinning" || phase === "result";
@@ -228,26 +219,26 @@ export function Roulette({ nav }: { nav: Nav }) {
           {/* Board */}
           <div className="absolute left-[22%] right-[2%] top-[17%] bottom-[3%]">
             <div className="w-full h-full grid" style={{ gridTemplateColumns: "1.15fr repeat(12, 1fr) 1.35fr", gridTemplateRows: "repeat(3, 1fr) .72fr .72fr" }}>
-              <Spot side="n_0" className="rounded-l-xl flex-col" style={{ gridColumn: 1, gridRow: "1 / 4", background: GREEN }}>
+              <Spot bets={bets} shown={shown} onPlace={place} side="n_0" className="rounded-l-xl flex-col" style={{ gridColumn: 1, gridRow: "1 / 4", background: GREEN }}>
                 <span className={`${NUM} text-[24px]`}>0</span><span className="text-[10px] text-white/80 mt-1">36x</span>
               </Spot>
               {[3, 2, 1].map((rowTop, r) =>
                 Array.from({ length: 12 }, (_, c) => {
                   const n = rowTop + c * 3;
                   return (
-                    <Spot key={n} side={`n_${n}`} style={{ gridColumn: c + 2, gridRow: r + 1, background: color(n) }}>
+                    <Spot bets={bets} shown={shown} onPlace={place} key={n} side={`n_${n}`} style={{ gridColumn: c + 2, gridRow: r + 1, background: color(n) }}>
                       <span className={NUM}>{n}</span>
                     </Spot>
                   );
                 }),
               )}
               {[["c3", "1st row"], ["c2", "2nd row"], ["c1", "3rd row"]].map(([s, l], r) => (
-                <Spot key={s} side={s} className={`flex-col text-[10px] leading-tight bg-[#1f6b3a] ${r === 0 ? "rounded-tr-xl" : r === 2 ? "rounded-br-xl" : ""}`} style={{ gridColumn: 14, gridRow: r + 1 }}>
+                <Spot bets={bets} shown={shown} onPlace={place} key={s} side={s} className={`flex-col text-[10px] leading-tight bg-[#1f6b3a] ${r === 0 ? "rounded-tr-xl" : r === 2 ? "rounded-br-xl" : ""}`} style={{ gridColumn: 14, gridRow: r + 1 }}>
                   <span>{l}</span><span>3x</span>
                 </Spot>
               ))}
               {[["d1", "1st 12 (3x)"], ["d2", "2nd 12 (3x)"], ["d3", "3rd 12 (3x)"]].map(([s, l], i) => (
-                <Spot key={s} side={s} className="font-serif text-[14px] bg-[#257a42]" style={{ gridColumn: `${2 + i * 4} / span 4`, gridRow: 4 }}>{l}</Spot>
+                <Spot bets={bets} shown={shown} onPlace={place} key={s} side={s} className="font-serif text-[14px] bg-[#257a42]" style={{ gridColumn: `${2 + i * 4} / span 4`, gridRow: 4 }}>{l}</Spot>
               ))}
               {[
                 ["low", "1-18 (2x)"],
@@ -258,6 +249,9 @@ export function Roulette({ nav }: { nav: Nav }) {
                 ["high", "19-36 (2x)"],
               ].map(([s, l], i) => (
                 <Spot
+                  bets={bets}
+                  shown={shown}
+                  onPlace={place}
                   key={s}
                   side={s}
                   className={`font-serif text-[14px] ${i === 0 ? "rounded-bl-xl" : ""} ${i === 5 ? "rounded-br-xl" : ""}`}
@@ -336,6 +330,34 @@ export function Roulette({ nav }: { nav: Nav }) {
 }
 
 /** Casino chip in one of the table colours (by value). */
+/**
+ * One betting spot: your stack and the win glow. Defined outside Roulette so React keeps the same element across
+ * the round clock's re-renders (a component created inside render is torn down and rebuilt every tick, which
+ * made the chips flicker and could swallow a tap).
+ */
+function Spot({ side, bets, shown, onPlace, children, className = "", style }: {
+  side: string; bets: Bet[]; shown: number | null; onPlace: (side: string) => void; children: React.ReactNode; className?: string; style?: React.CSSProperties;
+}) {
+  const my = bets.reduce((a, b) => (b.side === side ? a + b.v : a), 0);
+  const win = shown !== null && wins(side, shown);
+  return (
+    <button
+      data-sfx="off"
+      onClick={() => onPlace(side)}
+      className={`relative grid place-items-center border border-[#9fd8a9]/45 text-white transition-[filter,box-shadow] active:brightness-125 ${win ? "z-10 shadow-[inset_0_0_0_3px_#fde047,0_0_16px_#fde047]" : ""} ${className}`}
+      style={style}
+    >
+      {children}
+      {my > 0 && (
+        <span className="absolute pointer-events-none z-10" style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}>
+          <span className="absolute left-0 top-[3px] opacity-80"><MiniChip v={my} size={30} /></span>
+          <span className="relative block"><MiniChip v={my} size={30} ring /></span>
+        </span>
+      )}
+    </button>
+  );
+}
+
 function MiniChip({ v, size, faded, ring }: { v: number; size: number; faded?: boolean; ring?: boolean }) {
   const c = [...CHIPS].reverse().find((x) => v >= x.v)?.c ?? CHIPS[0].c;
   return (

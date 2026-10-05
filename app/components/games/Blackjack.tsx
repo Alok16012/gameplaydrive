@@ -1,5 +1,6 @@
 "use client";
 
+import { sfx, vibrate } from "../../lib/sound";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { inr, type Card } from "../../lib/data";
 import { useStore } from "../../lib/store";
@@ -115,8 +116,19 @@ export function Blackjack({ nav }: { nav: Nav }) {
     let i = 0;
     const step = () => {
       if (seq.current !== tok) return;
-      if (i >= frames.length) { setAnim(null); applyBalance(view.balance); return; }
-      setAnim(frames[i++]);
+      if (i >= frames.length) {
+        setAnim(null);
+        applyBalance(view.balance);
+        if (view.status === "done") {
+          const st = (view.hands ?? []).reduce((a, h) => a + h.bet, 0), pay = view.payout ?? 0;
+          if (pay > st) { (view.hands ?? []).some((h) => h.result === "blackjack") ? sfx.bigWin() : sfx.win(); vibrate(50); }
+          else if (pay < st) sfx.lose();
+        }
+        return;
+      }
+      const f = frames[i++], was = i > 1 ? frames[i - 2] : null;
+      if (was && !f.hole && was.hole) sfx.flip(); else sfx.card();
+      setAnim(f);
       window.setTimeout(step, i < frames.length ? frames[i].ms : view.status === "done" ? 700 : 250);
     };
     window.setTimeout(step, frames[0]?.ms ?? 0);
