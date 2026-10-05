@@ -22,13 +22,39 @@ export function humanDelay(limit = TURN_SECS): number {
   return limit; // ran out of time
 }
 
+/**
+ * The dealer of the current hand / deal: the playing seat just before the one who acts first. The servers pick the
+ * first player as seat `start % seats` (Teen Patti: hand_no − 1; Rummy: match_no + deal_no), moving on to the next
+ * seat that is playing, so the dealer is the playing seat before that one.
+ */
+export function dealerSeat(playing: boolean[], start: number): number | null {
+  const n = playing.length;
+  if (!n || !playing.some(Boolean)) return null;
+  let first = ((start % n) + n) % n;
+  while (!playing[first]) first = (first + 1) % n;
+  let d = (first - 1 + n) % n;
+  while (!playing[d]) d = (d - 1 + n) % n;
+  return d;
+}
+
+/** Gold "DEALER" tag that sits on the dealer's avatar. */
+export function DealerChip({ className = "" }: { className?: string }) {
+  return (
+    <div className={`absolute z-10 rounded-full px-1.5 py-px text-[9px] font-extrabold tracking-wide leading-tight text-[#2a1a00] bg-gradient-to-b from-[#ffe08a] to-[#e0a21b] border border-[#7a4d00] shadow-[0_2px_6px_rgba(0,0,0,.5)] whitespace-nowrap pointer-events-none ${className}`}>
+      DEALER
+    </div>
+  );
+}
+
 /** Avatar with a countdown ring that drains over the turn. */
-export function TimerAvatar({ emoji, size = 44, active, left, dim, total = TURN_SECS }: { emoji?: string; size?: number; active: boolean; left: number; dim?: boolean; total?: number }) {
+export function TimerAvatar({ emoji, size = 44, active, left, dim, total = TURN_SECS, dealer }: { emoji?: string; size?: number; active: boolean; left: number; dim?: boolean; total?: number; dealer?: boolean }) {
   const frac = Math.max(0, Math.min(1, left / total));
   const r = size / 2 + 3;
   const c = 2 * Math.PI * r;
   const color = frac > 0.5 ? "#4ade80" : frac > 0.25 ? "#fbbf24" : "#f43f5e";
   return (
+    <div className="relative" style={{ width: size, height: size }}>
+    {dealer && <DealerChip className="left-1/2 -translate-x-1/2 -top-2.5" />}
     <div className={`relative ${dim ? "opacity-40 grayscale" : ""}`} style={{ width: size, height: size }}>
       <Avatar emoji={emoji} size={size} ring={!active} />
       {active && (
@@ -37,6 +63,7 @@ export function TimerAvatar({ emoji, size = 44, active, left, dim, total = TURN_
           <circle cx={size / 2 + 4} cy={size / 2 + 4} r={r} fill="none" stroke={color} strokeWidth={3} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - frac)} style={{ transition: "stroke-dashoffset .25s linear" }} />
         </svg>
       )}
+    </div>
     </div>
   );
 }

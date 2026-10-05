@@ -9,7 +9,7 @@ import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } fro
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, Money, PlayingCard, Sheet } from "../ui";
-import { BotTag, ResultSheet, TimerAvatar } from "./bots";
+import { BotTag, DealerChip, ResultSheet, TimerAvatar, dealerSeat } from "./bots";
 import { LandscapeStage } from "./LandscapeStage";
 import type { Nav, RummyMode } from "../nav";
 
@@ -233,6 +233,8 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const playing = v?.status === "playing";
   const inDeal = playing && !!mySeat?.playing && !mySeat.dropped && !mySeat.wrong;
   const myTurn = inDeal && v?.turn === me;
+  // Dealer of this deal (the seat before the one who plays first), shown with a DEALER tag.
+  const dealer = v && v.status !== "waiting" && v.deal_no > 0 ? dealerSeat(v.seats.map((s) => !!s.playing), v.match_no + v.deal_no) : null;
   const turnSecs = v?.turn_secs ?? 30;
   const pool = v?.mode === "pool101" ? 101 : v?.mode === "pool201" ? 201 : null;
   const res = v?.result ?? null;
@@ -412,7 +414,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           const away = !b.playing || b.out || b.left;
           return (
             <div key={si + (b.uid ?? b.name)} className="absolute z-10 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }}>
-              <RcAvatar emoji={b.emoji} size={av} active={active} left={active ? secsTo(v.turn_ends) : 0} total={turnSecs} dim={away && !dropped} badge={dropped ? (b.wrong ? "Wrong show" : "Dropped") : b.out ? "Out" : null} />
+              <RcAvatar emoji={b.emoji} size={av} active={active} left={active ? secsTo(v.turn_ends) : 0} total={turnSecs} dim={away && !dropped} badge={dropped ? (b.wrong ? "Wrong show" : "Dropped") : b.out ? "Out" : null} dealer={dealer === si} />
               <div className={`-mt-1.5 relative rounded-full bg-[#141814] border px-2.5 py-0.5 text-[12px] whitespace-nowrap max-w-[150px] truncate ${active ? "border-neon-400/70" : "border-white/15"}`}>
                 {tagText(b, false)}{b.bot && <BotTag />}
               </div>
@@ -525,7 +527,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         {/* Me: avatar and tag at the bottom centre, Drop to the right */}
         {mySeat && (
           <div className="absolute left-1/2 -translate-x-1/2 bottom-0 z-10 flex flex-col items-center">
-            <RcAvatar emoji={mySeat.emoji} size={av} active={!!myTurn} left={myTurn ? secsTo(v!.turn_ends) : 0} total={turnSecs} badge={playing && (mySeat.dropped || mySeat.wrong) ? "Dropped" : null} />
+            <RcAvatar emoji={mySeat.emoji} size={av} active={!!myTurn} left={myTurn ? secsTo(v!.turn_ends) : 0} total={turnSecs} badge={playing && (mySeat.dropped || mySeat.wrong) ? "Dropped" : null} dealer={v?.me != null && dealer === v.me} />
             <div className={`-mt-1.5 relative rounded-full bg-[#141814] border px-2.5 py-0.5 text-[12px] whitespace-nowrap ${myTurn ? "border-neon-400/70" : "border-white/15"}`}>{tagText(mySeat, true)}</div>
           </div>
         )}
@@ -688,7 +690,7 @@ function RcBack({ w, h }: { w: number; h: number }) {
 }
 
 /** Player avatar; on their turn it becomes a countdown ring with the seconds left, and it can carry a badge. */
-function RcAvatar({ emoji, size, active, left, total, dim, badge }: { emoji: string; size: number; active: boolean; left: number; total: number; dim?: boolean; badge?: string | null }) {
+function RcAvatar({ emoji, size, active, left, total, dim, badge, dealer }: { emoji: string; size: number; active: boolean; left: number; total: number; dim?: boolean; badge?: string | null; dealer?: boolean }) {
   const frac = Math.max(0, Math.min(1, left / total));
   const ring = frac > 0.5 ? "#22c55e" : frac > 0.25 ? "#f59e0b" : "#ef4444";
   const outer = size + 10;
@@ -701,6 +703,7 @@ function RcAvatar({ emoji, size, active, left, total, dim, badge }: { emoji: str
       ) : (
         <div className={`rounded-full grid place-items-center bg-gradient-to-b from-[#5b6460] to-[#2b302d] border-2 border-[#1a1d1a] ${dim || badge ? "grayscale opacity-60" : ""}`} style={{ width: size, height: size, fontSize: size * 0.56 }}>{emoji}</div>
       )}
+      {dealer && <DealerChip className="left-1/2 -translate-x-1/2 -top-1.5" />}
       {badge && !active && <div className="absolute rounded-full bg-[#6b6f6c]/95 text-white text-[10px] font-medium px-2 py-px whitespace-nowrap">{badge}</div>}
     </div>
   );

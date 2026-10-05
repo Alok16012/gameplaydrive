@@ -9,7 +9,7 @@ import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, Money, PlayingCard } from "../ui";
 import { LandscapeStage } from "./LandscapeStage";
-import { BotTag, ResultSheet, TimerAvatar } from "./bots";
+import { BotTag, ResultSheet, TimerAvatar, dealerSeat } from "./bots";
 import type { Nav } from "../nav";
 
 // Fallback Teen Patti, run by Supabase (supabase/migrations/002_game_server.sql) — used when the realtime game
@@ -212,6 +212,8 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
   const others = v && me !== null ? Array.from({ length: n - 1 }, (_, k) => (me + 1 + k) % n) : v ? v.seats.map((_, i) => i).slice(0, 5) : [];
   const playing = v?.status === "playing";
   const myTurn = playing && v?.turn === me && !!mySeat?.playing && !mySeat.packed;
+  // Dealer of this hand (the seat before the one who opened the betting), shown with a DEALER tag.
+  const dealer = v && v.status !== "waiting" && v.hand_no > 0 ? dealerSeat(v.seats.map((s) => !!s.playing), v.hand_no - 1) : null;
   const inHand = playing && !!mySeat?.playing && !mySeat.packed;
   const active = v ? v.seats.filter((s) => s.playing && !s.packed).length : 0;
   const chaalAmt = v ? (mySeat?.seen ? v.stake * 2 : v.stake) : 0;
@@ -301,7 +303,7 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
             return (
               <div key={si + (b.uid ?? b.name)} className={`absolute flex items-center gap-1.5 z-10 ${box.reverse ? "flex-row-reverse" : ""} ${won ? "drop-shadow-[0_0_14px_rgba(253,224,71,.8)]" : ""}`} style={box.style}>
                 <div className="flex flex-col items-center">
-                  <TimerAvatar emoji={b.emoji} size={42} active={turn} left={turn ? secsTo(v.turn_ends) : 0} dim={b.packed || !b.playing || b.left} total={TURN_SECS} />
+                  <TimerAvatar emoji={b.emoji} size={42} active={turn} left={turn ? secsTo(v.turn_ends) : 0} dim={b.packed || !b.playing || b.left} total={TURN_SECS} dealer={dealer === si} />
                   <div className="mt-0.5 px-2 py-0.5 rounded-md bg-black/60 text-center max-w-[96px]">
                     <div className="text-[11px] font-medium leading-tight truncate">{b.name}{b.bot && <BotTag />}</div>
                     <div className="text-[11px] text-gold-300 leading-tight">{inr(b.bal)}</div>
@@ -334,7 +336,7 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
           {/* You: avatar and your three cards, large, at the bottom of the table */}
           <div className="absolute left-1/2 bottom-1 -translate-x-1/2 flex items-end gap-3 z-20">
             <div className="flex flex-col items-center mb-1">
-              <TimerAvatar emoji={mySeat?.emoji} size={50} active={!!myTurn} left={myTurn ? secsTo(v!.turn_ends) : 0} dim={!!mySeat?.packed} total={TURN_SECS} />
+              <TimerAvatar emoji={mySeat?.emoji} size={50} active={!!myTurn} left={myTurn ? secsTo(v!.turn_ends) : 0} dim={!!mySeat?.packed} total={TURN_SECS} dealer={v?.me != null && dealer === v.me} />
               <div className="mt-0.5 px-2 py-0.5 rounded-md bg-black/65 text-center">
                 <div className="text-[11px] font-medium leading-tight">
                   You{playing && mySeat?.playing && (mySeat.packed ? <span className="text-rose-300"> • Packed</span> : <span className="text-white/60"> • {mySeat.seen ? "Seen" : `Blind ${myBlinds}/${blindLimit}`}</span>)}
