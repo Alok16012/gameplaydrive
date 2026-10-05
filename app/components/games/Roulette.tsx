@@ -169,11 +169,10 @@ export function Roulette({ nav }: { nav: Nav }) {
     setBets(lastBets);
   };
 
-  // One betting spot: shows the crowd's chips, your stack and the win glow.
+  // One betting spot: your stack and the win glow. (Spot re-renders every tick, so no entry animation here — it would blink.)
   const Spot = ({ side, children, className = "", style }: { side: string; children: React.ReactNode; className?: string; style?: React.CSSProperties }) => {
     const my = mine(side);
     const win = shown !== null && wins(side, shown);
-    const theirs = crowd.filter((c) => c.side === side).slice(-3);
     return (
       <button
         onClick={() => place(side)}
@@ -181,13 +180,8 @@ export function Roulette({ nav }: { nav: Nav }) {
         style={style}
       >
         {children}
-        {theirs.map((c, i) => (
-          <span key={i} className="absolute pointer-events-none pop" style={{ left: `calc(50% + ${c.dx}%)`, top: `calc(50% + ${c.dy}%)`, transform: "translate(-50%,-50%)" }}>
-            <MiniChip v={c.v} size={15} faded />
-          </span>
-        ))}
         {my > 0 && (
-          <span className="absolute pointer-events-none pop z-10" style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}>
+          <span className="absolute pointer-events-none z-10" style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}>
             <MiniChip v={my} size={24} />
           </span>
         )}
