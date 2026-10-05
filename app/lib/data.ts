@@ -1,10 +1,11 @@
 // Demo data for the GameHub client demo. Everything here is sample data held in memory —
 // the real app reads it from the backend (PRD §4: Node + Socket.io, PostgreSQL ledger, Redis lobbies).
 
-export type GameCategory = "card" | "casino" | "board";
-export type GameKind = "rummy" | "cardtable" | "casino" | "board" | "aviator" | "roulette" | "blackjack" | "plinko";
+export type GameCategory = "sports" | "card" | "casino" | "board";
+export type GameKind = "cricket" | "rummy" | "cardtable" | "casino" | "board" | "aviator" | "roulette" | "blackjack" | "plinko";
 
 export type GameId =
+  | "cricket"
   | "rummy"
   | "teen-patti"
   | "andar-bahar"
@@ -36,6 +37,7 @@ export interface Game {
 }
 
 export const GAMES: Game[] = [
+  { id: "cricket", name: "Cricket Live", tag: "Live Exchange", meta: "Live Cricket • Back & Lay Odds", category: "sports", kind: "cricket", from: "#059669", to: "#022c22", glow: "#10b981", players: "Live", online: 24500, phase: 1 },
   { id: "rummy", name: "Rummy", tag: "13 Cards", meta: "13 Card • 2-6 Players", category: "card", kind: "rummy", from: "#4b4fc4", to: "#1d2170", glow: "#5b61ff", players: "2-6", online: 12480, phase: 2 },
   { id: "rummy21", name: "21 Card Rummy", tag: "21 Cards", meta: "21 Card • 2-6 Players", category: "card", kind: "rummy", from: "#0f766e", to: "#0b2a3d", glow: "#2dd4bf", players: "2-6", online: 6930, phase: 3 },
   { id: "teen-patti", name: "Teen Patti", tag: "3 Cards", meta: "3 Card • 2-6 Players", category: "card", kind: "cardtable", from: "#d42f36", to: "#6d0e14", glow: "#ff4d57", players: "2-6", online: 18230, phase: 2 },

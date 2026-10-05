@@ -16,7 +16,8 @@ const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 
 export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
-  if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko") nav.push({ name: game.kind });
+  if (game.kind === "cricket") nav.push({ name: "cricket" });
+  else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
 }
@@ -102,7 +103,26 @@ export function Home({ nav }: { nav: Nav }) {
 
       <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
 
-      <div className="grid grid-cols-3 gap-2.5 mt-5">
+      {/* Cricket Live Exchange Featured Card */}
+      <button
+        onClick={() => nav.push({ name: "cricket" })}
+        className="w-full mt-4 rounded-3xl p-4 flex items-center justify-between text-left border border-emerald-500/40 relative overflow-hidden active:scale-[.98] transition-transform"
+        style={{
+          background: "linear-gradient(135deg, #064e3b 0%, #065f46 55%, #022c22 100%)",
+          boxShadow: "0 10px 28px rgba(5,150,105,.35)",
+        }}
+      >
+        <div className="flex-1 min-w-0 pr-3">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-600 text-[10px] font-black uppercase text-white animate-pulse">
+            ● Live Match
+          </span>
+          <div className="text-lg font-extrabold text-white mt-1">Cricket Live Exchange</div>
+          <div className="text-xs text-emerald-200/80 mt-0.5">Back & Lay Odds • Bookmaker • Live TV</div>
+        </div>
+        <span className="text-4xl drop-shadow-md shrink-0">🏏</span>
+      </button>
+
+      <div className="grid grid-cols-3 gap-2.5 mt-4">
         {GAMES.map((g) => <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />)}
       </div>
 
@@ -136,7 +156,7 @@ export function Home({ nav }: { nav: Nav }) {
   );
 }
 
-export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | "casino" | "board" }) {
+export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports" | "card" | "casino" | "board" }) {
   const { showToast } = useStore();
   const gs = useGameSettings();
   const [cat, setCat] = useState(initial);
@@ -156,7 +176,7 @@ export function Games({ nav, initial = "card" }: { nav: Nav; initial?: "card" | 
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${GAMES.length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
         ) : (
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {([["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
+            {([["sports", "Cricket / Sports"], ["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setCat(id)} className={`pill px-3.5 py-2 text-[12.5px] font-medium whitespace-nowrap transition-colors ${cat === id ? "btn-green" : "bg-white/5 text-white/80"}`}>
                 {label}
               </button>

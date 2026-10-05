@@ -5,9 +5,10 @@ export type RummyMode = "points" | "pool101" | "pool201" | "deals";
 
 export type Route =
   | { name: "home" }
-  | { name: "games"; category?: "card" | "casino" | "board" }
+  | { name: "games"; category?: "sports" | "card" | "casino" | "board" }
   | { name: "lobby"; game: GameId }
   | { name: "casino"; game: GameId }
+  | { name: "cricket"; matchId?: string }
   | { name: "aviator" }
   | { name: "roulette" }
   | { name: "blackjack" }

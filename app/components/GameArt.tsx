@@ -28,6 +28,18 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
   const size = "sm";
   const scale = (el: React.ReactNode) => (big ? <div style={{ transform: "scale(1.25)" }}>{el}</div> : el);
   switch (id) {
+    case "cricket":
+      return (
+        <span
+          style={{
+            fontSize: 38 * s,
+            lineHeight: 1,
+            filter: "drop-shadow(0 4px 8px rgba(16,185,129,.4))",
+          }}
+        >
+          🏏
+        </span>
+      );
     case "rummy":
       return scale(<Fan size={size} cards={[{ r: "A", s: "♠" }, { r: "A", s: "♥" }, { r: "A", s: "♠" }]} />);
     case "rummy21":
