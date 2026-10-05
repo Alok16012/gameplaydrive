@@ -176,7 +176,9 @@ export function Blackjack({ nav }: { nav: Nav }) {
     if (st.main + st.pp + st.t3 > total) return showToast("Not enough coins — ask your agent");
     setLastStakes(st);
     setStakes({ main: 0, pp: 0, t3: 0 });
-    await call("bj_deal", { p_bet: st.main, ...(st.pp ? { p_pp: st.pp } : {}), ...(st.t3 ? { p_t3: st.t3 } : {}) });
+    // Always send all three amounts: that names the side-bet version of bj_deal (020_blackjack_side_bets.sql)
+    // unambiguously, even if an older one-argument bj_deal is still in the database.
+    await call("bj_deal", { p_bet: st.main, p_pp: st.pp, p_t3: st.t3 });
   };
 
   const dealing = anim !== null;
