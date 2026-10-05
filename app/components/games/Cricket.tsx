@@ -598,38 +598,59 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
       </div>
 
       {/* 2. TOP SPORTS SELECTOR BAR (Cricket | Football | Tennis) */}
-      <div className="px-3 pt-2.5 pb-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-b border-white/10 bg-[#0c122c]">
-        {SPORTS_TABS.map((sport) => {
-          const isSelected = selectedSport === sport.id;
-          return (
-            <button
-              key={sport.id}
-              onClick={() => {
-                sfx.click();
-                setSelectedSport(sport.id);
-              }}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-extrabold flex items-center gap-1.5 transition-all border-t border-x ${
-                isSelected
-                  ? "bg-[#111c44] text-emerald-300 border-emerald-500/40 shadow-md"
-                  : "bg-black/30 text-white/60 border-transparent hover:text-white"
-              }`}
-            >
-              <span>{sport.icon}</span>
-              <span>{sport.label}</span>
-            </button>
-          );
-        })}
+      <div className="px-3 pt-2.5 pb-1 flex items-center justify-between overflow-x-auto no-scrollbar border-b border-white/10 bg-[#0c122c]">
+        <div className="flex items-center gap-1.5">
+          {SPORTS_TABS.map((sport) => {
+            const isSelected = selectedSport === sport.id;
+            return (
+              <button
+                key={sport.id}
+                onClick={() => {
+                  sfx.click();
+                  setSelectedSport(sport.id);
+                }}
+                className={`px-4 py-2.5 rounded-t-xl text-xs font-extrabold flex items-center gap-1.5 transition-all border-t border-x ${
+                  isSelected
+                    ? "bg-[#111c44] text-emerald-300 border-emerald-500/40 shadow-md"
+                    : "bg-black/30 text-white/60 border-transparent hover:text-white"
+                }`}
+              >
+                <span>{sport.icon}</span>
+                <span>{sport.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. IN-PLAY VS UPCOMING FILTER TABS */}
+      <div className="px-3 py-2 bg-[#0b1029] flex items-center justify-between gap-2 border-b border-white/5">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setMediaMode("none")} // dummy trigger to keep clean
+            className="px-2.5 py-1 rounded-lg bg-rose-600/90 text-white text-[11px] font-black uppercase flex items-center gap-1 shadow-sm"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+            In-Play ({matches.filter((m) => m.inPlay || m.isLive).length})
+          </button>
+          <span className="text-[11px] text-white/50 font-bold">
+            Upcoming ({matches.filter((m) => !m.inPlay && !m.isLive).length})
+          </span>
+        </div>
+        <div className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+          <Activity size={12} /> Auto-refresh Live
+        </div>
       </div>
 
       {/* Search Input */}
-      <div className="px-3 py-2.5 bg-[#0b1029]">
+      <div className="px-3 py-2 bg-[#0b1029]">
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search match or league..."
+            placeholder={`Search ${selectedSport} match or tournament...`}
             className="w-full pl-8 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none focus:border-emerald-400"
           />
         </div>
