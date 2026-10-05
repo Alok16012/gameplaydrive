@@ -44,9 +44,16 @@ export async function GET(req: NextRequest) {
     });
     if (railwayRes.ok) {
       const json = await railwayRes.json();
-      const rawMatches = Array.isArray(json?.data?.data)
-        ? json.data.data
-        : (Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []));
+      const rawMatches: any[] =
+        (Array.isArray(json?.data?.data) && json.data.data) ||
+        (Array.isArray(json?.data?.cricketMatches) && json.data.cricketMatches) ||
+        (Array.isArray(json?.data?.soccerMatches) && json.data.soccerMatches) ||
+        (Array.isArray(json?.data?.TennisMatches) && json.data.TennisMatches) ||
+        (Array.isArray(json?.data?.tennisMatches) && json.data.tennisMatches) ||
+        (Array.isArray(json?.data) && json.data) ||
+        (Array.isArray(json) && json) ||
+        (json?.data && typeof json.data === "object" ? Object.values(json.data).find(Array.isArray) as any[] : []) ||
+        [];
 
       if (rawMatches.length > 0) {
         const parsed = rawMatches.map((m: any) => {
@@ -114,8 +121,18 @@ export async function GET(req: NextRequest) {
       const contentType = res.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
         const json = await res.json();
-        const rawMatches = json?.data?.data || json?.data || json;
-        if (Array.isArray(rawMatches) && rawMatches.length > 0) {
+        const rawMatches: any[] =
+          (Array.isArray(json?.data?.data) && json.data.data) ||
+          (Array.isArray(json?.data?.cricketMatches) && json.data.cricketMatches) ||
+          (Array.isArray(json?.data?.soccerMatches) && json.data.soccerMatches) ||
+          (Array.isArray(json?.data?.TennisMatches) && json.data.TennisMatches) ||
+          (Array.isArray(json?.data?.tennisMatches) && json.data.tennisMatches) ||
+          (Array.isArray(json?.data) && json.data) ||
+          (Array.isArray(json) && json) ||
+          (json?.data && typeof json.data === "object" ? Object.values(json.data).find(Array.isArray) as any[] : []) ||
+          [];
+
+        if (rawMatches.length > 0) {
           const parsed = rawMatches.map((m: any) => {
             const parts = (m.eventName || "").split(/ v | vs | VS /i);
             const t1 = parts[0]?.trim() || "Team 1";
