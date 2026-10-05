@@ -72,8 +72,10 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   // The table scales with the stage: 1 = a typical phone held sideways (844 × 390).
   const [stage, setStage] = useState({ w: 844, h: 390 });
   const ro = useRef<ResizeObserver | null>(null);
+  const stageEl = useRef<HTMLDivElement | null>(null);
   const stageRef = useCallback((el: HTMLDivElement | null) => {
     ro.current?.disconnect();
+    stageEl.current = el;
     if (!el) return;
     const measure = () => setStage({ w: el.clientWidth, h: el.clientHeight });
     measure();
@@ -88,6 +90,35 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     const mine = view.me !== null ? view.seats[view.me] : null;
     if (mine && !mine.bot) applyBalance(mine.bal);
   }, [applyBalance]);
+
+  // Cards in flight: every draw (closed deck / open pile → the player) and every throw (player → open pile)
+  // is shown travelling across the table, one after another, instead of jumping into place.
+  interface Pt { x: number; y: number }
+  interface Flight { key: number; card: RCard | null; from: Pt; to: Pt; go: boolean }
+  const FLY_MS = 620;
+  const [flights, setFlights] = useState<Flight[]>([]);
+  const [pileHold, setPileHold] = useState<{ card: RCard | null } | null>(null); // open pile as it was until a throw lands
+  const [hidden, setHidden] = useState<number[]>([]); // your new card, until it lands in your hand
+  const flightSeq = useRef(0);
+  const prevV = useRef<View | null>(null);
+  const drawnSeat = useRef<number | null>(null); // a draw already shown whose throw hasn't come yet
+  const throwFrom = useRef<Pt | null>(null); // where your thrown card was in your hand
+  const deckRef = useRef<HTMLButtonElement | null>(null);
+  /** Centre of an element in stage coordinates (the stage may be turned 90° on an upright phone). */
+  const ptOf = (el: Element | null | undefined): Pt | null => {
+    const st = stageEl.current;
+    if (!el || !st) return null;
+    const r = el.getBoundingClientRect(), b = st.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    return st.closest(".stage-rotated") ? { x: cy - b.top, y: b.right - cx } : { x: cx - b.left, y: cy - b.top };
+  };
+  const fly = (card: RCard | null, from: Pt | null, to: Pt | null) => {
+    if (!from || !to) return;
+    const key = ++flightSeq.current;
+    setFlights((f) => [...f, { key, card, from, to, go: false }]);
+    window.setTimeout(() => setFlights((f) => f.map((x) => (x.key === key ? { ...x, go: true } : x))), 30);
+    window.setTimeout(() => setFlights((f) => f.filter((x) => x.key !== key)), FLY_MS + 80);
+  };
 
   const tick = useCallback(async () => {
     if (!tableId.current || ticking.current) return;
@@ -170,6 +201,70 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   }, []);
   const arrange = (gs: number[][]) => { setGroups(gs); save(gs); };
 
+  // Work out what happened since the last update and play it as flights.
+  useEffect(() => {
+    const prev = prevV.current;
+    prevV.current = v;
+    if (!v || !prev || v.status !== "playing" || prev.status !== "playing" || prev.match_no !== v.match_no || prev.deal_no !== v.deal_no) {
+      drawnSeat.current = null;
+      return;
+    }
+    type Ev = { kind: "draw"; seat: number; src: "open" | "closed"; card: RCard | null } | { kind: "throw"; seat: number; card: RCard };
+    const evs: Ev[] = [];
+    if (v.log) {
+      for (const m of v.log.slice(prev.log?.length ?? 0)) {
+        if (m.reshuffle || m.seat == null) continue;
+        if (drawnSeat.current !== m.seat) evs.push({ kind: "draw", seat: m.seat, src: m.src ?? "closed", card: m.src === "open" ? m.took ?? null : null });
+        drawnSeat.current = null;
+        if (m.threw) evs.push({ kind: "throw", seat: m.seat, card: m.threw });
+      }
+    } else if (v.open_top && v.open_top.id !== prev.open_top?.id && prev.phase === "discard" && prev.turn !== null) {
+      if (drawnSeat.current !== prev.turn) evs.push({ kind: "draw", seat: prev.turn, src: "closed", card: null });
+      drawnSeat.current = null;
+      evs.push({ kind: "throw", seat: prev.turn, card: v.open_top });
+    }
+    // A draw whose throw is still to come.
+    if (v.phase === "discard" && v.turn !== null && (prev.turn !== v.turn || prev.phase === "draw") && drawnSeat.current !== v.turn) {
+      const src = v.stock_count < prev.stock_count ? "closed" : "open";
+      evs.push({ kind: "draw", seat: v.turn, src, card: src === "open" ? prev.open_top : null });
+      drawnSeat.current = v.turn;
+    }
+    if (!evs.length) return;
+
+    const prevIds = new Set((prev.my_cards ?? []).map((c) => c.id));
+    const fresh = (v.my_cards ?? []).filter((c) => !prevIds.has(c.id)).map((c) => c.id);
+    if (fresh.length) setHidden(fresh);
+    const throws = evs.filter((e) => e.kind === "throw").length;
+    if (throws) setPileHold({ card: v.discards?.[throws] ?? (evs[0].kind === "draw" && evs[0].src === "open" ? null : prev.open_top) });
+
+    const seatPt = (seat: number): Pt | null => {
+      if (seat === v.me) return { x: stage.w / 2, y: stage.h - 40 * S };
+      return ptOf(stageEl.current?.querySelector(`[data-rc-seat="${seat}"]`));
+    };
+    let t = 0;
+    let thrown = 0;
+    for (const e of evs) {
+      window.setTimeout(() => {
+        if (e.kind === "draw") {
+          const from = ptOf(e.src === "open" ? openRef.current : deckRef.current);
+          const mineCard = e.seat === v.me && fresh.length ? stageEl.current?.querySelector(`[data-rc-card="${fresh[0]}"]`) : null;
+          fly(e.seat === v.me && fresh.length ? (v.my_cards ?? []).find((c) => c.id === fresh[0]) ?? e.card : e.card, from, ptOf(mineCard) ?? seatPt(e.seat));
+          sfx.card();
+          if (e.seat === v.me) window.setTimeout(() => setHidden([]), FLY_MS);
+        } else {
+          const from = e.seat === v.me ? throwFrom.current ?? seatPt(e.seat) : seatPt(e.seat);
+          if (e.seat === v.me) throwFrom.current = null;
+          fly(e.card, from, ptOf(openRef.current));
+          thrown += 1;
+          const last = thrown === throws;
+          window.setTimeout(() => { sfx.flip(); if (last) setPileHold(null); }, FLY_MS);
+        }
+      }, t);
+      t += FLY_MS + 140;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v]);
+
   // Show the scoreboard a moment after the deal ends.
   useEffect(() => {
     if (v?.status !== "dealdone" || !v.result) return;
@@ -193,6 +288,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 
   const act = async (action: string, card?: number, gs?: number[][]) => {
     if (!tableId.current || busy) return;
+    if (action === "discard" && card != null) throwFrom.current = ptOf(stageEl.current?.querySelector(`[data-rc-card="${card}"]`));
     setBusy(true);
     const { data, error } = await supabase().rpc("rm_act", { p_table: tableId.current, p_action: action, p_card: card ?? null, p_groups: gs ?? null });
     setBusy(false);
@@ -413,7 +509,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           const dropped = playing && (b.dropped || b.wrong);
           const away = !b.playing || b.out || b.left;
           return (
-            <div key={si + (b.uid ?? b.name)} className="absolute z-10 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }}>
+            <div key={si + (b.uid ?? b.name)} data-rc-seat={si} className="absolute z-10 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center" style={{ left: `${pos[0]}%`, top: `${pos[1]}%` }}>
               <RcAvatar emoji={b.emoji} size={av} active={active} left={active ? secsTo(v.turn_ends) : 0} total={turnSecs} dim={away && !dropped} badge={dropped ? (b.wrong ? "Wrong show" : "Dropped") : b.out ? "Out" : null} dealer={dealer === si} />
               <div className={`-mt-1.5 relative rounded-full bg-[#141814] border px-2.5 py-0.5 text-[12px] whitespace-nowrap max-w-[150px] truncate ${active ? "border-neon-400/70" : "border-white/15"}`}>
                 {tagText(b, false)}{b.bot && <BotTag />}
@@ -439,7 +535,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           ) : (
             <div className="relative h-0">
               {/* Closed deck, wild joker tucked underneath */}
-              <button disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => act("draw_stock")} aria-label={`Closed deck, ${v.stock_count} cards`} className="absolute -translate-y-1/2" style={{ left: "38%" }}>
+              <button ref={deckRef} disabled={!myTurn || v.phase !== "draw" || busy} onClick={() => act("draw_stock")} aria-label={`Closed deck, ${v.stock_count} cards`} className="absolute -translate-y-1/2" style={{ left: "38%" }}>
                 {v.wild && (
                   <div className="absolute top-1/2" style={{ left: -deckH * 0.62, transform: "translateY(-50%) rotate(-90deg)" }}>
                     <RcCard card={v.wild} wild w={deckW} h={deckH} />
@@ -450,9 +546,12 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               {/* Open card */}
               <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || (isJoker(v.open_top, wild) && !v.open_joker_ok)} onClick={() => act("draw_open")} aria-label="Open card" ref={openRef} className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[10px] transition-transform ${drag?.over === "discard" ? "scale-110 ring-4 ring-white/90" : ""}`} style={{ left: "52%" }}>
                 {drag?.over === "discard" && <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[11px] font-bold rounded-full px-2 py-0.5 bg-white text-black whitespace-nowrap z-10">Discard</div>}
-                {v.open_top
-                  ? <div className={`rounded-[10px] ${myTurn && v.phase === "draw" && (!isJoker(v.open_top, wild) || v.open_joker_ok) ? "rc-glow" : ""}`}><RcCard key={v.open_top.id} card={v.open_top} wild={isJoker(v.open_top, wild)} w={deckW} h={deckH} className="flip" /></div>
-                  : <div className="rounded-[10px] border-2 border-dashed border-white/25" style={{ width: deckW, height: deckH }} />}
+                {(() => {
+                  const top = pileHold ? pileHold.card : v.open_top;
+                  return top
+                    ? <div className={`rounded-[10px] ${!pileHold && myTurn && v.phase === "draw" && (!isJoker(top, wild) || v.open_joker_ok) ? "rc-glow" : ""}`}><RcCard key={top.id} card={top} wild={isJoker(top, wild)} w={deckW} h={deckH} /></div>
+                    : <div className="rounded-[10px] border-2 border-dashed border-white/25" style={{ width: deckW, height: deckH }} />;
+                })()}
               </button>
               {/* Show (finish) slot: select one card to put aside, then tap here */}
               <button ref={showRef} disabled={!canDiscard} onClick={() => setConfirm("declare")} aria-label="Show" className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-md border grid place-items-center text-[12px] font-semibold tracking-wide leading-tight text-center transition-transform ${drag?.over === "show" ? "scale-110 border-2 border-gold-300 text-gold-300 bg-gold-500/25" : canDiscard || (myTurn && v.phase === "discard" && drag?.moving) ? "border-gold-300 text-gold-300 bg-black/20 animate-pulse" : "border-black/40 text-black/45 bg-black/10"}`} style={{ left: "71%", width: deckW * 0.95, height: deckH * 1.02 }}>
@@ -504,9 +603,11 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                           onPointerMove={onCardMove}
                           onPointerUp={onCardUp}
                           onPointerCancel={() => setDrag(null)}
+                          data-rc-card={c.id}
                           className="absolute top-0"
                           style={{
                             left: ci * cstep,
+                            opacity: hidden.includes(c.id) ? 0 : undefined,
                             touchAction: "none",
                             zIndex: dragging ? 50 : undefined,
                             transform: dragging ? `translate(${drag!.dx}px, ${drag!.dy - 10}px) scale(1.06)` : undefined,
@@ -554,6 +655,23 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           <div className="absolute left-[3%] bottom-3 z-20 text-[11px] text-white/45 max-w-[30%]">Leaving mid-deal counts as a drop and forfeits the match</div>
         )}
       </div>
+
+      {flights.map((f) => {
+        const p = f.go ? f.to : f.from;
+        return (
+          <div
+            key={f.key}
+            className="absolute left-0 top-0 z-[60] pointer-events-none"
+            style={{
+              transform: `translate(${p.x - deckW / 2}px, ${p.y - deckH / 2}px) rotate(${f.go ? 0 : -10}deg) scale(${f.go ? 1 : 1.08})`,
+              transition: f.go ? `transform ${FLY_MS}ms cubic-bezier(.22,.8,.3,1)` : "none",
+              filter: "drop-shadow(0 8px 10px rgba(0,0,0,.45))",
+            }}
+          >
+            {f.card ? <RcCard card={f.card} wild={isJoker(f.card, wild)} w={deckW} h={deckH} /> : <RcBack w={deckW} h={deckH} />}
+          </div>
+        );
+      })}
 
       <Sheet open={moves} onClose={() => setMoves(false)} title="Table moves">
         <div className="text-[13px]">

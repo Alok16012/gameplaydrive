@@ -29,6 +29,8 @@ const OFFLINE_DROP_MS = 60000;
 export class TPTable {
   status: "waiting" | "playing" | "done" = "waiting";
   hand = 0;
+  /** Where the dealer button starts on this table (random), so the first turn isn't always the first player in. */
+  private dealStart = Math.floor(Math.random() * 6);
   pot = 0;
   stake = 0;
   round = 1;
@@ -161,7 +163,7 @@ export class TPTable {
     this.pot = this.boot * players.length;
     this.stake = this.boot;
     this.round = 1;
-    let first = (this.hand - 1) % s.length;
+    let first = (this.hand - 1 + this.dealStart) % s.length;
     while (!s[first].playing) first = (first + 1) % s.length;
     this.setTurn(first);
     this.starting = false;
@@ -378,7 +380,7 @@ export class TPTable {
     const iso = (t: number | null) => (t ? new Date(t).toISOString() : null);
     const c = cfg("teen-patti");
     return {
-      id: this.id, boot: this.boot, code: this.code, status: this.status, hand_no: this.hand, pot: this.pot, stake: this.stake, round: this.round,
+      id: this.id, boot: this.boot, code: this.code, status: this.status, hand_no: this.hand, deal_start: this.hand - 1 + this.dealStart, pot: this.pot, stake: this.stake, round: this.round,
       turn: this.turn, turn_ends: this.status === "playing" ? iso(this.pending ? this.pending.ends : this.turnEnds) : null,
       next_hand_at: this.status !== "playing" ? iso(this.nextAt) : null, result: this.result,
       seats: this.seats.map((x) => ({

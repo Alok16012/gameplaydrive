@@ -19,7 +19,7 @@ import type { Nav } from "../nav";
 interface Seat { uid?: string; name: string; emoji: string; bot: boolean; bal: number; playing?: boolean; packed?: boolean; seen?: boolean; action?: string | null; left?: boolean; blinds?: number; blinds_hand?: number }
 interface Result { seat: number; name: string; bot: boolean; uid?: string; amount: number; reason: string; pot: number; reveal: { seat: number; cards: Card[]; hand: string }[] }
 interface View {
-  id: string; boot: number; status: "waiting" | "playing" | "done"; hand_no: number; pot: number; stake: number; round: number;
+  id: string; boot: number; status: "waiting" | "playing" | "done"; hand_no: number; deal_start?: number; pot: number; stake: number; round: number;
   turn: number | null; turn_ends: string | null; next_hand_at: string | null; due_at: string | null; result: Result | null;
   seats: Seat[]; queued: boolean; me: number | null; my_cards: Card[] | null; my_hand: string | null; server_now: string;
   code: string | null; turn_secs: number; pending: { from: number; to: number; ends: string } | null;
@@ -183,7 +183,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   const playing = v?.status === "playing";
   const myTurn = playing && v?.turn === me && !!mySeat?.playing && !mySeat.packed;
   // Dealer of this hand (the seat before the one who opened the betting), shown with a DEALER tag.
-  const dealer = v && v.status !== "waiting" && v.hand_no > 0 ? dealerSeat(v.seats.map((s) => !!s.playing), v.hand_no - 1) : null;
+  const dealer = v && v.status !== "waiting" && v.hand_no > 0 ? dealerSeat(v.seats.map((s) => !!s.playing), v.deal_start ?? v.hand_no - 1) : null;
   const inHand = playing && !!mySeat?.playing && !mySeat.packed;
   const active = v ? v.seats.filter((s) => s.playing && !s.packed).length : 0;
   const chaalAmt = v ? (mySeat?.seen ? v.stake * 2 : v.stake) : 0;
