@@ -56,6 +56,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const ticking = useRef(false);
   const dealKey = useRef("");
   const saveTimer = useRef<number | null>(null);
+  const [drag, setDrag] = useState<{ id: number; gi: number; ci: number; x0: number; y0: number; dx: number; dy: number; moving: boolean; over: "discard" | "show" | null } | null>(null);
+  const openRef = useRef<HTMLButtonElement | null>(null);
+  const showRef = useRef<HTMLButtonElement | null>(null);
   const [menu, setMenu] = useState(false);
   // The table scales with the stage: 1 = a typical phone held sideways (844 × 390).
   const [stage, setStage] = useState({ w: 844, h: 390 });
@@ -259,23 +262,39 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   // Drag a card with your finger to rearrange the hand: drop it between cards of any group, or past the
   // last group to start a new one. A short tap still selects the card. Positions are worked out in the
   // table's own coordinates, so it behaves the same when the table is rotated on an upright phone.
-  const [drag, setDrag] = useState<{ id: number; gi: number; ci: number; x0: number; y0: number; dx: number; dy: number; moving: boolean } | null>(null);
   const toLocal = (sdx: number, sdy: number): [number, number] =>
     window.matchMedia("(orientation: portrait)").matches ? [sdy, -sdx] : [sdx, sdy];
+  // On your discard turn, dragging a card up onto the open pile discards it, and onto the Show slot
+  // declares with it. Hit-testing uses screen rectangles, so it works rotated too.
+  const dropTarget = (x: number, y: number, dy: number): "discard" | "show" | null => {
+    if (!(myTurn && v?.phase === "discard" && !busy)) return null;
+    const hit = (el: HTMLElement | null, pad: number) => {
+      const r = el?.getBoundingClientRect();
+      return !!r && x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
+    };
+    if (hit(showRef.current, 12)) return "show";
+    // The open pile, generously — or any card lifted well clear of the hand.
+    if (hit(openRef.current, deckW * 0.8) || dy < -ch * 1.3) return "discard";
+    return null;
+  };
   const onCardDown = (e: React.PointerEvent, id: number, gi: number, ci: number) => {
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    setDrag({ id, gi, ci, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, moving: false });
+    setDrag({ id, gi, ci, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0, moving: false, over: null });
   };
   const onCardMove = (e: React.PointerEvent) => {
     if (!drag) return;
     const [dx, dy] = toLocal(e.clientX - drag.x0, e.clientY - drag.y0);
-    setDrag({ ...drag, dx, dy, moving: drag.moving || Math.hypot(dx, dy) > 8 });
+    const moving = drag.moving || Math.hypot(dx, dy) > 8;
+    setDrag({ ...drag, dx, dy, moving, over: moving ? dropTarget(e.clientX, e.clientY, dy) : null });
   };
-  const onCardUp = () => {
+  const onCardUp = (e: React.PointerEvent) => {
     if (!drag) return;
     const d = drag;
     setDrag(null);
     if (!d.moving) return toggle(d.id);
+    const over = dropTarget(e.clientX, e.clientY, d.dy);
+    if (over === "discard") return act("discard", d.id);
+    if (over === "show") { setSel([d.id]); return setConfirm("declare"); }
     // Where did the card's centre land, along the row of groups?
     const widths = groups.map((g) => cw + (g.length - 1) * cstep);
     const starts = widths.map((_, i) => widths.slice(0, i).reduce((a, w) => a + w + cgap, 0));
@@ -409,13 +428,14 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 <div className={`relative rounded-[10px] ${myTurn && v.phase === "draw" ? "rc-glow" : ""}`}><RcBack w={deckW} h={deckH} /></div>
               </button>
               {/* Open card */}
-              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || isJoker(v.open_top, wild)} onClick={() => act("draw_open")} aria-label="Open card" className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: "52%" }}>
+              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || isJoker(v.open_top, wild)} onClick={() => act("draw_open")} aria-label="Open card" ref={openRef} className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[10px] transition-transform ${drag?.over === "discard" ? "scale-110 ring-4 ring-white/90" : ""}`} style={{ left: "52%" }}>
+                {drag?.over === "discard" && <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[11px] font-bold rounded-full px-2 py-0.5 bg-white text-black whitespace-nowrap z-10">Discard</div>}
                 {v.open_top
                   ? <div className={`rounded-[10px] ${myTurn && v.phase === "draw" && !isJoker(v.open_top, wild) ? "rc-glow" : ""}`}><RcCard key={v.open_top.id} card={v.open_top} wild={isJoker(v.open_top, wild)} w={deckW} h={deckH} className="flip" /></div>
                   : <div className="rounded-[10px] border-2 border-dashed border-white/25" style={{ width: deckW, height: deckH }} />}
               </button>
               {/* Show (finish) slot: select one card to put aside, then tap here */}
-              <button disabled={!canDiscard} onClick={() => setConfirm("declare")} aria-label="Show" className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-md border grid place-items-center text-[12px] font-semibold tracking-wide leading-tight text-center ${canDiscard ? "border-gold-300 text-gold-300 bg-black/20 animate-pulse" : "border-black/40 text-black/45 bg-black/10"}`} style={{ left: "71%", width: deckW * 0.95, height: deckH * 1.02 }}>
+              <button ref={showRef} disabled={!canDiscard} onClick={() => setConfirm("declare")} aria-label="Show" className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-md border grid place-items-center text-[12px] font-semibold tracking-wide leading-tight text-center transition-transform ${drag?.over === "show" ? "scale-110 border-2 border-gold-300 text-gold-300 bg-gold-500/25" : canDiscard || (myTurn && v.phase === "discard" && drag?.moving) ? "border-gold-300 text-gold-300 bg-black/20 animate-pulse" : "border-black/40 text-black/45 bg-black/10"}`} style={{ left: "71%", width: deckW * 0.95, height: deckH * 1.02 }}>
                 SHOW<br />HERE
               </button>
             </div>
