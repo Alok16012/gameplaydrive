@@ -165,38 +165,19 @@ export async function fetchCricketMatches(sport: SportType = "cricket"): Promise
   return [];
 }
 
-// Fetch live odds for event
-export async function fetchCricketOdds(eventId: string, sport: SportType = "cricket"): Promise<CricketOddsResponse> {
+// Fetch live odds for event (Served through server cache: 500ms live, 2s upcoming)
+export async function fetchCricketOdds(
+  eventId: string,
+  sport: SportType = "cricket",
+  isLive = true
+): Promise<CricketOddsResponse> {
   const sportName = sport === "soccer" ? "soccer" : sport;
 
-  // 1. Attempt direct live odds from DiamondExch
   try {
-    const directRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?eventId=${encodeURIComponent(eventId)}`, {
-      method: "GET",
-      headers: { "Accept": "application/json" },
-      cache: "no-store",
-    });
-    if (directRes.ok) {
-      const json = await directRes.json();
-      const data = json?.data?.data || json?.data || json;
-      if (data && (data.matchOdds || data.match_odds || data.bookMakerOdds || data.fancyOdds)) {
-        const matchOdds = Array.isArray(data.matchOdds) ? data.matchOdds : (data.match_odds ? [data.match_odds] : []);
-        const bookMakerOdds = Array.isArray(data.bookMakerOdds)
-          ? data.bookMakerOdds.map((b: any) => b.bm1 || b)
-          : [];
-        const fancyOdds = Array.isArray(data.fancyOdds) ? data.fancyOdds : [];
-        return { matchOdds, bookMakerOdds, fancyOdds };
-      }
-    }
-  } catch {
-    // fallback to proxy
-  }
-
-  // 2. Backend Proxy
-  try {
-    const res = await fetch(`/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
-      cache: "no-store",
-    });
+    const res = await fetch(
+      `/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}`,
+      { cache: "no-store" }
+    );
     if (!res.ok) throw new Error("Failed to fetch odds");
     const json = await res.json();
     const data = json?.data || {};
@@ -211,6 +192,34 @@ export async function fetchCricketOdds(eventId: string, sport: SportType = "cric
   } catch (err) {
     console.error("Error fetching sports odds:", err);
     return { matchOdds: [], bookMakerOdds: [], fancyOdds: [] };
+  }
+}
+
+// Fetch Fancy Results (Cached for 1 minute on server)
+export async function fetchFancyResults(eventId: string, sport: SportType = "cricket"): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/cricket/fancy-results?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json?.data) ? json.data : [];
+  } catch {
+    return [];
+  }
+}
+
+// Fetch Betfair & Bookmaker Results (Cached for 5 minutes on server)
+export async function fetchMatchResults(eventId: string, sport: SportType = "cricket"): Promise<any[]> {
+  try {
+    const res = await fetch(`/api/cricket/results?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json?.data) ? json.data : [];
+  } catch {
+    return [];
   }
 }
 

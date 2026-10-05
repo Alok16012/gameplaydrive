@@ -9,9 +9,12 @@ export async function GET(req: NextRequest) {
   const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
   const sportParam = (searchParams.get("sport") || "cricket").toLowerCase();
 
-  // 1. Attempt via Railway Proxy first
+  const isLive = searchParams.get("live") === "true" || searchParams.get("inPlay") === "true";
+  const cacheControl = isLive ? "public, max-age=1" : "public, max-age=2";
+
+  // 1. Attempt via Railway Proxy first (Live: 500ms cache, Upcoming: 2s cache)
   try {
-    const railwayRes = await fetch(`${railwayHost}/api/cricket/odds?eventId=${eventId}&sport=${sportParam}`, {
+    const railwayRes = await fetch(`${railwayHost}/api/cricket/odds?eventId=${eventId}&sport=${sportParam}&live=${isLive}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
@@ -19,11 +22,18 @@ export async function GET(req: NextRequest) {
       const json = await railwayRes.json();
       const data = json?.data?.data || json?.data || json;
       if (data && (data.matchOdds || data.match_odds || data.bookMakerOdds || data.fancyOdds)) {
-        return NextResponse.json({
-          success: true,
-          source: "railway_diamondexch_live",
-          data,
-        });
+        return NextResponse.json(
+          {
+            success: true,
+            source: "railway_diamondexch_live",
+            data,
+          },
+          {
+            headers: {
+              "Cache-Control": cacheControl,
+            },
+          }
+        );
       }
     }
   } catch (err) {
@@ -43,7 +53,7 @@ export async function GET(req: NextRequest) {
       headers["x-api-key"] = apiKey;
     }
 
-    const res = await fetch(`${baseUrl}/api/cricket/odds?eventId=${eventId}`, {
+    const res = await fetch(`${baseUrl}/api/${sportParam === "football" ? "soccer" : sportParam}/odds?eventId=${eventId}`, {
       headers,
       cache: "no-store",
       signal: AbortSignal.timeout(6000),
@@ -55,11 +65,18 @@ export async function GET(req: NextRequest) {
         const json = await res.json();
         const data = json?.data?.data || json?.data || json;
         if (data && (data.matchOdds || data.match_odds || data.bookMakerOdds || data.fancyOdds)) {
-          return NextResponse.json({
-            success: true,
-            source: "diamondexch_live",
-            data,
-          });
+          return NextResponse.json(
+            {
+              success: true,
+              source: "diamondexch_live",
+              data,
+            },
+            {
+              headers: {
+                "Cache-Control": cacheControl,
+              },
+            }
+          );
         }
       }
     }

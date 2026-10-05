@@ -11,6 +11,7 @@ import { refreshBots } from "./bots.js";
 import { getProfile, userFromToken, betRoom } from "./supa.js";
 import { SupabaseWallet } from "./wallet.js";
 import { TPTable } from "./teenpatti.js";
+import { fetchWithCache, CACHE_TTLS } from "./sportsCache.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const BOOTS = [10, 25, 50, 100, 200, 500, 1000];
@@ -192,46 +193,140 @@ const server = createServer(async (req, res) => {
     return res.end(JSON.stringify(diag, null, 2));
   }
 
-  // 2. Proxy: Sports Matches from DiamondExch
+  // 2. Proxy: Sports Matches from DiamondExch (Cached for 15 minutes)
   if (pathname === "/api/sports/matches" || pathname === "/api/cricket/matches") {
     const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
     const sportName = sportParam === "football" ? "soccer" : sportParam;
+    const cacheKey = `matches_${sportName}`;
+
     try {
-      const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
-        headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
-        cache: "no-store",
+      const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.MATCH_LIST, async () => {
+        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
+          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          cache: "no-store",
+        });
+        const text = await dRes.text();
+        return {
+          status: dRes.status,
+          contentType: dRes.headers.get("content-type") || "application/json",
+          data: text,
+        };
       });
-      const text = await dRes.text();
-      res.writeHead(dRes.status, {
-        "Content-Type": dRes.headers.get("content-type") || "application/json",
-        "Cache-Control": "no-store",
+
+      res.writeHead(cachedRes.status, {
+        "Content-Type": cachedRes.contentType,
+        "Cache-Control": "public, max-age=900",
+        "X-Cache": cachedRes.cached ? "HIT" : "MISS",
+        "X-Cache-Age-Ms": String(cachedRes.ageMs),
       });
-      return res.end(text);
+      return res.end(cachedRes.data);
     } catch (err: any) {
       res.writeHead(502, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ error: "Failed to fetch from DiamondExch", details: err.message }));
     }
   }
 
-  // 3. Proxy: Match Odds from DiamondExch
+  // 3. Proxy: Match Odds from DiamondExch (Live: 500ms, Upcoming: 2s)
   if (pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
     const eventId = parsedUrl.searchParams.get("eventId") || "";
     const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
     const sportName = sportParam === "football" ? "soccer" : sportParam;
+    const isLive = parsedUrl.searchParams.get("live") === "true" || parsedUrl.searchParams.get("inPlay") === "true";
+    const ttl = isLive ? CACHE_TTLS.LIVE_MATCH_ODDS : CACHE_TTLS.UPCOMING_MATCH_ODDS;
+    const cacheKey = `odds_${sportName}_${eventId}`;
+
     try {
-      const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?eventId=${encodeURIComponent(eventId)}`, {
-        headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
-        cache: "no-store",
+      const cachedRes = await fetchWithCache(cacheKey, ttl, async () => {
+        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?eventId=${encodeURIComponent(eventId)}`, {
+          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          cache: "no-store",
+        });
+        const text = await dRes.text();
+        return {
+          status: dRes.status,
+          contentType: dRes.headers.get("content-type") || "application/json",
+          data: text,
+        };
       });
-      const text = await dRes.text();
-      res.writeHead(dRes.status, {
-        "Content-Type": dRes.headers.get("content-type") || "application/json",
-        "Cache-Control": "no-store",
+
+      res.writeHead(cachedRes.status, {
+        "Content-Type": cachedRes.contentType,
+        "Cache-Control": isLive ? "public, max-age=1" : "public, max-age=2",
+        "X-Cache": cachedRes.cached ? "HIT" : "MISS",
+        "X-Cache-Age-Ms": String(cachedRes.ageMs),
       });
-      return res.end(text);
+      return res.end(cachedRes.data);
     } catch (err: any) {
       res.writeHead(502, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ error: "Failed to fetch odds from DiamondExch", details: err.message }));
+    }
+  }
+
+  // 4. Proxy: Fancy Results API (Cached for 1 minute)
+  if (pathname === "/api/cricket/fancy-results" || pathname === "/api/sports/fancy-results" || pathname === "/api/fancy-results") {
+    const eventId = parsedUrl.searchParams.get("eventId") || "";
+    const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
+    const sportName = sportParam === "football" ? "soccer" : sportParam;
+    const cacheKey = `fancy_results_${sportName}_${eventId}`;
+
+    try {
+      const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.FANCY_RESULTS, async () => {
+        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/fancy-results?eventId=${encodeURIComponent(eventId)}`, {
+          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          cache: "no-store",
+        });
+        const text = await dRes.text();
+        return {
+          status: dRes.status,
+          contentType: dRes.headers.get("content-type") || "application/json",
+          data: text,
+        };
+      });
+
+      res.writeHead(cachedRes.status, {
+        "Content-Type": cachedRes.contentType,
+        "Cache-Control": "public, max-age=60",
+        "X-Cache": cachedRes.cached ? "HIT" : "MISS",
+        "X-Cache-Age-Ms": String(cachedRes.ageMs),
+      });
+      return res.end(cachedRes.data);
+    } catch (err: any) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Failed to fetch fancy results", details: err.message }));
+    }
+  }
+
+  // 5. Proxy: Betfair & Bookmaker Results API (Cached for 5 minutes)
+  if (pathname === "/api/cricket/results" || pathname === "/api/sports/results" || pathname === "/api/results") {
+    const eventId = parsedUrl.searchParams.get("eventId") || "";
+    const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
+    const sportName = sportParam === "football" ? "soccer" : sportParam;
+    const cacheKey = `results_${sportName}_${eventId}`;
+
+    try {
+      const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.BETFAIR_BOOKMAKER_RESULTS, async () => {
+        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/results?eventId=${encodeURIComponent(eventId)}`, {
+          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          cache: "no-store",
+        });
+        const text = await dRes.text();
+        return {
+          status: dRes.status,
+          contentType: dRes.headers.get("content-type") || "application/json",
+          data: text,
+        };
+      });
+
+      res.writeHead(cachedRes.status, {
+        "Content-Type": cachedRes.contentType,
+        "Cache-Control": "public, max-age=300",
+        "X-Cache": cachedRes.cached ? "HIT" : "MISS",
+        "X-Cache-Age-Ms": String(cachedRes.ageMs),
+      });
+      return res.end(cachedRes.data);
+    } catch (err: any) {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ error: "Failed to fetch match results", details: err.message }));
     }
   }
 

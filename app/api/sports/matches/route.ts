@@ -82,12 +82,19 @@ export async function GET(req: NextRequest) {
           };
         });
 
-        return NextResponse.json({
-          success: true,
-          source: "railway_diamondexch_live",
-          sport: sportName,
-          data: parsed,
-        });
+        return NextResponse.json(
+          {
+            success: true,
+            source: "railway_diamondexch_live",
+            sport: sportName,
+            data: parsed,
+          },
+          {
+            headers: {
+              "Cache-Control": "public, s-maxage=900, stale-while-revalidate=60",
+            },
+          }
+        );
       } else {
         railwayError = `Railway returned non-array or empty: ${JSON.stringify(json).slice(0, 200)}`;
       }
