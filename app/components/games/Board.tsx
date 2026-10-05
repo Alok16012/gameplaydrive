@@ -279,45 +279,67 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
   const CELL = 100 / 15;
   const myOpts = awaitMove ? movable(0, dice) : [];
 
+  // Player badges sit at the board corners next to their yards (red top-left, green top-right, blue bottom-left,
+  // yellow bottom-right); the one whose turn it is glows and shows the dice.
+  const Badge = ({ p, align }: { p: number; align: "left" | "right" }) => {
+    const pl = LPLAYERS[p];
+    const active = started && turn === p && winner === null;
+    const home = tokens[p].filter((x) => x === 56).length;
+    return (
+      <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
+        <div className={`relative rounded-full p-[3px] transition-shadow ${active ? "shadow-[0_0_16px_4px_rgba(255,255,255,.35)]" : ""}`} style={{ background: pl.color }}>
+          <Avatar size={34} emoji={p === 0 ? "🧑🏽" : ["", "👨🏻", "👩🏽", "🧔🏾"][p]} />
+          {active && p !== 0 && <div className="absolute -bottom-1 -right-1 scale-[.42] origin-bottom-right"><DiceFace v={dice} rolling={rolling} size={56} /></div>}
+        </div>
+        <div className="min-w-0">
+          <div className={`text-[12px] font-semibold truncate max-w-[110px] ${active ? "text-white" : "text-white/70"}`}>{names[p]}{p > 0 && <BotTag />}</div>
+          <div className="text-[10px] text-white/50 flex items-center gap-1" style={{ justifyContent: align === "right" ? "flex-end" : undefined }}>
+            {[0, 1, 2, 3].map((k) => <span key={k} className="w-1.5 h-1.5 rounded-full" style={{ background: k < home ? pl.color : "rgba(255,255,255,.18)" }} />)}
+            <span className="ml-0.5">{home}/4 home</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-dvh flex flex-col pb-5 fadein">
+    <div className="min-h-dvh flex flex-col pb-5 fadein" style={{ background: "radial-gradient(120% 70% at 50% 35%, #1d3a8a 0%, #0b1438 60%, #070b22 100%)" }}>
       <Header title="Ludo" sub={`Table #${table} • 4 Players • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <div className="grid grid-cols-4 gap-1.5 mb-3">
-          {LPLAYERS.map((pl, p) => (
-            <div key={p} className={`rounded-xl px-1.5 py-1.5 flex items-center gap-1.5 border ${turn === p && started ? "border-white/60 bg-white/10" : "border-white/5 bg-white/[0.03]"}`}>
-              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: pl.color }} />
-              <div className="min-w-0">
-                <div className="text-[10px] font-medium truncate">{names[p]}{p > 0 && <BotTag />}</div>
-                <div className="text-[9px] text-white/50">{tokens[p].filter((x) => x === 56).length}/4 home</div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <div className="flex justify-between items-center mb-2 px-1"><Badge p={0} align="left" /><Badge p={1} align="right" /></div>
 
-        <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-[#f8fafc] shadow-2xl">
+        {/* Board in a wooden frame */}
+        <div className="rounded-[22px] p-[2.6%] shadow-[0_18px_40px_rgba(0,0,0,.55)]" style={{ background: "linear-gradient(145deg,#8a5a2b,#5a3416 55%,#3f2410)" }}>
+        <div className="relative w-full aspect-square rounded-[14px] overflow-hidden bg-white shadow-[inset_0_0_0_2px_rgba(0,0,0,.25)]">
           {/* track cells */}
           {TRACK.map(([r, c], i) => {
             const startOf = LPLAYERS.find((pl) => pl.start === i);
+            const safeOwner = SAFE.has(i) && !startOf ? LPLAYERS[Math.floor(((i + 52 - 8) % 52) / 13)] : null;
             return (
-              <div key={i} className="absolute border border-slate-300 grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: startOf ? startOf.color : "#fff" }}>
-                {SAFE.has(i) && !startOf && <Star size={12} className="text-slate-400" />}
+              <div key={i} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: startOf ? startOf.color : "#fff", boxShadow: "inset 0 0 0 0.5px #b9c2d0" }}>
+                {startOf && <span className="text-white/90 text-[9px] font-black">▶</span>}
+                {safeOwner && <Star size={13} fill={safeOwner.color} color={safeOwner.dark} strokeWidth={1.2} />}
               </div>
             );
           })}
           {LPLAYERS.map((pl, p) => (
             <div key={p}>
               {pl.home.map(([r, c], i) => (
-                <div key={i} className="absolute border border-slate-300" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: pl.color }} />
+                <div key={i} className="absolute" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: pl.color, boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.18)" }} />
               ))}
-              {/* yard */}
-              <div className="absolute p-[2.2%]" style={{ top: `${(p === 0 || p === 1 ? 0 : 9) * CELL}%`, left: `${(p === 0 || p === 3 ? 0 : 9) * CELL}%`, width: `${6 * CELL}%`, height: `${6 * CELL}%`, background: pl.color }}>
-                <div className="w-full h-full bg-white rounded-lg" />
+              {/* yard: coloured square, white panel, four token spots */}
+              <div className="absolute p-[0.9%]" style={{ top: `${(p === 0 || p === 1 ? 0 : 9) * CELL}%`, left: `${(p === 0 || p === 3 ? 0 : 9) * CELL}%`, width: `${6 * CELL}%`, height: `${6 * CELL}%`, background: `linear-gradient(145deg, ${pl.color}, ${pl.dark})` }}>
+                <div className="w-full h-full rounded-[18%] bg-white/95 shadow-[inset_0_2px_6px_rgba(0,0,0,.18)]" />
               </div>
+              {pl.yard.map(([r, c], i) => (
+                <div key={`s${i}`} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%` }}>
+                  <div className="w-[86%] h-[86%] rounded-full" style={{ background: `radial-gradient(circle at 50% 40%, ${pl.color}55, ${pl.color}22 60%)`, boxShadow: `inset 0 0 0 2px ${pl.color}` }} />
+                </div>
+              ))}
             </div>
           ))}
-          {/* centre */}
-          <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from 45deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)` }} />
+          {/* centre: the four home triangles */}
+          <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from 45deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)`, boxShadow: "inset 0 0 10px rgba(0,0,0,.35)" }} />
           {/* tokens: positioned with transforms (GPU) and a hop on every square they land on */}
           {tokens.map((row, p) =>
             row.map((prog, i) => {
@@ -341,16 +363,20 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
                     willChange: "transform",
                   }}
                 >
-                  <span key={prog} className={`block w-full h-full p-[15%] ${prog >= 0 ? "hop" : ""}`}>
-                    <span
-                      className={`block w-full h-full rounded-full border-2 border-white ${glow ? "pulse-ring" : ""}`}
-                      style={{
-                        transform: `scale(${glow ? 1.12 * small : small})`,
-                        transition: "transform .15s",
-                        background: `radial-gradient(circle at 35% 30%, #fff8, ${LPLAYERS[p].color} 45%, ${LPLAYERS[p].dark})`,
-                        boxShadow: "0 3px 6px rgba(0,0,0,.45)",
-                      }}
-                    />
+                  <span key={prog} className={`relative block w-full h-full ${prog >= 0 ? "hop" : ""}`}>
+                    {glow && <span className="absolute left-1/2 bottom-[8%] -translate-x-1/2 w-[80%] h-[34%] rounded-full pulse-ring" style={{ background: "rgba(255,255,255,.55)" }} />}
+                    <svg viewBox="0 0 40 52" className="absolute left-1/2 bottom-[14%] drop-shadow-[0_3px_2px_rgba(0,0,0,.45)]" style={{ width: `${86 * small}%`, height: `${112 * small}%`, transform: `translateX(-50%) scale(${glow ? 1.1 : 1})`, transition: "transform .15s" }}>
+                      <defs>
+                        <linearGradient id={`pin${p}`} x1="0" y1="0" x2="1" y2="1">
+                          <stop offset="0" stopColor="#fff" stopOpacity=".55" />
+                          <stop offset=".35" stopColor={LPLAYERS[p].color} />
+                          <stop offset="1" stopColor={LPLAYERS[p].dark} />
+                        </linearGradient>
+                      </defs>
+                      <path d="M20 50 C9 35 4 27 4 18 A16 16 0 1 1 36 18 C36 27 31 35 20 50 Z" fill={`url(#pin${p})`} stroke="#fff" strokeWidth="2.5" />
+                      <circle cx="20" cy="18" r="8" fill="#fff" />
+                      <circle cx="20" cy="18" r="4.6" fill={LPLAYERS[p].color} />
+                    </svg>
                   </span>
                 </button>
               );
@@ -362,19 +388,18 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
             </div>
           )}
         </div>
-
-        <div className="mt-4 flex items-center gap-4">
-          <button onClick={myRoll} disabled={!started || turn !== 0 || rolling || moving || awaitMove} className={`active:scale-95 transition-[transform,opacity] ${!started || turn !== 0 || moving || awaitMove ? "opacity-50" : ""} ${started && turn === 0 && !rolling && !moving && !awaitMove ? "pulse-ring rounded-xl" : ""}`}>
-            <DiceFace v={dice} rolling={rolling} size={64} />
-          </button>
-          <div className="flex-1">
-            <div className="text-sm font-medium">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
-            <div className="text-xs text-white/60 mt-0.5">{msg}</div>
-          </div>
         </div>
-        {started && winner === null && (
-          <button onClick={() => finish(0)} className="w-full text-center text-[11px] text-white/40 mt-4 border border-dashed border-white/15 rounded-xl py-2">Demo: finish game</button>
-        )}
+
+        <div className="flex justify-between items-center mt-2 px-1"><Badge p={3} align="left" /><Badge p={2} align="right" /></div>
+
+        {/* Your dice */}
+        <div className="mt-4 flex flex-col items-center">
+          <button onClick={myRoll} disabled={!started || turn !== 0 || rolling || moving || awaitMove} className={`rounded-2xl p-2 active:scale-95 transition-[transform,opacity] ${!started || turn !== 0 || moving || awaitMove ? "opacity-45" : ""} ${started && turn === 0 && !rolling && !moving && !awaitMove ? "pulse-ring" : ""}`} style={{ background: "linear-gradient(145deg,#ef4444,#991b1b)", boxShadow: "0 8px 18px rgba(0,0,0,.45)" }}>
+            <DiceFace v={dice} rolling={rolling} size={68} />
+          </button>
+          <div className="text-sm font-semibold mt-2.5">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
+          <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{msg}</div>
+        </div>
       </div>
 
       <ResultSheet
