@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
 import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
 import { refreshBotConfig } from "../lib/botpool";
@@ -50,6 +50,25 @@ function Shell() {
     }),
     [signOut],
   );
+
+  // The phone's back button / back gesture: the screens live in our own stack, not in the browser history, so
+  // without this the browser would leave the site. Keep one extra history entry while signed in; each back press
+  // pops a screen and puts the entry back. On the home screen the press is let through and the site closes.
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
+  useEffect(() => {
+    if (auth !== "in") return;
+    window.history.pushState({ gamehub: true }, "");
+    const onPop = () => {
+      const s = stackRef.current;
+      if (s.length === 1 && s[0].name === "home") return void window.history.back();
+      window.history.pushState({ gamehub: true }, "");
+      setStack(s.length > 1 ? s.slice(0, -1) : [{ name: "home" }]);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [auth]);
 
   // If the session ends while playing (expired, or signed out elsewhere), go back to the login screen
   // instead of leaving the player on a table whose requests would all be rejected.
