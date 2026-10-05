@@ -1,5 +1,6 @@
 "use client";
 
+import { clearActive, dropSnap, loadSnap, markActive, saveSnap } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { MoreVertical } from "lucide-react";
@@ -9,7 +10,7 @@ import { POKER_NAMES, TP_NAMES, compare, pokerScore, teenPattiScore } from "../.
 import { useStore } from "../../lib/store";
 import { Header, Money, PlayingCard } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, TURN_SECS, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
-import type { Nav } from "../nav";
+import type { Nav, Route } from "../nav";
 import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
 
 // Teen Patti (PRD §6.1) and Texas Hold'em demo table. Game logic runs locally against three bots;
@@ -75,9 +76,23 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const pace = botPace(gs, gameId);
   const poker = gameId === "poker";
   const { total, debit, credit, showToast } = useStore();
+  // Rejoin: a hand in play is saved on this phone after every change, and picked up again when you come back
+  // to this table — same cards, same pot, the boot is not charged again.
+  const snapKey = `${gameId}:${table}:${buyIn}`;
+  const route: Route = { name: "cardtable", game: gameId, table, buyIn };
   const g = useRef<G>(null as unknown as G);
+  const restored = useRef<boolean | null>(null);
+  if (restored.current === null) {
+    const sn = loadSnap<G>(snapKey);
+    restored.current = !!sn && sn.phase === "playing";
+    if (sn && restored.current) g.current = { ...sn, busy: false };
+  }
   if (!g.current) g.current = fresh(pickBots(BOTS).map(seat));
-  const [, bump] = useReducer((x: number) => x + 1, 0);
+  const [, rerender] = useReducer((x: number) => x + 1, 0);
+  const bump = () => {
+    rerender();
+    if (g.current.phase === "playing") saveSnap(snapKey, g.current);
+  };
   const [lowBal, setLowBal] = useState(false);
   const [raising, setRaising] = useState(false); // poker: raise amount picker open
   const [raiseAmt, setRaiseAmt] = useState(0);
@@ -135,6 +150,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     next.turn = "me";
     next.timerEnd = Date.now() + TURN_SECS * 1000;
     g.current = next;
+    markActive(route, `${game.name} • Table #${table}`);
     bump();
   };
 
@@ -147,6 +163,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     st.phase = "done";
     st.turn = null;
     st.busy = false;
+    dropSnap(snapKey);
+    clearActive(route);
     bump();
     // Let the table show the revealed cards and winner for a moment before the result sheet slides up.
     window.setTimeout(() => { if (g.current === st) { st.sheet = true; bump(); } }, 2200);
@@ -166,10 +184,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     finish(best, handName(best === "me" ? st.me.cards : st.bots[best].cards, true));
   };
 
-  const botsTurn = async () => {
+  const botsTurn = async (from = 0) => {
     const st = g.current;
     st.busy = true;
-    for (let i = 0; i < st.bots.length; i++) {
+    for (let i = from; i < st.bots.length; i++) {
       const b = st.bots[i];
       if (b.packed || st.phase !== "playing") continue;
       // Each bot gets its own 15 s clock and uses a human-like slice of it.
@@ -333,6 +351,18 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.phase, g.current]);
+
+  // Back at a saved hand: carry on where it stopped (your turn keeps its clock; otherwise the table plays on).
+  const resumed = useRef(false); // once only (React may run mount effects twice in development)
+  useEffect(() => {
+    if (!restored.current || resumed.current) return;
+    resumed.current = true;
+    const st = g.current;
+    showToast("Welcome back — your hand is still on");
+    if (st.turn !== "me") botsTurn(typeof st.turn === "number" ? st.turn : 0);
+    else rerender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Leaving the table invalidates any running bot loop.
   useEffect(() => () => { g.current = { ...g.current, phase: "idle" }; }, []);

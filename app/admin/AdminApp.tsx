@@ -1,5 +1,6 @@
 "use client";
 
+import { SupportCard } from "./SupportCard";
 import { useEffect, useState } from "react";
 import {
   BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
@@ -946,6 +947,7 @@ export function ConfigView() {
   return (
     <>
       <Title t="Game Config" s="Same rules for every player. Changes are written to the audit log." />
+      <SupportCard />
       <div className="grid md:grid-cols-2 gap-4">
         {CONFIG_GAMES.map(({ id, fields, note }) => {
           const g = GAMES.find((x) => x.id === id)!;

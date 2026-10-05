@@ -1,5 +1,6 @@
 "use client";
 
+import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, LogOut, Users } from "lucide-react";
@@ -141,6 +142,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   const leave = () => {
     gameSocket.resume(null);
     gameSocket.send({ t: "tp_leave" });
+    clearActive();
     nav.back();
   };
 

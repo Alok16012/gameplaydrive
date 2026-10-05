@@ -1,5 +1,6 @@
 "use client";
 
+import { clearActive, dropSnap, loadSnap, markActive, saveSnap } from "../../lib/rejoin";
 import { sfx, vibrate } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { Star } from "lucide-react";
@@ -8,7 +9,7 @@ import { pickBots, type Bot } from "../../lib/botpool";
 import { useStore } from "../../lib/store";
 import { Avatar, Header, Money } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
-import type { Nav } from "../nav";
+import type { Nav, Route } from "../nav";
 import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
 import { bestMove, inCheck, kingSquare, legalMoves, makeMove, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
 
@@ -99,6 +100,8 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
   const label = `Ludo • Table #${table}`;
   // Fresh opponents every game (matchmaking), index 0 is you.
   const [names, setNames] = useState<string[]>(() => ["You", ...pickBots(3).map((b) => b.name)]);
+  const namesRef = useRef(names);
+  namesRef.current = names;
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
   const gameNo = useRef(0); // bumps on every new game so a bot loop from the last game stops
@@ -125,6 +128,40 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     tokRef.current = t;
     setTokens(t);
   };
+
+  // Rejoin: the game is saved on this phone at every settled point (and right after you roll), so leaving the
+  // screen and coming back carries on from there — same tokens, same dice, entry not charged again.
+  const snapKey = `ludo:${table}:${buyIn}`;
+  const route: Route = { name: "board", game: "ludo", table, buyIn };
+  interface LudoSnap { tokens: number[][]; turn: number; dice: number; awaitMove: boolean; names: string[] }
+  const snap = (over: Partial<LudoSnap> = {}) =>
+    saveSnap<LudoSnap>(snapKey, { tokens: tokRef.current, turn, dice, awaitMove, names: namesRef.current, ...over });
+  useEffect(() => {
+    if (!started || winner !== null || rolling || moving || over.current) return;
+    snap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, winner, rolling, moving, tokens, turn, dice, awaitMove, names]);
+  const resumed = useRef(false); // once only (React may run mount effects twice in development)
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const sn = loadSnap<LudoSnap>(snapKey);
+    if (!sn) return;
+    gameNo.current += 1;
+    over.current = false;
+    games.current = 1;
+    namesRef.current = sn.names;
+    setNames(sn.names);
+    setT(sn.tokens);
+    setTurn(sn.turn);
+    setDice(sn.dice);
+    setAwaitMove(sn.turn === 0 && sn.awaitMove);
+    setStarted(true);
+    startClock(sn.turn);
+    if (sn.turn === 0) setMsg(sn.awaitMove ? `Welcome back — you rolled ${sn.dice}, tap a glowing token` : "Welcome back — your turn, roll the dice");
+    else { setMsg("Welcome back"); window.setTimeout(() => botPlay(sn.turn), 700); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const movable = (p: number, d: number) => tokRef.current[p].map((prog, i) => ((prog === -1 && d === 6) || (prog >= 0 && prog + d <= 56) ? i : -1)).filter((i) => i >= 0);
 
@@ -156,7 +193,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
           if (absIdx(q, op) === a) {
             t[q][j] = -1;
             hit = true;
-            setMsg(`${names[p]} captured ${names[q]}'s token!`);
+            setMsg(`${namesRef.current[p]} captured ${namesRef.current[q]}'s token!`);
           }
         });
       }
@@ -181,6 +218,8 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     setMoving(false);
     setClock(null);
     setWinner(p);
+    dropSnap(snapKey);
+    clearActive(route);
     if (p === 0) credit(Math.floor(buyIn * 4 * keep), label);
   };
 
@@ -208,7 +247,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     setRolling(false);
     if (d === 6) sixes.current += 1;
     if (sixes.current === 3) {
-      setMsg(`${names[p]} rolled three 6s — turn skipped`);
+      setMsg(`${namesRef.current[p]} rolled three 6s — turn skipped`);
       await sleep(500);
       return -1;
     }
@@ -225,7 +264,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   const botPlay = async (p: number) => {
     const g = gameNo.current;
-    setMsg(`${names[p]}'s turn`);
+    setMsg(`${namesRef.current[p]}'s turn`);
     await think(900, 1800); // picks up the dice
     if (!alive.current || over.current || g !== gameNo.current) return;
     const d = await roll(p);
@@ -233,14 +272,14 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     if (d < 0) return nextTurn(p);
     const opts = movable(p, d);
     if (!opts.length) {
-      setMsg(`${names[p]} rolled ${d} — no move`);
+      setMsg(`${namesRef.current[p]} rolled ${d} — no move`);
       await sleep(1100);
       return nextTurn(p);
     }
-    setMsg(`${names[p]} rolled ${d}`);
+    setMsg(`${namesRef.current[p]} rolled ${d}`);
     await think(opts.length > 1 ? 800 : 500, opts.length > 1 ? 1600 : 900); // decides which token to move
     const pick = pickToken(p, d, opts);
-    setMsg(`${names[p]} rolled ${d}`);
+    setMsg(`${namesRef.current[p]} rolled ${d}`);
     const again = await move(p, pick, d);
     if (!alive.current || again === "win" || again === "stop") return;
     if (again) { startClock(p); botPlay(p); }
@@ -264,6 +303,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       return nextTurn(0);
     }
     // One choice (or every choice lands on the same square): just move it.
+    snap({ dice: d, awaitMove: true }); // rolled: leaving now can't buy a re-roll
     const lands = new Set(opts.map((i) => (tokRef.current[0][i] === -1 ? -1 : tokRef.current[0][i] + d)));
     if (opts.length === 1 || lands.size === 1) return afterMyMove(await move(0, opts[0], d));
     setAwaitMove(true);
@@ -284,6 +324,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     if (d < 0) return nextTurn(0);
     const opts = movable(0, d);
     if (!opts.length) { await sleep(600); return nextTurn(0); }
+    snap({ dice: d, awaitMove: true });
     afterMyMove(await move(0, pickToken(0, d, opts), d));
   };
 
@@ -313,6 +354,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     startClock(0);
     setWinner(null);
     setStarted(true);
+    markActive(route, `Ludo • Table #${table}`);
     setMsg("Your turn — roll the dice");
   };
 
@@ -913,6 +955,8 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const pointsRef = useRef(points);
   pointsRef.current = points;
   const [boardNo, setBoardNo] = useState(1);
+  const boardNoRef = useRef(boardNo);
+  boardNoRef.current = boardNo;
   const breaker = useRef(0);
   const rules = useRef<CarromRules>(freshRules());
   const [msg, setMsg] = useState("");
@@ -923,6 +967,8 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const alive = useRef(true);
   const label = `Carrom • Table #${table}`;
   const [opp, setOpp] = useState<Bot>(() => pickBots(1)[0]);
+  const oppRef = useRef(opp);
+  oppRef.current = opp;
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
 
@@ -933,6 +979,14 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
 
   const striker = () => discs.current.find((d) => d.k === "s")!;
 
+  // Rejoin: the match is saved on this phone when the board is at rest and when a shot is played (with its
+  // speed — the physics is deterministic, so a shot you left mid-way finishes the same way when you come back).
+  const snapKey = `carrom:${table}:${buyIn}`;
+  const route: Route = { name: "board", game: "carrom", table, buyIn };
+  interface CarromSnap { discs: Disc[]; rules: CarromRules; points: number[]; boardNo: number; breaker: number; who: number; opp: Bot; shot?: { p: number; vx: number; vy: number } }
+  const snap = (who: number, shot?: CarromSnap["shot"]) =>
+    saveSnap<CarromSnap>(snapKey, { discs: discs.current, rules: rules.current, points: pointsRef.current, boardNo: boardNoRef.current, breaker: breaker.current, who, opp: oppRef.current, shot });
+
   const placeStriker = (p: number, x = 50) => {
     const s = striker();
     Object.assign(s, { x: legalX(x), y: BASELINE[p], vx: 0, vy: 0, sunk: false });
@@ -940,6 +994,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
 
   /** Run the physics until everything stops, then apply the rules to the shot. */
   const shoot = (vx: number, vy: number, p: number) => {
+    snap(p, { p, vx, vy });
     const s = striker();
     s.vx = vx; s.vy = vy;
     sfx.strike();
@@ -968,7 +1023,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
   const settle = (p: number, sunk: Disc[]) => {
     const ds = discs.current;
     const st = rules.current;
-    const name = p === 0 ? "You" : opp.name;
+    const name = p === 0 ? "You" : oppRef.current.name;
     const queen = ds.find((d) => d.k === "q")!;
     const strikerFoul = sunk.some((d) => d.k === "s");
     const coins = sunk.filter((d) => d.k === "w" || d.k === "b");
@@ -1004,7 +1059,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
       const pen = mine ? ds.find((d) => d.k === mine && d.sunk) : undefined;
       if (pen) { toCentre(ds, pen); notes.push(`${name} ${foul} — foul, a coin goes back`); }
       else { st.debt[p] += 1; notes.push(`${name} ${foul} — foul, penalty owed`); }
-      if (opps.length) notes.push(`${opps.length} ${colourName(otherColour(mine!))} down for ${p === 0 ? opp.name : "you"}`);
+      if (opps.length) notes.push(`${opps.length} ${colourName(otherColour(mine!))} down for ${p === 0 ? oppRef.current.name : "you"}`);
     } else {
       if (queenNow) {
         if (!firstGoneBefore && !coins.length) { toCentre(ds, queen); notes.push("Queen can't go before the first coin — back to the centre"); }
@@ -1023,7 +1078,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
         st.debt[p] -= 1;
         notes.push("owed penalty paid");
       }
-      if (!notes.length) notes.push(own.length ? `${name} pocketed ${own.length} coin${own.length > 1 ? "s" : ""}!` : p === 0 ? "No pocket" : `${opp.name} missed`);
+      if (!notes.length) notes.push(own.length ? `${name} pocketed ${own.length} coin${own.length > 1 ? "s" : ""}!` : p === 0 ? "No pocket" : `${oppRef.current.name} missed`);
       again = own.length > 0 || st.queenDue === p;
     }
     setMsg(notes.join(" • "));
@@ -1036,6 +1091,7 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     const next = again ? p : 1 - p;
     placeStriker(next);
     setWho(next);
+    snap(next);
     redraw();
     if (next === 0) setPhase("aim");
     else botTurn();
@@ -1051,15 +1107,17 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     pts[w] = Math.min(MATCH_POINTS, pts[w] + gain);
     setPoints(pts);
     pointsRef.current = pts;
-    const name = w === 0 ? "You" : opp.name;
+    const name = w === 0 ? "You" : oppRef.current.name;
     if (pts[w] >= MATCH_POINTS) {
+      dropSnap(snapKey);
+      clearActive(route);
       setMsg(`${name} won the board (+${gain}) and the match!`);
       setDone(w === 0);
       setPhase("wait");
       if (w === 0) credit(Math.floor(buyIn * 2 * keep), label);
       return;
     }
-    setMsg(`${name} won board ${boardNo} (+${gain}) — ${pts[0]} : ${pts[1]}. Next board…`);
+    setMsg(`${name} won board ${boardNoRef.current} (+${gain}) — ${pts[0]} : ${pts[1]}. Next board…`);
     setPhase("between");
     window.setTimeout(() => {
       if (!alive.current) return;
@@ -1070,8 +1128,9 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
       const b = breaker.current;
       placeStriker(b);
       setWho(b);
+      snap(b);
       redraw();
-      setMsg(b === 0 ? "New board — your break" : `New board — ${opp.name} breaks`);
+      setMsg(b === 0 ? "New board — your break" : `New board — ${oppRef.current.name} breaks`);
       if (b === 0) setPhase("aim");
       else botTurn();
     }, 2800);
@@ -1180,7 +1239,36 @@ function Carrom({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number 
     setPull(null);
     setMsg("Your break — slide the striker, then pull back and let go");
     setPhase("aim");
+    markActive(route, `Carrom • Table #${table}`);
+    snap(0);
   };
+
+  // Coming back to a match in progress.
+  const resumed = useRef(false); // once only (React may run mount effects twice in development)
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const sn = loadSnap<CarromSnap>(snapKey);
+    if (!sn) return;
+    games.current = 1;
+    discs.current = sn.discs;
+    rules.current = sn.rules;
+    pointsRef.current = sn.points;
+    setPoints(sn.points);
+    boardNoRef.current = sn.boardNo;
+    setBoardNo(sn.boardNo);
+    breaker.current = sn.breaker;
+    oppRef.current = sn.opp;
+    setOpp(sn.opp);
+    setDone(null);
+    setWho(sn.who);
+    setMsg("Welcome back");
+    redraw();
+    if (sn.shot) { const { p, vx, vy } = sn.shot; window.setTimeout(() => shoot(vx, vy, p), 500); }
+    else if (sn.who === 0) setPhase("aim");
+    else botTurn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const started = phase !== "wait" || done !== null;
   const firstIn = useAutoNext(!started && !lowBal, 3, start);

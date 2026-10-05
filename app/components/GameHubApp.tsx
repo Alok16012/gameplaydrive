@@ -1,5 +1,6 @@
 "use client";
 
+import { markActive } from "../lib/rejoin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
 import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
@@ -51,6 +52,13 @@ function Shell() {
     }),
     [signOut],
   );
+
+  // Rejoin: server tables keep your seat when the screen closes, so remember the one you're at and offer it on
+  // Home. (Ludo, Carrom, Poker and Blackjack mark themselves when a game is actually under way.)
+  useEffect(() => {
+    if (route.name === "rummy") markActive(route, `${route.cards === 21 ? "21 Card Rummy" : "Rummy"} • Table #${route.table}`);
+    else if (route.name === "cardtable" && route.game === "teen-patti") markActive(route, `Teen Patti • Boot 🪙 ${route.buyIn}`);
+  }, [route]);
 
   // Sound: phones only allow audio after a touch, so wake the engine (and the music) on the first tap; every
   // button gives a soft click unless it plays its own sound (data-sfx="off").

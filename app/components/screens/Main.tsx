@@ -1,7 +1,8 @@
 "use client";
 
+import { useActiveGame } from "../../lib/rejoin";
 import { useEffect, useState } from "react";
-import { Bell, ChevronRight, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
+import { Bell, ChevronRight, Gamepad2, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
 import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
@@ -65,8 +66,26 @@ export function Home({ nav }: { nav: Nav }) {
     });
   }, []);
   const unread = NOTIFICATIONS.filter((n) => n.unread).length;
+  const active = useActiveGame();
   return (
     <div className="px-4 pt-6 pb-28 fadein">
+      {active && (
+        <button
+          onClick={() => nav.push(active.route)}
+          className="w-full mb-4 rounded-2xl p-3.5 flex items-center gap-3 text-left border border-neon-400/40 active:scale-[.98] transition-transform"
+          style={{ background: "linear-gradient(90deg,#14532d,#166534 60%,#15803d)", boxShadow: "0 8px 24px rgba(34,197,94,.25)" }}
+        >
+          <span className="relative w-10 h-10 grid place-items-center rounded-full bg-black/25 shrink-0">
+            <span className="absolute inset-0 rounded-full animate-ping bg-neon-400/30" />
+            <Gamepad2 size={20} />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-[11px] uppercase tracking-wider text-white/70">Game in progress</span>
+            <span className="block font-semibold truncate">{active.title}</span>
+          </span>
+          <span className="rounded-full bg-white text-slate-900 font-bold text-sm px-4 py-1.5 shrink-0">Rejoin</span>
+        </button>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <div className="text-[22px] font-semibold">Hello, {player?.first} 👋</div>

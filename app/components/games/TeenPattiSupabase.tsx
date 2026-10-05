@@ -1,5 +1,6 @@
 "use client";
 
+import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, LogOut, Users } from "lucide-react";
@@ -168,6 +169,7 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
 
   const leave = () => {
     if (tableId.current) fire(supabase().rpc("tp_leave", { p_table: tableId.current }));
+    clearActive();
     nav.back();
   };
 

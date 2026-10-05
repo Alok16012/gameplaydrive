@@ -1,5 +1,6 @@
 "use client";
 
+import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { setPref, useSoundPrefs } from "../../lib/sound";
 import { useState } from "react";
 import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard } from "lucide-react";
@@ -127,15 +128,30 @@ export function ResponsibleGaming({ nav }: { nav: Nav }) {
 
 export function Help({ nav }: { nav: Nav }) {
   const [open, setOpen] = useState<number | null>(0);
-  const { showToast } = useStore();
+  const { player } = useStore();
+  const support = useSupport();
   return (
     <div className="pb-10 fadein">
       <Header title="Help & Support" onBack={nav.back} />
       <div className="px-4">
-        <div className="grid grid-cols-2 gap-3">
-          <button onClick={() => showToast("Chat support (demo)")} className="card p-4 text-left"><MessageCircle className="text-neon-400" /><div className="text-sm font-medium mt-2">Live Chat</div><div className="text-[11px] text-[var(--ink-soft)]">24×7 • ~2 min reply</div></button>
-          <button onClick={() => showToast("support@gamehub.demo")} className="card p-4 text-left"><Mail className="text-sky-300" /><div className="text-sm font-medium mt-2">Email us</div><div className="text-[11px] text-[var(--ink-soft)]">Reply within 24 hrs</div></button>
-        </div>
+        {support?.whatsapp ? (
+          <a
+            href={whatsappLink(support.whatsapp, `Hi, I need help with Khelobaazi.${player ? ` My Player ID: ${player.code}` : ""}`)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="card p-4 flex items-center gap-3 active:scale-[.99] transition-transform"
+            style={{ background: "linear-gradient(135deg,#128c7e33,#25d36622)", borderColor: "#25d36655" }}
+          >
+            <span className="w-11 h-11 rounded-full grid place-items-center bg-[#25d366] shrink-0"><MessageCircle className="text-white" /></span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-semibold">Chat with us on WhatsApp</span>
+              <span className="block text-[12px] text-[var(--ink-soft)]">{prettyNumber(support.whatsapp)}{support.note ? ` • ${support.note}` : ""}</span>
+            </span>
+            <ChevronRight size={18} className="text-white/40" />
+          </a>
+        ) : (
+          <div className="card p-4 text-sm text-[var(--ink-soft)]">{support ? "For help, contact your agent." : "Loading…"}</div>
+        )}
         <div className="text-sm font-semibold mt-6 mb-2">FAQs</div>
         <div className="card divide-y divide-white/5">
           {FAQS.map((f, i) => (

@@ -1,7 +1,8 @@
 "use client";
 
+import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { useEffect, useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { MessageCircle, ShieldCheck } from "lucide-react";
 import { loadMe, type Account } from "../../lib/hierarchy";
 import { playerEmail } from "../../lib/loginEmail";
 import { supabase } from "../../lib/supabase";
@@ -93,6 +94,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
 }
 
 export function Login({ onDone }: { onDone: (player: Account) => void }) {
+  const support = useSupport();
   const [phone, setPhone] = useState("");
   const [pw, setPw] = useState("");
   const [agree, setAgree] = useState(true);
@@ -153,6 +155,11 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
           {busy ? "Signing in…" : "Login"}
         </button>
         <div className="mt-8 text-center text-xs text-white/40">New here? Player accounts are created by your agent.</div>
+        {support?.whatsapp && (
+          <a href={whatsappLink(support.whatsapp, "Hi, I need help logging in to Khelobaazi.")} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center justify-center gap-1.5 text-xs text-[#25d366]">
+            <MessageCircle size={14} /> Need help? WhatsApp {prettyNumber(support.whatsapp)}
+          </a>
+        )}
         <div className="mt-8 flex items-center gap-2 text-[11px] text-white/40 justify-center"><ShieldCheck size={14} /> One account per mobile number</div>
       </form>
     </div>

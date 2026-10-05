@@ -1,5 +1,6 @@
 "use client";
 
+import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownUp, Hand, Layers, LogOut, Menu, Plus } from "lucide-react";
@@ -167,6 +168,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 
   const leave = () => {
     if (tableId.current) fire(supabase().rpc("rm_leave", { p_table: tableId.current }));
+    clearActive();
     nav.back();
   };
 
