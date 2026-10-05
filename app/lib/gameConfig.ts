@@ -40,7 +40,12 @@ export function useGameSettings(): All {
   return s;
 }
 
-export const isClosed = (s: All, id: string) => s[key(id)]?.enabled === false;
+export const isClosed = (s: All, id: string) => {
+  const k = id === "rummy21" ? "rummy" : id;
+  if (s[k]?.enabled !== undefined) return s[k]?.enabled === false;
+  if (id === "football" || id === "tennis") return s["cricket"]?.enabled === false;
+  return false;
+};
 export const latestSettings = () => latest;
 /** Platform fee as a fraction (e.g. 0.1), falling back to the game's default. */
 export const feeOf = (s: All, id: string, defPct: number) => Math.min(25, Math.max(0, s[key(id)]?.rake ?? defPct)) / 100;

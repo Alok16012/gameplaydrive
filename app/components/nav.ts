@@ -8,7 +8,7 @@ export type Route =
   | { name: "games"; category?: "sports" | "card" | "casino" | "board" }
   | { name: "lobby"; game: GameId }
   | { name: "casino"; game: GameId }
-  | { name: "cricket"; matchId?: string }
+  | { name: "cricket"; matchId?: string; sport?: "cricket" | "tennis" | "soccer" }
   | { name: "aviator" }
   | { name: "roulette" }
   | { name: "blackjack" }

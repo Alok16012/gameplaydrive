@@ -65,9 +65,17 @@ const SPORTS_TABS: Array<{ id: SportType; label: string; icon: string }> = [
 
 const QUICK_STAKES = [100, 500, 1000, 2000, 5000, 10000, 25000, 50000];
 
-export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
+export function Cricket({
+  nav,
+  matchId,
+  initialSport = "cricket",
+}: {
+  nav: Nav;
+  matchId?: string;
+  initialSport?: SportType;
+}) {
   const { total, debit, credit, showToast } = useStore();
-  const [selectedSport, setSelectedSport] = useState<SportType>("cricket");
+  const [selectedSport, setSelectedSport] = useState<SportType>(initialSport || "cricket");
   const [matches, setMatches] = useState<CricketMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(matchId || null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -665,7 +673,7 @@ export function Cricket({ nav, matchId }: { nav: Nav; matchId?: string }) {
     <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
       {/* Top Header */}
       <Header
-        title="Sports Exchange"
+        title={selectedSport === "cricket" ? "Cricket Exchange" : selectedSport === "soccer" ? "Football Exchange" : "Tennis Exchange"}
         onBack={() => nav.reset({ name: "home" })}
         right={
           <button

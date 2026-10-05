@@ -16,7 +16,9 @@ const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 
 export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
-  if (game.kind === "cricket") nav.push({ name: "cricket" });
+  if (game.kind === "cricket") nav.push({ name: "cricket", sport: "cricket" });
+  else if (game.kind === "football") nav.push({ name: "cricket", sport: "soccer" });
+  else if (game.kind === "tennis") nav.push({ name: "cricket", sport: "tennis" });
   else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko" || game.kind === "stockmarket") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
@@ -103,24 +105,83 @@ export function Home({ nav }: { nav: Nav }) {
 
       <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
 
-      {/* Cricket Live Exchange Featured Card */}
-      <button
-        onClick={() => nav.push({ name: "cricket" })}
-        className="w-full mt-4 rounded-3xl p-4 flex items-center justify-between text-left border border-emerald-500/40 relative overflow-hidden active:scale-[.98] transition-transform"
-        style={{
-          background: "linear-gradient(135deg, #064e3b 0%, #065f46 55%, #022c22 100%)",
-          boxShadow: "0 10px 28px rgba(5,150,105,.35)",
-        }}
-      >
-        <div className="flex-1 min-w-0 pr-3">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-600 text-[10px] font-black uppercase text-white animate-pulse">
-            ● Live Match
-          </span>
-          <div className="text-lg font-extrabold text-white mt-1">Cricket Live Exchange</div>
-          <div className="text-xs text-emerald-200/80 mt-0.5">Back & Lay Odds • Bookmaker • Live TV</div>
+      {/* 3 Separate Live Sports Options: Cricket, Football, Tennis */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[13px] font-extrabold text-white flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+            Live Sports Exchange
+          </div>
+          <button onClick={() => nav.push({ name: "games", category: "sports" })} className="text-[11px] text-neon-400 font-bold">
+            View All →
+          </button>
         </div>
-        <span className="text-4xl drop-shadow-md shrink-0">🏏</span>
-      </button>
+
+        <div className="grid grid-cols-3 gap-2">
+          {/* Cricket Option */}
+          <button
+            onClick={() => nav.push({ name: "cricket", sport: "cricket" })}
+            className="rounded-2xl p-2.5 flex flex-col justify-between text-left border border-emerald-500/40 relative overflow-hidden active:scale-[.96] transition-all"
+            style={{
+              background: "linear-gradient(145deg, #064e3b 0%, #065f46 60%, #022c22 100%)",
+              boxShadow: "0 6px 16px rgba(5,150,105,.25)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-2xl drop-shadow">🏏</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-[8.5px] font-black uppercase text-white animate-pulse">
+                Live
+              </span>
+            </div>
+            <div className="mt-2.5">
+              <div className="text-[13px] font-black text-white leading-tight">Cricket</div>
+              <div className="text-[10px] text-emerald-200/80 mt-0.5">Back & Lay</div>
+            </div>
+          </button>
+
+          {/* Football Option */}
+          <button
+            onClick={() => nav.push({ name: "cricket", sport: "soccer" })}
+            className="rounded-2xl p-2.5 flex flex-col justify-between text-left border border-blue-500/40 relative overflow-hidden active:scale-[.96] transition-all"
+            style={{
+              background: "linear-gradient(145deg, #1e3a8a 0%, #1d4ed8 60%, #0f172a 100%)",
+              boxShadow: "0 6px 16px rgba(29,78,216,.25)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-2xl drop-shadow">⚽</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-[8.5px] font-black uppercase text-white animate-pulse">
+                Live
+              </span>
+            </div>
+            <div className="mt-2.5">
+              <div className="text-[13px] font-black text-white leading-tight">Football</div>
+              <div className="text-[10px] text-blue-200/80 mt-0.5">Match Odds</div>
+            </div>
+          </button>
+
+          {/* Tennis Option */}
+          <button
+            onClick={() => nav.push({ name: "cricket", sport: "tennis" })}
+            className="rounded-2xl p-2.5 flex flex-col justify-between text-left border border-amber-500/40 relative overflow-hidden active:scale-[.96] transition-all"
+            style={{
+              background: "linear-gradient(145deg, #78350f 0%, #d97706 60%, #451a03 100%)",
+              boxShadow: "0 6px 16px rgba(217,119,6,.25)",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-2xl drop-shadow">🎾</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-[8.5px] font-black uppercase text-white animate-pulse">
+                Live
+              </span>
+            </div>
+            <div className="mt-2.5">
+              <div className="text-[13px] font-black text-white leading-tight">Tennis</div>
+              <div className="text-[10px] text-amber-200/80 mt-0.5">Sets & Match</div>
+            </div>
+          </button>
+        </div>
+      </div>
 
       <div className="grid grid-cols-3 gap-2.5 mt-4">
         {GAMES.map((g) => <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />)}
@@ -176,7 +237,7 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${GAMES.length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
         ) : (
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {([["sports", "Cricket / Sports"], ["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
+            {([["sports", "Sports Exchange"], ["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
               <button key={id} onClick={() => setCat(id)} className={`pill px-3.5 py-2 text-[12.5px] font-medium whitespace-nowrap transition-colors ${cat === id ? "btn-green" : "bg-white/5 text-white/80"}`}>
                 {label}
               </button>
