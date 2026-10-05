@@ -49,6 +49,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const [busy, setBusy] = useState(false);
   const [chip, setChip] = useState(100);
   const [result, setResult] = useState<{ round: number; text: string; won: boolean } | null>(null);
+  const [help, setHelp] = useState(false);
   const offset = useRef(0);
   const lastPath = useRef<{ id: number; path: number[] } | null>(null);
   const lastStake = useRef<{ up: number; down: number }>({ up: 0, down: 0 });
@@ -70,6 +71,16 @@ export function StockMarket({ nav }: { nav: Nav }) {
     if (error) setErr(errText(error));
     else { setErr(""); take(data as View); }
   }, [take]);
+
+  // The table fills exactly one screen and the page itself never scrolls, so tapping UP / DOWN quickly (or a tap
+  // that turns into a tiny swipe) can't drag the page or make the browser bar slide in and out.
+  useEffect(() => {
+    const html = document.documentElement, body = document.body;
+    const old = [html.style.overflow, body.style.overflow, body.style.overscrollBehavior];
+    html.style.overflow = "hidden"; body.style.overflow = "hidden"; body.style.overscrollBehavior = "none";
+    window.scrollTo(0, 0);
+    return () => { [html.style.overflow, body.style.overflow, body.style.overscrollBehavior] = old; };
+  }, []);
 
   useEffect(() => {
     let raf = 0;
@@ -247,7 +258,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const canBet = phase === "betting" && !busy;
 
   return (
-    <div className="min-h-dvh flex flex-col pb-6 fadein bg-[#070b1f]">
+    <div className="h-dvh flex flex-col overflow-hidden overscroll-none select-none fadein bg-[#070b1f]" style={{ touchAction: "manipulation" }}>
       <Header
         title="Stock Market"
         sub={v ? `Round #${v.id} • Up or Down` : "Connecting…"}
@@ -255,9 +266,9 @@ export function StockMarket({ nav }: { nav: Nav }) {
         right={<Money n={total} className="text-base font-bold text-[#2ee6a6]" />}
       />
 
-      <div className="px-2">
-        {/* Last results */}
-        <div className="flex gap-1 overflow-x-auto no-scrollbar py-1">
+      <div className="flex-1 min-h-0 flex flex-col px-2 pb-[max(8px,env(safe-area-inset-bottom))]">
+        {/* Last results (fixed height, so the screen doesn't shift when they arrive) */}
+        <div className="shrink-0 h-[38px] flex items-center gap-1 overflow-x-auto no-scrollbar" style={{ touchAction: "pan-x" }}>
           {(v?.history ?? []).map((h, i) => (
             <span key={i} className={`shrink-0 rounded-md px-1.5 py-1 text-[11px] font-bold tabular-nums flex flex-col items-center leading-none min-w-[38px] ${h >= 0 ? "bg-[#0f3b2e] text-[#2ee6a6]" : "bg-[#3b0f22] text-[#ff4f8b]"} ${i === 0 ? "ring-1 ring-white/40" : ""}`}>
               <span className="text-[9px]">{h >= 0 ? "▲" : "▼"}</span>{Math.abs(h)}%
@@ -266,8 +277,8 @@ export function StockMarket({ nav }: { nav: Nav }) {
         </div>
 
         {/* Market */}
-        <div className="relative mt-1 rounded-2xl overflow-hidden border border-white/10" style={{ height: 270, background: "radial-gradient(120% 90% at 50% 10%, #13235a 0%, #0a1233 55%, #060a1c 100%)" }}>
-          <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-x-0 top-6 w-full" style={{ height: 200 }} preserveAspectRatio="none">
+        <div className="relative flex-1 min-h-[170px] max-h-[300px] mt-1 rounded-2xl overflow-hidden border border-white/10" style={{ background: "radial-gradient(120% 90% at 50% 10%, #13235a 0%, #0a1233 55%, #060a1c 100%)" }}>
+          <svg viewBox={`0 0 ${W} ${H}`} className="absolute inset-x-0 top-6 bottom-7 w-full h-[calc(100%-52px)]" preserveAspectRatio="none">
             <defs>
               <linearGradient id="smfill" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0" stopColor={col} stopOpacity=".35" />
@@ -290,7 +301,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
 
           {/* Head of the line with the move so far */}
           {shown.length > 0 && phase !== "betting" && (
-            <div className="absolute z-20 pointer-events-none" style={{ left: `${(hx / W) * 100}%`, top: 24 + (hy / H) * 200, transform: "translate(-50%,-50%)" }}>
+            <div className="absolute z-20 pointer-events-none" style={{ left: `${(hx / W) * 100}%`, top: `calc(24px + (100% - 52px) * ${(hy / H).toFixed(4)})`, transform: "translate(-50%,-50%)" }}>
               <div className="w-3 h-3 rounded-full border-2 border-white" style={{ background: col, boxShadow: `0 0 12px ${col}` }} />
               <div className="absolute left-1/2 -translate-x-1/2 -top-7 rounded-md px-1.5 py-0.5 text-[12px] font-extrabold text-white whitespace-nowrap tabular-nums" style={{ background: col }}>
                 {pct >= 0 ? "▲" : "▼"} {Math.abs(pct)}%
@@ -312,6 +323,10 @@ export function StockMarket({ nav }: { nav: Nav }) {
             </div>
           )}
 
+          {result && phase !== "closed" && (
+            <div className={`absolute inset-x-2 top-2 z-30 rounded-lg px-2 py-1.5 text-center text-[12px] font-semibold pointer-events-none ${result.won ? "bg-[#0f3b2e]/95 text-[#2ee6a6]" : "bg-[#3b0f22]/95 text-[#ff8fb0]"}`}>{result.text}</div>
+          )}
+
           {phase === "closed" && v && (
             <div className="absolute inset-x-0 top-1/3 text-center pointer-events-none">
               <div className="text-sm font-semibold text-white/80 tracking-wide">MARKET CLOSED</div>
@@ -329,7 +344,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
         </div>
 
         {/* Up / down split */}
-        <div className="mt-1.5 flex items-stretch rounded-xl overflow-hidden text-[12px] tabular-nums">
+        <div className="shrink-0 mt-1.5 flex items-stretch rounded-xl overflow-hidden text-[12px] tabular-nums">
           <div className="flex items-center gap-2 px-2.5 py-1.5 bg-[#0f3b2e]" style={{ width: `${upShare}%`, minWidth: "34%" }}>
             <b className="text-lg text-[#2ee6a6]">{upShare}%</b>
             <span className="leading-tight text-white/70">🪙 {fmt(upAmt)}<br />👤 {upN}</span>
@@ -341,7 +356,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
         </div>
 
         {/* Portfolio + cash out */}
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="shrink-0 mt-2 grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-[#121735] border border-white/10 px-3 py-2">
             <div className="flex justify-between text-[11px] text-white/50"><span>PORTFOLIO</span><span className="italic">{Math.round(fee * 1000) / 10}% FEE</span></div>
             <div className={`text-2xl font-extrabold tabular-nums ${cashed ? "text-[#ffd166]" : !totalBet || phase === "betting" ? "text-white" : portfolio >= totalBet ? "text-[#2ee6a6]" : "text-[#ff4f8b]"}`}>
@@ -359,7 +374,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
         </div>
 
         {/* Up / down buttons */}
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="shrink-0 mt-2 grid grid-cols-2 gap-2">
           {(["up", "down"] as Side[]).map((side) => {
             const up = side === "up";
             const mineOn = up ? stake.up : stake.down;
@@ -369,7 +384,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
                 data-sfx="off"
                 disabled={!canBet}
                 onClick={() => bet(side)}
-                className={`relative h-[92px] rounded-2xl border-2 font-extrabold text-2xl tracking-wider text-white active:scale-[.98] transition disabled:opacity-60 ${up ? "bg-gradient-to-b from-[#2fae78] to-[#16724c] border-[#5ff0b4]" : "bg-gradient-to-b from-[#c4415f] to-[#86203a] border-[#ff8fb0]"}`}
+                className={`relative h-[84px] rounded-2xl border-2 font-extrabold text-2xl tracking-wider text-white active:scale-[.98] transition disabled:opacity-60 ${up ? "bg-gradient-to-b from-[#2fae78] to-[#16724c] border-[#5ff0b4]" : "bg-gradient-to-b from-[#c4415f] to-[#86203a] border-[#ff8fb0]"}`}
               >
                 <div>{up ? "UP" : "DOWN"}</div>
                 <div className="text-2xl leading-none">{up ? "▲" : "▼"}</div>
@@ -382,7 +397,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
         </div>
 
         {/* Chips */}
-        <div className="mt-2 flex items-center gap-1.5">
+        <div className="shrink-0 mt-2 flex items-center gap-1.5">
           <button
             disabled={!canBet || !totalBet}
             onClick={() => call("sm_clear")}
@@ -412,22 +427,24 @@ export function StockMarket({ nav }: { nav: Nav }) {
           </button>
         </div>
 
-        {result && (
-          <div className={`mt-2 rounded-xl px-3 py-2 text-center text-[13px] font-semibold ${result.won ? "bg-[#0f3b2e] text-[#2ee6a6]" : "bg-[#3b0f22] text-[#ff8fb0]"}`}>{result.text}</div>
-        )}
-
-        <div className="mt-2 flex justify-between text-[12px] text-white/60 px-1 tabular-nums">
+        <div className="shrink-0 mt-2 flex items-center justify-between text-[12px] text-white/60 px-1 tabular-nums">
           <span>Total Bet <b className="text-white">🪙 {fmt(totalBet)}</b></span>
-          <span>Stock Market 🪙 10 – 1,00,000</span>
+          <button onClick={() => setHelp(true)} className="rounded-full border border-white/15 px-2.5 py-0.5 text-white/70">How to play</button>
         </div>
-
-        <div className="mt-3 rounded-xl bg-[#0d1230] border border-white/5 p-3 text-[12px] text-white/55 leading-relaxed">
-          <b className="text-white/80">How to play:</b> put chips on <b className="text-[#2ee6a6]">UP</b> or <b className="text-[#ff4f8b]">DOWN</b> while bets are open. When the market opens your portfolio moves with the line —
-          UP gains as it rises, DOWN gains as it falls (a +23% move turns 🪙100 on UP into 🪙123, and 🪙100 on DOWN into 🪙77).
-          Hit <b className="text-[#ffd166]">CASH OUT</b> any time to lock in the value, or hold to the close. A {Math.round(fee * 1000) / 10}% fee comes off every payout.
-        </div>
-        <div className="text-center text-[11px] text-white/30 mt-3">Every market is drawn by the server before it opens; cash-outs are priced at the server&apos;s clock.</div>
       </div>
+
+      {help && (
+        <div className="fixed inset-0 z-50 grid place-items-end bg-black/60" onClick={() => setHelp(false)}>
+          <div className="w-full max-w-[430px] mx-auto rounded-t-2xl bg-[#0d1230] border-t border-white/10 p-4 pb-[max(16px,env(safe-area-inset-bottom))] text-[13px] text-white/70 leading-relaxed">
+            <div className="text-base font-semibold text-white mb-2">How to play</div>
+            Put chips on <b className="text-[#2ee6a6]">UP</b> or <b className="text-[#ff4f8b]">DOWN</b> while bets are open (🪙 10 – 1,00,000 per side). When the market opens your portfolio moves with the line —
+            UP gains as it rises, DOWN gains as it falls (a +23% move turns 🪙100 on UP into 🪙123, and 🪙100 on DOWN into 🪙77).
+            Hit <b className="text-[#ffd166]">CASH OUT</b> any time to lock in the value, or hold to the close. A {Math.round(fee * 1000) / 10}% fee comes off every payout.
+            <div className="text-[11px] text-white/35 mt-2">Every market is drawn by the server before it opens; cash-outs are priced at the server&apos;s clock.</div>
+            <button onClick={() => setHelp(false)} className="mt-3 w-full rounded-xl bg-white/10 py-2.5 font-semibold text-white">Got it</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
