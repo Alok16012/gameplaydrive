@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
   const baseUrl = process.env.DIAMONDEXCH_BASE_URL || "https://apis.diamondexchapi.com";
   const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
 
+  let railwayError: string | null = null;
+
   // 1. Attempt via Railway Proxy first (if deployed with static/whitelisted IP)
   try {
     const railwayRes = await fetch(`${railwayHost}/api/sports/matches?sport=${sportName}`, {
@@ -42,8 +44,11 @@ export async function GET(req: NextRequest) {
     });
     if (railwayRes.ok) {
       const json = await railwayRes.json();
-      const rawMatches = json?.data?.data || json?.data || json;
-      if (Array.isArray(rawMatches) && rawMatches.length > 0) {
+      const rawMatches = Array.isArray(json?.data?.data)
+        ? json.data.data
+        : (Array.isArray(json?.data) ? json.data : (Array.isArray(json) ? json : []));
+
+      if (rawMatches.length > 0) {
         const parsed = rawMatches.map((m: any) => {
           const parts = (m.eventName || "").split(/ v | vs | VS /i);
           const t1 = parts[0]?.trim() || "Team 1";
@@ -76,10 +81,14 @@ export async function GET(req: NextRequest) {
           sport: sportName,
           data: parsed,
         });
+      } else {
+        railwayError = `Railway returned non-array or empty: ${JSON.stringify(json).slice(0, 200)}`;
       }
+    } else {
+      railwayError = `Railway HTTP status: ${railwayRes.status}`;
     }
-  } catch (err: unknown) {
-    // continue to direct fetch
+  } catch (err: any) {
+    railwayError = `Railway fetch error: ${err?.message}`;
   }
 
   // 2. Attempt direct DiamondExch API call
@@ -447,5 +456,6 @@ export async function GET(req: NextRequest) {
     source: "simulation",
     sport: sportName,
     data: matches,
+    debug: railwayError || undefined,
   });
 }
