@@ -22,6 +22,7 @@ export interface CricketMatch {
   lay1?: number;
   back2?: number;
   lay2?: number;
+  isRealApi?: boolean;
 }
 
 export interface RunnerOdd {
@@ -69,7 +70,7 @@ export interface CricketBet {
   runnerName: string;
   betType: "BACK" | "LAY";
   odds: number;
-  size?: number; // For fancy runs (e.g. 48 runs)
+  size?: number;
   stake: number;
   profit: number;
   exposure: number;
@@ -94,60 +95,134 @@ export interface CricketScorecard {
   lastWicket?: string;
 }
 
+function parseMatchesList(rawList: any[], sport: SportType, isReal = false): CricketMatch[] {
+  return rawList.map((m: any) => {
+    let t1 = m.team1;
+    let t2 = m.team2;
+    if (!t1 || !t2) {
+      const parts = (m.eventName || "").split(/ v | vs | VS /i);
+      const name1 = parts[0]?.trim() || m.runnerName1 || "Team 1";
+      const name2 = parts[1]?.trim() || m.runnerName2 || "Team 2";
+      t1 = { name: name1, short: name1.slice(0, 3).toUpperCase() };
+      t2 = { name: name2, short: name2.slice(0, 3).toUpperCase() };
+    }
+
+    const isLiveMatch = Boolean(
+      m.inPlay === true ||
+      m.inPlay === "true" ||
+      m.isLive === true ||
+      m.status === "INPLAY" ||
+      (m.scoreBoardId && m.inPlay !== false)
+    );
+
+    const b1 = Number(m.back1 || m.b1 || 1.85);
+    const l1 = Number(m.lay1 || m.l1 || 1.89);
+    const b2 = Number(m.back2 || m.b2 || (b1 > 0 ? (b1 > 2 ? 1.55 : 2.05) : 2.05));
+    const l2 = Number(m.lay2 || m.l2 || (b2 + 0.05));
+
+    return {
+      marketId: m.marketId || m.market_id || null,
+      eventId: String(m.eventId || m.gameId || m.id),
+      gameId: String(m.gameId || m.eventId || m.id),
+      eventName: m.eventName || m.event_name || `${t1.name} v ${t2.name}`,
+      eventTime: m.eventTime || m.event_time || new Date().toISOString(),
+      seriesName: m.seriesName || m.series_name || "Tournament",
+      scoreBoardId: m.scoreBoardId || null,
+      inPlay: isLiveMatch,
+      isLive: isLiveMatch,
+      hasFancy: Boolean(m.hasFancy ?? m.f ?? true),
+      hasBookmaker: Boolean(m.hasBookmaker ?? m.bm ?? true),
+      status: isLiveMatch ? "INPLAY" : "UPCOMING",
+      sport: (m.sport || sport) as SportType,
+      team1: t1,
+      team2: t2,
+      back1: b1 > 0 ? b1 : 1.85,
+      lay1: l1 > 0 ? l1 : 1.89,
+      back2: b2 > 0 ? b2 : 2.05,
+      lay2: l2 > 0 ? l2 : 2.12,
+      isRealApi: isReal,
+    };
+  });
+}
+
 // Fetch matches list for specific sport (cricket, tennis, soccer)
 export async function fetchCricketMatches(sport: SportType = "cricket"): Promise<CricketMatch[]> {
+  const sportName = sport === "soccer" ? "soccer" : sport;
+
+  // 1. First Attempt: Direct Client-Side Fetch to DiamondExch API (CORS origin)
   try {
-    const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}`);
-    if (!res.ok) throw new Error("Failed to fetch matches");
-    const json = await res.json();
-    const rawList = json?.data || [];
-    
-    return rawList.map((m: any) => {
-      let t1 = m.team1;
-      let t2 = m.team2;
-      if (!t1 || !t2) {
-        const parts = (m.eventName || "").split(/ v | vs | VS /i);
-        t1 = { name: parts[0]?.trim() || "Team 1", short: parts[0]?.slice(0, 3).toUpperCase() || "T1" };
-        t2 = { name: parts[1]?.trim() || "Team 2", short: parts[1]?.slice(0, 3).toUpperCase() || "T2" };
-      }
-      const isLiveMatch = Boolean(m.inPlay === true || m.inPlay === "true" || m.isLive === true || m.status === "INPLAY");
-      return {
-        marketId: m.marketId || m.market_id || null,
-        eventId: String(m.eventId || m.gameId || m.id),
-        gameId: String(m.gameId || m.eventId || m.id),
-        eventName: m.eventName || m.event_name || `${t1.name} vs ${t2.name}`,
-        eventTime: m.eventTime || m.event_time || new Date().toISOString(),
-        seriesName: m.seriesName || m.series_name || "Tournament",
-        scoreBoardId: m.scoreBoardId || null,
-        inPlay: isLiveMatch,
-        isLive: isLiveMatch,
-        hasFancy: Boolean(m.hasFancy ?? true),
-        hasBookmaker: Boolean(m.hasBookmaker ?? true),
-        status: isLiveMatch ? "INPLAY" : "UPCOMING",
-        sport: (m.sport || sport) as SportType,
-        team1: t1,
-        team2: t2,
-        back1: Number(m.back1 || 1.85),
-        lay1: Number(m.lay1 || 1.89),
-        back2: Number(m.back2 || 2.05),
-        lay2: Number(m.lay2 || 2.12),
-      };
+    const directRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
     });
+
+    if (directRes.ok) {
+      const json = await directRes.json();
+      const rawMatches = json?.data?.data || json?.data || json;
+      if (Array.isArray(rawMatches) && rawMatches.length > 0) {
+        return parseMatchesList(rawMatches, sport, true);
+      }
+    }
   } catch (err) {
-    console.error("Error fetching sports matches:", err);
-    return [];
+    // Direct client fetch fallback to backend proxy
   }
+
+  // 2. Second Attempt: Next.js Backend Proxy Route
+  try {
+    const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const rawList = json?.data || [];
+      if (Array.isArray(rawList) && rawList.length > 0) {
+        return parseMatchesList(rawList, sport, json?.source === "diamondexch_live");
+      }
+    }
+  } catch (err) {
+    console.error("Error fetching sports matches from backend proxy:", err);
+  }
+
+  return [];
 }
 
 // Fetch live odds for event
 export async function fetchCricketOdds(eventId: string, sport: SportType = "cricket"): Promise<CricketOddsResponse> {
+  const sportName = sport === "soccer" ? "soccer" : sport;
+
+  // 1. Attempt direct live odds from DiamondExch
   try {
-    const res = await fetch(`/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`);
+    const directRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?eventId=${encodeURIComponent(eventId)}`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+    });
+    if (directRes.ok) {
+      const json = await directRes.json();
+      const data = json?.data?.data || json?.data || json;
+      if (data && (data.matchOdds || data.match_odds || data.bookMakerOdds || data.fancyOdds)) {
+        const matchOdds = Array.isArray(data.matchOdds) ? data.matchOdds : (data.match_odds ? [data.match_odds] : []);
+        const bookMakerOdds = Array.isArray(data.bookMakerOdds)
+          ? data.bookMakerOdds.map((b: any) => b.bm1 || b)
+          : [];
+        const fancyOdds = Array.isArray(data.fancyOdds) ? data.fancyOdds : [];
+        return { matchOdds, bookMakerOdds, fancyOdds };
+      }
+    }
+  } catch {
+    // fallback to proxy
+  }
+
+  // 2. Backend Proxy
+  try {
+    const res = await fetch(`/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
+      cache: "no-store",
+    });
     if (!res.ok) throw new Error("Failed to fetch odds");
     const json = await res.json();
     const data = json?.data || {};
 
-    // Standardize structure
     const matchOdds = Array.isArray(data.matchOdds) ? data.matchOdds : (data.match_odds ? [data.match_odds] : []);
     const bookMakerOdds = Array.isArray(data.bookMakerOdds)
       ? data.bookMakerOdds.map((b: any) => b.bm1 || b)
