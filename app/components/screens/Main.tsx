@@ -184,7 +184,9 @@ export function Home({ nav }: { nav: Nav }) {
       </div>
 
       <div className="grid grid-cols-3 gap-2.5 mt-4">
-        {GAMES.map((g) => <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />)}
+        {GAMES.filter((g) => g.category !== "sports").map((g) => (
+          <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />
+        ))}
       </div>
 
       <button
