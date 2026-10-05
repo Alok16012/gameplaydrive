@@ -63,7 +63,7 @@ const OUTSIDE = ["low", "even", "red", "black", "odd", "high", "d1", "d2", "d3",
 
 export function Roulette({ nav }: { nav: Nav }) {
   const game = gameById("roulette");
-  const { total, player, showToast, applyBalance } = useStore();
+  const { total, player, showToast, applyBalance, holdWinnings } = useStore();
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
   const [now, setNow] = useState(() => Date.now());
@@ -117,13 +117,13 @@ export function Roulette({ nav }: { nav: Nav }) {
       busy.current = true;
       setPhase("spinning");
       setEndsAt(Number.MAX_SAFE_INTEGER);
-      const go = (n: number, payout: number, stake: number, balance: number | null) => {
+      const go = (n: number, payout: number, stake: number, release: () => void) => {
         spinTo(n);
         window.setTimeout(() => {
           setResult({ n, payout, stake });
           if (payout > 0) { sfx.win(); vibrate(50); } else if (stake > 0) sfx.lose();
           setHist((h) => [n, ...h].slice(0, 20));
-          if (balance !== null) applyBalance(balance);
+          release(); // winnings appear only now that the ball has stopped
           setPhase("result");
           setEndsAt(Date.now() + RESULT_MS);
           busy.current = false;
@@ -135,13 +135,14 @@ export function Roulette({ nav }: { nav: Nav }) {
           if (error) {
             showToast(errText(error));
             setBets([]);
-            return go(Math.floor(Math.random() * 37), 0, 0, null);
+            return go(Math.floor(Math.random() * 37), 0, 0, () => {});
           }
           const r = data as { number: number; payout: number; stake: number; balance: number };
-          applyBalance(r.balance - r.payout); // stake leaves now, winnings arrive when the ball stops
-          go(r.number, r.payout, r.stake, r.balance);
+          const release = holdWinnings(r.payout); // stake leaves now, winnings arrive when the ball stops
+          applyBalance(r.balance);
+          go(r.number, r.payout, r.stake, release);
         });
-      } else go(Math.floor(Math.random() * 37), 0, 0, null);
+      } else go(Math.floor(Math.random() * 37), 0, 0, () => {});
     } else if (phase === "result") {
       setBets([]);
       setCrowd([]);
@@ -151,7 +152,7 @@ export function Roulette({ nav }: { nav: Nav }) {
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
     }
-  }, [now, endsAt, phase, spinTo, showToast, applyBalance]);
+  }, [now, endsAt, phase, spinTo, showToast, applyBalance, holdWinnings]);
 
   const pending = bets.reduce((a, b) => a + b.v, 0);
   const crowdTotal = crowd.reduce((a, b) => a + b.v, 0);

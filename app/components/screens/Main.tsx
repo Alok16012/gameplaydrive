@@ -88,7 +88,7 @@ export function Home({ nav }: { nav: Nav }) {
       </div>
 
       <button
-        onClick={() => nav.push({ name: "casino", game: "dragon-tiger" })}
+        onClick={() => nav.push({ name: "games" })}
         className="w-full mt-5 rounded-2xl p-4 flex items-center gap-4 text-left border border-white/10 active:scale-[.98] transition-transform"
         style={{ background: "linear-gradient(90deg,#3b2ad6 0%,#5b21b6 55%,#a21caf 100%)", boxShadow: "0 10px 30px rgba(91,33,182,.4)" }}
       >

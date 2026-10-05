@@ -66,6 +66,8 @@ function count(cards: Card[]) {
   return t;
 }
 
+const sidePay = (v: View) => (v.side?.pp?.pay ?? 0) + (v.side?.t3?.pay ?? 0);
+
 function plan(prev: View | null, next: View): Frame[] {
   const nh = next.hands ?? [], nd = next.dealer ?? [];
   const same = !!prev && prev.id === next.id && prev.status === "playing";
@@ -104,7 +106,7 @@ function plan(prev: View | null, next: View): Frame[] {
 }
 
 export function Blackjack({ nav }: { nav: Nav }) {
-  const { total, showToast, applyBalance } = useStore();
+  const { total, showToast, applyBalance, holdWinnings } = useStore();
   const [v, setV] = useState<View | null>(null);
   const [chip, setChip] = useState(100);
   const [stakes, setStakes] = useState<Record<Spot, number>>({ main: 0, pp: 0, t3: 0 });
@@ -122,13 +124,17 @@ export function Blackjack({ nav }: { nav: Nav }) {
     setV(view);
     if (!animate) { setAnim(null); applyBalance(view.balance); return; }
     const frames = plan(prev, view);
+    // The stake leaves at once; whatever this action paid (side bets, the hand) shows when the last card is down.
+    const before = prev && prev.id === view.id ? (prev.payout ?? 0) + sidePay(prev) : 0;
+    const release = holdWinnings((view.payout ?? 0) + sidePay(view) - before, 30000);
+    applyBalance(view.balance);
     const tok = ++seq.current;
     let i = 0;
     const step = () => {
       if (seq.current !== tok) return;
       if (i >= frames.length) {
         setAnim(null);
-        applyBalance(view.balance);
+        release();
         if (view.status === "done") {
           const st = (view.hands ?? []).reduce((a, h) => a + h.bet, 0), pay = view.payout ?? 0;
           if (pay > st) { (view.hands ?? []).some((h) => h.result === "blackjack") ? sfx.bigWin() : sfx.win(); vibrate(50); }
@@ -142,7 +148,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
       window.setTimeout(step, i < frames.length ? frames[i].ms : view.status === "done" ? END_MS : 250);
     };
     window.setTimeout(step, frames[0]?.ms ?? 0);
-  }, [applyBalance]);
+  }, [applyBalance, holdWinnings]);
 
   useEffect(() => {
     supabase().rpc("bj_state").then(({ data, error }) => {

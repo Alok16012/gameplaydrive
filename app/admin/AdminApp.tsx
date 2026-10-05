@@ -284,11 +284,11 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                   <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Pencil size={13} />Edit</button>
                   <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
                   {u.role === "player" && <button onClick={() => setLimitFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Gauge size={13} />{u.dailyLimit ? coins(u.dailyLimit) + "/day" : "Limit"}</button>}
-                  {u.role === "player" && me.role === "superadmin" && (
+                  {me.role === "superadmin" && (
                     <button
                       onClick={() => setOutcomeFor(u)}
                       className="rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 transition"
-                      title="Set Win/Loss Command"
+                      title={`Set Win/Loss Command for ${ROLE_LABEL[u.role]}`}
                     >
                       <Sliders size={13} />Outcome
                     </button>
@@ -437,6 +437,8 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const isStaff = target.role === "admin" || target.role === "agent";
+  const roleKey = target.role === "admin" ? "admins" : target.role === "agent" ? "agents" : "players";
 
   useEffect(() => {
     supabase().auth.getSession().then(({ data }) => {
@@ -445,14 +447,16 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
       fetch("/api/outcome-control", { headers: { Authorization: `Bearer ${token}` } })
         .then((r) => r.json())
         .then((json) => {
-          if (json.outcome_control?.players?.[target.id]) {
+          if (json.outcome_control?.[roleKey]?.[target.id]) {
+            setMode(json.outcome_control[roleKey][target.id]);
+          } else if (json.outcome_control?.players?.[target.id]) {
             setMode(json.outcome_control.players[target.id]);
           }
         })
         .catch(() => {})
         .finally(() => setLoading(false));
     });
-  }, [target.id]);
+  }, [target.id, roleKey]);
 
   const save = async (newMode: "fair" | "force_win" | "force_loss") => {
     setSaving(true);
@@ -461,7 +465,9 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
       const { data } = await supabase().auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error("Please sign in again");
-      const body = newMode === "fair" ? { clear_player_id: target.id } : { player_id: target.id, player_mode: newMode };
+      const body = newMode === "fair" 
+        ? { clear_account_id: target.id, target_role: roleKey } 
+        : { account_id: target.id, account_mode: newMode, target_role: roleKey };
       const res = await fetch("/api/outcome-control", {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -470,7 +476,7 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to update outcome");
       setMode(newMode);
-      setMsg("Saved! Applied to all games for this player.");
+      setMsg(isStaff ? `Saved! Applied to all downline players under this ${ROLE_LABEL[target.role]}.` : "Saved! Applied to all games for this player.");
       setTimeout(onClose, 1000);
     } catch (e) {
       setMsg(errText(e));
@@ -480,10 +486,15 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
   };
 
   return (
-    <Modal title={`Outcome Command • ${target.name}`} onClose={onClose}>
+    <Modal title={`Outcome Command • ${ROLE_LABEL[target.role]} ${target.name}`} onClose={onClose}>
       <div className="space-y-4 pt-3 text-sm">
         <div className="text-xs text-white/60">
-          Target outcome command for <span className="text-white font-medium">{target.name}</span> ({target.code}):
+          Target outcome command for <span className="text-white font-medium">{target.name}</span> ({target.code}) • <span className="text-amber-300 font-medium">{ROLE_LABEL[target.role]}</span>:
+          {isStaff && (
+            <p className="mt-1 text-sky-300/80">
+              💡 Setting Win / Loss for this {ROLE_LABEL[target.role]} will automatically command all players in their downline tree.
+            </p>
+          )}
         </div>
         {loading ? (
           <div className="text-xs text-white/50 py-4 text-center">Loading…</div>
@@ -497,8 +508,10 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
               }`}
             >
               <div>
-                <div className="font-bold text-sm">🔴 Force Player Loss (Always Loses)</div>
-                <div className="text-xs text-white/50 mt-0.5">House wins against this player on every game</div>
+                <div className="font-bold text-sm">🔴 {isStaff ? "Force Downline Loss (All Players Lose)" : "Force Player Loss (Always Loses)"}</div>
+                <div className="text-xs text-white/50 mt-0.5">
+                  {isStaff ? `House wins against all players under this ${ROLE_LABEL[target.role]}` : "House wins against this player on every game"}
+                </div>
               </div>
               {mode === "force_loss" && <span className="text-xs font-bold text-rose-400">Active</span>}
             </button>
@@ -512,7 +525,9 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
             >
               <div>
                 <div className="font-bold text-sm">⚖️ Normal / Fair (Follows Game Rules)</div>
-                <div className="text-xs text-white/50 mt-0.5">Player plays according to general game settings</div>
+                <div className="text-xs text-white/50 mt-0.5">
+                  {isStaff ? "Downline players follow general game/system settings" : "Player plays according to general game settings"}
+                </div>
               </div>
               {mode === "fair" && <span className="text-xs font-bold text-blue-300">Active</span>}
             </button>
@@ -525,8 +540,10 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
               }`}
             >
               <div>
-                <div className="font-bold text-sm">🟢 Force Player Win (Always Wins)</div>
-                <div className="text-xs text-white/50 mt-0.5">Player receives winning bets and lucky cards</div>
+                <div className="font-bold text-sm">🟢 {isStaff ? "Force Downline Win (All Players Win)" : "Force Player Win (Always Wins)"}</div>
+                <div className="text-xs text-white/50 mt-0.5">
+                  {isStaff ? `All players under this ${ROLE_LABEL[target.role]} receive winning bets and outcomes` : "Player receives winning bets and lucky cards"}
+                </div>
               </div>
               {mode === "force_win" && <span className="text-xs font-bold text-emerald-400">Active</span>}
             </button>

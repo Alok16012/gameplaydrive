@@ -28,6 +28,13 @@ interface Store {
   refresh: () => Promise<void>;
   /** Take a balance computed by the game server (and reload history shortly after). */
   applyBalance: (coins: number) => void;
+  /**
+   * The server settles a round at once, so its balance already holds winnings the table hasn't shown yet (the
+   * ball is still rolling, the cards are still being dealt). Hold that amount back from the balance on screen —
+   * including any reload from the server in the meantime — and call the returned function when the result is
+   * shown. It releases by itself after `maxMs` in case the screen is left mid-round.
+   */
+  holdWinnings: (amount: number, maxMs?: number) => () => void;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -63,6 +70,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
   const refreshTimer = useRef<number | null>(null);
+  const held = useRef(0); // winnings the server has paid but the game hasn't revealed yet
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -78,7 +86,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sb.from("wallets").select("coins").eq("user_id", uid).maybeSingle(),
       sb.from("ledger").select("id, amount, kind, note, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(100),
     ]);
-    if (w) setBal(w.coins);
+    if (w) setBal(Math.max(0, w.coins - held.current));
     setTxns(((l ?? []) as LedgerRow[]).map(toTxn));
   }, [setBal]);
 
@@ -89,10 +97,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const applyBalance = useCallback((n: number) => {
-    if (n === balRef.current) return;
-    setBal(n);
+    const shown = Math.max(0, n - held.current);
+    if (shown === balRef.current) return;
+    setBal(shown);
     refreshSoon();
   }, [setBal, refreshSoon]);
+
+  const holdWinnings = useCallback((amount: number, maxMs = 20000) => {
+    const amt = Math.round(amount);
+    if (!(amt > 0)) return () => {};
+    held.current += amt;
+    let done = false;
+    const release = () => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(t);
+      held.current -= amt;
+      setBal(balRef.current + amt);
+    };
+    const t = window.setTimeout(release, maxMs);
+    return release;
+  }, [setBal]);
 
   const signIn = useCallback(async (p: Player) => {
     setPlayer(p);
@@ -143,9 +168,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       total, txns, hidden,
       toggleHidden: () => setHidden((h) => !h),
-      debit, credit, limits, setLimits, toast, showToast, player, signIn, signOut, refresh, applyBalance,
+      debit, credit, limits, setLimits, toast, showToast, player, signIn, signOut, refresh, applyBalance, holdWinnings,
     }),
-    [total, txns, hidden, debit, credit, limits, toast, showToast, player, signIn, signOut, refresh, applyBalance],
+    [total, txns, hidden, debit, credit, limits, toast, showToast, player, signIn, signOut, refresh, applyBalance, holdWinnings],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

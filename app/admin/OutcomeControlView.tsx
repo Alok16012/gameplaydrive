@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Briefcase,
   CheckCircle2,
   Crown,
   Flame,
@@ -22,7 +23,7 @@ import {
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
-import { coins, type Account } from "../lib/hierarchy";
+import { ROLE_LABEL, coins, type Account, type Role } from "../lib/hierarchy";
 import { errText, supabase } from "../lib/supabase";
 
 export type OutcomeMode = "fair" | "force_win" | "force_loss";
@@ -31,12 +32,16 @@ interface OutcomeControlData {
   global_mode: OutcomeMode;
   games: Record<string, OutcomeMode>;
   players: Record<string, OutcomeMode>;
+  agents?: Record<string, OutcomeMode>;
+  admins?: Record<string, OutcomeMode>;
 }
 
-interface PlayerTargetInfo {
+interface TargetAccountInfo {
   name: string;
   code: string;
   phone: string | null;
+  username?: string | null;
+  role: string;
   mode: OutcomeMode;
 }
 
@@ -100,16 +105,22 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
     global_mode: "fair",
     games: {},
     players: {},
+    agents: {},
+    admins: {},
   });
-  const [playersInfo, setPlayersInfo] = useState<Record<string, PlayerTargetInfo>>({});
+  const [targetsInfo, setTargetsInfo] = useState<Record<string, TargetAccountInfo>>({});
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
-  // Player search & targeting
-  const [playerQuery, setPlayerQuery] = useState("");
-  const [selectedPlayer, setSelectedPlayer] = useState<Account | null>(null);
+  // Tab filter for targeted list
+  const [targetTab, setTargetTab] = useState<"all" | "player" | "agent" | "admin">("all");
+
+  // Account search & targeting modal
   const [targetModalOpen, setTargetModalOpen] = useState(false);
+  const [modalRoleFilter, setModalRoleFilter] = useState<"all" | "player" | "agent" | "admin">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 
   const showToast = (text: string, type: "success" | "error" = "success") => {
     setToastMsg({ text, type });
@@ -132,12 +143,11 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
       if (json.outcome_control) {
         setData(json.outcome_control);
       }
-      if (json.players_info) {
-        setPlayersInfo(json.players_info);
+      if (json.targets_info || json.players_info) {
+        setTargetsInfo(json.targets_info || json.players_info);
       }
     } catch (e) {
       console.error("Load error:", e);
-      // Fallback: read directly from app_settings
       const { data: row } = await supabase().from("app_settings").select("value").eq("key", "outcome_control").maybeSingle();
       if (row?.value) {
         setData(row.value as OutcomeControlData);
@@ -155,8 +165,12 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
     global_mode?: OutcomeMode;
     game?: string;
     game_mode?: OutcomeMode;
+    account_id?: string;
     player_id?: string;
+    account_mode?: OutcomeMode;
     player_mode?: OutcomeMode;
+    role?: "player" | "agent" | "admin";
+    clear_account_id?: string;
     clear_player_id?: string;
   }, keyIdentifier: string) => {
     setSavingKey(keyIdentifier);
@@ -199,12 +213,14 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
             : `⚖️ ${gName}: Set to Fair RNG`,
           "success"
         );
-      } else if (payload.player_id && payload.player_mode) {
-        const pName = selectedPlayer?.name || "Player";
-        showToast(`Target updated for ${pName}: ${payload.player_mode === "force_loss" ? "🔴 Always Lose" : payload.player_mode === "force_win" ? "🟢 Always Win" : "⚖️ Normal"}`, "success");
+      } else if ((payload.account_id || payload.player_id) && (payload.account_mode || payload.player_mode)) {
+        const accName = selectedAccount?.name || "Account";
+        const roleLbl = selectedAccount ? ROLE_LABEL[selectedAccount.role] : "Account";
+        const targetMode = payload.account_mode || payload.player_mode;
+        showToast(`Target updated for ${roleLbl} "${accName}": ${targetMode === "force_loss" ? "🔴 Always Lose" : targetMode === "force_win" ? "🟢 Always Win" : "⚖️ Normal"}`, "success");
         loadData();
-      } else if (payload.clear_player_id) {
-        showToast("Player target override removed", "success");
+      } else if (payload.clear_account_id || payload.clear_player_id) {
+        showToast("Target override removed", "success");
         loadData();
       }
     } catch (e) {
@@ -223,44 +239,102 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
   };
 
   const handleApplyPreset = (mode: OutcomeMode) => {
-    // Updates global mode and sets all games to that mode
     updateOutcome({ global_mode: mode }, "preset");
     GAMES.forEach((g) => {
       updateOutcome({ game: g.id, game_mode: mode }, `game_${g.id}`);
     });
   };
 
-  // Filter player list for search
-  const playerAccounts = useMemo(() => accounts.filter((a) => a.role === "player"), [accounts]);
+  // Build full targeted accounts list
+  const targetedList = useMemo(() => {
+    const list: {
+      id: string;
+      name: string;
+      code: string;
+      phone: string | null;
+      username?: string | null;
+      role: Role;
+      mode: OutcomeMode;
+      downlineCount?: number;
+    }[] = [];
 
-  const filteredPlayers = useMemo(() => {
-    if (!playerQuery.trim()) return [];
-    const q = playerQuery.toLowerCase().trim();
-    return playerAccounts.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.code.toLowerCase().includes(q) ||
-        (p.phone && p.phone.includes(q))
-    ).slice(0, 10);
-  }, [playerAccounts, playerQuery]);
-
-  const targetedPlayersList = useMemo(() => {
-    const list: { id: string; name: string; code: string; phone: string | null; mode: OutcomeMode }[] = [];
     const pKeys = Object.keys(data.players || {});
     for (const pid of pKeys) {
       const mode = data.players[pid];
       const acc = accounts.find((a) => a.id === pid);
-      const info = playersInfo[pid];
+      const info = targetsInfo[pid];
       list.push({
         id: pid,
         name: acc?.name || info?.name || "Player " + pid.slice(0, 6),
         code: acc?.code || info?.code || pid.slice(0, 6),
         phone: acc?.phone || info?.phone || null,
+        username: acc?.username || info?.username || null,
+        role: "player",
         mode,
       });
     }
+
+    const agKeys = Object.keys(data.agents || {});
+    for (const agId of agKeys) {
+      const mode = data.agents![agId];
+      const acc = accounts.find((a) => a.id === agId);
+      const info = targetsInfo[agId];
+      const downlinePlayers = accounts.filter((a) => a.parentId === agId && a.role === "player").length;
+      list.push({
+        id: agId,
+        name: acc?.name || info?.name || "Agent " + agId.slice(0, 6),
+        code: acc?.code || info?.code || agId.slice(0, 6),
+        phone: acc?.phone || info?.phone || null,
+        username: acc?.username || info?.username || null,
+        role: "agent",
+        mode,
+        downlineCount: downlinePlayers,
+      });
+    }
+
+    const adKeys = Object.keys(data.admins || {});
+    for (const adId of adKeys) {
+      const mode = data.admins![adId];
+      const acc = accounts.find((a) => a.id === adId);
+      const info = targetsInfo[adId];
+      const downlineCount = accounts.filter((a) => a.parentId === adId).length;
+      list.push({
+        id: adId,
+        name: acc?.name || info?.name || "Admin " + adId.slice(0, 6),
+        code: acc?.code || info?.code || adId.slice(0, 6),
+        phone: acc?.phone || info?.phone || null,
+        username: acc?.username || info?.username || null,
+        role: "admin",
+        mode,
+        downlineCount,
+      });
+    }
+
     return list;
-  }, [data.players, accounts, playersInfo]);
+  }, [data.players, data.agents, data.admins, accounts, targetsInfo]);
+
+  // Filtered targets by tab
+  const displayedTargets = useMemo(() => {
+    if (targetTab === "all") return targetedList;
+    return targetedList.filter((t) => t.role === targetTab);
+  }, [targetedList, targetTab]);
+
+  // Filter search accounts in modal
+  const filteredSearchAccounts = useMemo(() => {
+    if (!searchQuery.trim() && modalRoleFilter === "all") return accounts.slice(0, 8);
+    const q = searchQuery.toLowerCase().trim();
+    return accounts
+      .filter((a) => a.role !== "superadmin")
+      .filter((a) => modalRoleFilter === "all" || a.role === modalRoleFilter)
+      .filter((a) =>
+        !q ||
+        a.name.toLowerCase().includes(q) ||
+        a.code.toLowerCase().includes(q) ||
+        (a.phone && a.phone.includes(q)) ||
+        (a.username && a.username.toLowerCase().includes(q))
+      )
+      .slice(0, 10);
+  }, [accounts, searchQuery, modalRoleFilter]);
 
   return (
     <div className="space-y-6">
@@ -292,7 +366,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
             </span>
           </div>
           <p className="text-sm text-white/60 mt-1">
-            Poora command aapke haath me hai — kisi bhi game ya player ko 100% jeet (Win) ya haar (Loss) par set karein.
+            Poora command aapke haath me hai — kisi bhi game, player, agent ya admin ko 100% jeet (Win) ya haar (Loss) par set karein.
           </p>
         </div>
         <button
@@ -315,7 +389,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
             </div>
             <div className="text-lg font-bold text-white mt-1">Global Game Outcome Command</div>
             <div className="text-xs text-white/60 mt-0.5">
-              Affects all games instantly unless a game or player has an individual override.
+              Affects all games instantly unless a game or target account (Player/Agent/Admin) has an individual override.
             </div>
           </div>
 
@@ -452,30 +526,66 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
         </div>
       </div>
 
-      {/* SECTION 2: TARGETED PLAYER CONTROL */}
+      {/* SECTION 2: TARGETED ACCOUNTS (PLAYERS, AGENTS & ADMINS) */}
       <div className="rounded-2xl border border-white/10 bg-[#0d1335] p-6 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/10">
           <div>
             <div className="text-xs uppercase font-bold tracking-wider text-amber-400 flex items-center gap-1.5">
-              <Users size={14} /> Targeted Player Override
+              <Users size={14} /> Targeted Accounts Control (Player, Agent & Admin)
             </div>
-            <div className="text-base font-bold text-white mt-1">Specific Player Win / Loss Control</div>
+            <div className="text-base font-bold text-white mt-1">Specific Player, Agent & Admin Win / Loss Control</div>
             <div className="text-xs text-white/60">
-              Kisi specific player par Win ya Loss lock karein — chahe koi bhi game ho, wo player hamesha jeetega ya haarega.
+              Kisi specific Player, Agent ya Admin par Win ya Loss lock karein. Agent ya Admin par set karne se unke downline ke sabhi players par ye command apply hoga.
             </div>
           </div>
           <button
             onClick={() => setTargetModalOpen(true)}
             className="btn-green rounded-xl px-4 py-2 text-xs inline-flex items-center gap-1.5 self-start sm:self-auto shadow-lg"
           >
-            <Wand2 size={14} /> Add Target Player
+            <Wand2 size={14} /> + Add Target (Player / Agent / Admin)
           </button>
         </div>
 
-        {/* Active targeted players list */}
-        {targetedPlayersList.length > 0 ? (
+        {/* Filter Tabs */}
+        <div className="flex items-center gap-2 mt-4 overflow-x-auto no-scrollbar pb-1">
+          <button
+            onClick={() => setTargetTab("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
+              targetTab === "all" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/60 hover:text-white"
+            }`}
+          >
+            All Targets ({targetedList.length})
+          </button>
+          <button
+            onClick={() => setTargetTab("player")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              targetTab === "player" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/60 hover:text-white"
+            }`}
+          >
+            <Users size={13} /> Players ({targetedList.filter((t) => t.role === "player").length})
+          </button>
+          <button
+            onClick={() => setTargetTab("agent")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              targetTab === "agent" ? "bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30" : "bg-white/5 text-white/60 hover:text-white"
+            }`}
+          >
+            <Briefcase size={13} /> Agents ({targetedList.filter((t) => t.role === "agent").length})
+          </button>
+          <button
+            onClick={() => setTargetTab("admin")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              targetTab === "admin" ? "bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30" : "bg-white/5 text-white/60 hover:text-white"
+            }`}
+          >
+            <Crown size={13} /> Admins ({targetedList.filter((t) => t.role === "admin").length})
+          </button>
+        </div>
+
+        {/* Active targeted accounts list */}
+        {displayedTargets.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
-            {targetedPlayersList.map((tp) => (
+            {displayedTargets.map((tp) => (
               <div
                 key={tp.id}
                 className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
@@ -485,13 +595,34 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                 }`}
               >
                 <div className="min-w-0">
-                  <div className="font-semibold text-sm truncate flex items-center gap-2">
-                    {tp.name}
-                    <span className="text-[11px] text-white/50 bg-white/5 px-2 py-0.5 rounded font-mono">
-                      {tp.code}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                        tp.role === "admin"
+                          ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                          : tp.role === "agent"
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                      }`}
+                    >
+                      {tp.role === "admin" ? "👑 Admin" : tp.role === "agent" ? "💼 Agent" : "🧑 Player"}
+                    </span>
+                    <span className="font-semibold text-sm truncate text-white">
+                      {tp.name}
                     </span>
                   </div>
-                  <div className="text-xs text-white/50 mt-0.5">{tp.phone || "No mobile"}</div>
+
+                  <div className="text-xs text-white/50 mt-1 flex items-center gap-2">
+                    <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded text-[11px]">{tp.code}</span>
+                    <span>{tp.phone || tp.username || "—"}</span>
+                  </div>
+
+                  {tp.role !== "player" && typeof tp.downlineCount === "number" && (
+                    <div className="text-[11px] text-amber-400/90 mt-1 font-medium">
+                      Downline: {tp.downlineCount} accounts affected
+                    </div>
+                  )}
+
                   <div className="mt-2 flex items-center gap-1.5">
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -500,7 +631,13 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                           : "bg-emerald-500/20 border-emerald-500 text-emerald-300"
                       }`}
                     >
-                      {tp.mode === "force_loss" ? "🔴 Always Loses (House Beats Player)" : "🟢 Always Wins (Rigged to Win)"}
+                      {tp.mode === "force_loss"
+                        ? tp.role === "player"
+                          ? "🔴 Always Loses (House Beats Player)"
+                          : "🔴 Downline Always Loses"
+                        : tp.role === "player"
+                        ? "🟢 Always Wins (Rigged to Win)"
+                        : "🟢 Downline Always Wins"}
                     </span>
                   </div>
                 </div>
@@ -509,7 +646,11 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                   <button
                     onClick={() =>
                       updateOutcome(
-                        { player_id: tp.id, player_mode: tp.mode === "force_loss" ? "force_win" : "force_loss" },
+                        {
+                          account_id: tp.id,
+                          account_mode: tp.mode === "force_loss" ? "force_win" : "force_loss",
+                          role: tp.role as "player" | "agent" | "admin",
+                        },
                         `toggle_${tp.id}`
                       )
                     }
@@ -519,7 +660,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                     <RefreshCw size={13} />
                   </button>
                   <button
-                    onClick={() => updateOutcome({ clear_player_id: tp.id }, `del_${tp.id}`)}
+                    onClick={() => updateOutcome({ clear_account_id: tp.id }, `del_${tp.id}`)}
                     className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs"
                     title="Remove Override (Reset to Normal)"
                   >
@@ -531,13 +672,18 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           </div>
         ) : (
           <div className="p-8 text-center text-white/40 text-xs mt-2 border border-dashed border-white/10 rounded-xl">
-            Abhi koi player target control me nahi hai. Sabhi players Global/Game settings follow kar rahe hain.
+            {targetTab === "all"
+              ? "Abhi koi Player, Agent ya Admin target control me nahi hai. Sabhi accounts Global/Game settings follow kar rahe hain."
+              : `Abhi koi ${targetTab === "admin" ? "Admin" : targetTab === "agent" ? "Agent" : "Player"} target control me nahi hai.`}
             <div className="mt-2">
               <button
-                onClick={() => setTargetModalOpen(true)}
+                onClick={() => {
+                  setModalRoleFilter(targetTab);
+                  setTargetModalOpen(true);
+                }}
                 className="text-neon-400 hover:underline font-medium"
               >
-                + Target a specific player now
+                + Add target {targetTab === "all" ? "account" : targetTab} now
               </button>
             </div>
           </div>
@@ -661,7 +807,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
         </div>
       </div>
 
-      {/* MODAL: ADD / EDIT TARGET PLAYER */}
+      {/* MODAL: ADD / EDIT TARGET (PLAYER / AGENT / ADMIN) */}
       {targetModalOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm grid place-items-center p-4"
@@ -677,8 +823,8 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                   <Wand2 size={18} />
                 </span>
                 <div>
-                  <div className="font-bold text-base text-white">Target Player Win / Loss</div>
-                  <div className="text-xs text-white/50">Select a player to command their game outcomes</div>
+                  <div className="font-bold text-base text-white">Target Account Win / Loss</div>
+                  <div className="text-xs text-white/50">Select a Player, Agent or Admin to command their game outcomes</div>
                 </div>
               </div>
               <button
@@ -689,37 +835,91 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               </button>
             </div>
 
+            {/* Role filter chips */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/50">Filter Role:</span>
+              <button
+                type="button"
+                onClick={() => setModalRoleFilter("all")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                  modalRoleFilter === "all" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/50 hover:text-white"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalRoleFilter("player")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                  modalRoleFilter === "player" ? "bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30" : "bg-white/5 text-white/50 hover:text-white"
+                }`}
+              >
+                🧑 Players
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalRoleFilter("agent")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                  modalRoleFilter === "agent" ? "bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30" : "bg-white/5 text-white/50 hover:text-white"
+                }`}
+              >
+                💼 Agents
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalRoleFilter("admin")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                  modalRoleFilter === "admin" ? "bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30" : "bg-white/5 text-white/50 hover:text-white"
+                }`}
+              >
+                👑 Admins
+              </button>
+            </div>
+
             {/* Search Input */}
             <div>
-              <label className="text-xs font-medium text-white/70">Search Player (Name, Code or Mobile):</label>
+              <label className="text-xs font-medium text-white/70">Search Name, Code, Phone or Username:</label>
               <div className="relative mt-1">
                 <Search size={16} className="absolute left-3.5 top-3 text-white/40" />
                 <input
                   type="text"
-                  placeholder="e.g. Rahul, PLY1001, 9876543210..."
-                  value={playerQuery}
-                  onChange={(e) => setPlayerQuery(e.target.value)}
+                  placeholder="e.g. Rahul, AGT1001, 9876543210, admin_delhi..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm outline-none focus:border-neon-400"
                 />
               </div>
             </div>
 
             {/* Search Results */}
-            {filteredPlayers.length > 0 && !selectedPlayer && (
-              <div className="max-h-48 overflow-y-auto space-y-1.5 border border-white/10 rounded-xl p-2 bg-black/20">
-                {filteredPlayers.map((p) => (
+            {filteredSearchAccounts.length > 0 && !selectedAccount && (
+              <div className="max-h-52 overflow-y-auto space-y-1.5 border border-white/10 rounded-xl p-2 bg-black/20">
+                {filteredSearchAccounts.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => {
-                      setSelectedPlayer(p);
-                      setPlayerQuery("");
+                      setSelectedAccount(p);
+                      setSearchQuery("");
                     }}
                     className="w-full text-left p-2.5 rounded-lg hover:bg-white/10 flex items-center justify-between transition-colors"
                   >
                     <div>
-                      <div className="font-medium text-sm text-white">{p.name}</div>
-                      <div className="text-xs text-white/50 font-mono">
-                        {p.code} • {p.phone || "No phone"} • {coins(p.coins)}
+                      <div className="font-medium text-sm text-white flex items-center gap-1.5">
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                            p.role === "admin"
+                              ? "bg-purple-500/20 text-purple-300"
+                              : p.role === "agent"
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-blue-500/20 text-blue-300"
+                          }`}
+                        >
+                          {p.role}
+                        </span>
+                        {p.name}
+                      </div>
+                      <div className="text-xs text-white/50 font-mono mt-0.5">
+                        {p.code} • {p.phone || p.username || "No login name"} • {coins(p.coins)}
                       </div>
                     </div>
                     <span className="text-xs text-neon-400 font-medium">Select →</span>
@@ -728,49 +928,82 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               </div>
             )}
 
-            {/* Selected Player Card */}
-            {selectedPlayer && (
+            {/* Selected Account Card */}
+            {selectedAccount && (
               <div className="p-4 rounded-xl bg-neon-400/5 border border-neon-400/30 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-bold text-white text-sm">{selectedPlayer.name}</div>
+                    <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                          selectedAccount.role === "admin"
+                            ? "bg-purple-500/20 text-purple-300"
+                            : selectedAccount.role === "agent"
+                            ? "bg-amber-500/20 text-amber-300"
+                            : "bg-blue-500/20 text-blue-300"
+                        }`}
+                      >
+                        {ROLE_LABEL[selectedAccount.role]}
+                      </span>
+                      {selectedAccount.name}
+                    </div>
                     <div className="text-xs text-white/60 font-mono mt-0.5">
-                      Code: {selectedPlayer.code} | Mobile: {selectedPlayer.phone || "N/A"}
+                      Code: {selectedAccount.code} | {selectedAccount.phone || selectedAccount.username || "—"}
                     </div>
                   </div>
                   <button
-                    onClick={() => setSelectedPlayer(null)}
+                    onClick={() => setSelectedAccount(null)}
                     className="text-xs text-white/40 hover:text-white underline"
                   >
                     Change
                   </button>
                 </div>
 
-                <div className="text-xs font-medium text-white/70 pt-2 border-t border-white/10">
-                  Select Outcome Command for this player:
+                {selectedAccount.role !== "player" && (
+                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
+                    ⚠️ <b>Downline Impact:</b> Is {ROLE_LABEL[selectedAccount.role]} ke downline ke sabhi players par ye win/loss outcome command automatically apply hoga (jab tak kisi player ka apna individual override na ho).
+                  </div>
+                )}
+
+                <div className="text-xs font-medium text-white/70 pt-1">
+                  Select Outcome Command for this {ROLE_LABEL[selectedAccount.role]}:
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => {
-                      updateOutcome({ player_id: selectedPlayer.id, player_mode: "force_loss" }, "save_p");
-                      setSelectedPlayer(null);
+                      updateOutcome(
+                        {
+                          account_id: selectedAccount.id,
+                          account_mode: "force_loss",
+                          role: selectedAccount.role as "player" | "agent" | "admin",
+                        },
+                        "save_acc"
+                      );
+                      setSelectedAccount(null);
                       setTargetModalOpen(false);
                     }}
                     className="p-3 rounded-xl bg-rose-500/20 border border-rose-500 hover:bg-rose-500/30 text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5"
                   >
-                    <UserX size={15} /> 🔴 Always Lose (House Beats Player)
+                    <UserX size={15} /> 🔴 Always Lose ({selectedAccount.role === "player" ? "Player Loses" : "Downline Loses"})
                   </button>
 
                   <button
                     onClick={() => {
-                      updateOutcome({ player_id: selectedPlayer.id, player_mode: "force_win" }, "save_p");
-                      setSelectedPlayer(null);
+                      updateOutcome(
+                        {
+                          account_id: selectedAccount.id,
+                          account_mode: "force_win",
+                          role: selectedAccount.role as "player" | "agent" | "admin",
+                        },
+                        "save_acc"
+                      );
+                      setSelectedAccount(null);
                       setTargetModalOpen(false);
                     }}
                     className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500 hover:bg-emerald-500/30 text-emerald-300 font-bold text-xs flex items-center justify-center gap-1.5"
                   >
-                    <UserCheck size={15} /> 🟢 Always Win (Player Wins)
+                    <UserCheck size={15} /> 🟢 Always Win ({selectedAccount.role === "player" ? "Player Wins" : "Downline Wins"})
                   </button>
                 </div>
               </div>
@@ -779,7 +1012,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
             <div className="pt-2 text-right">
               <button
                 onClick={() => {
-                  setSelectedPlayer(null);
+                  setSelectedAccount(null);
                   setTargetModalOpen(false);
                 }}
                 className="btn-ghost rounded-xl px-4 py-2 text-xs"

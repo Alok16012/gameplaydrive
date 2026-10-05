@@ -39,7 +39,8 @@ function slotColor(k: number, n: number) {
 }
 
 export function Plinko({ nav }: { nav: Nav }) {
-  const { total, showToast, applyBalance } = useStore();
+  const { total, showToast, applyBalance, holdWinnings } = useStore();
+  const releases = useRef<Record<number, () => void>>({}); // per ball: show its winnings when it lands
   const [rows, setRows] = useState<Rows>(12);
   const [risk, setRisk] = useState<Risk>("medium");
   const [amount, setAmount] = useState(100);
@@ -49,7 +50,6 @@ export function Plinko({ nav }: { nav: Nav }) {
   const [now, setNow] = useState(() => Date.now());
   const seq = useRef(0);
   const latest = useRef({ seq: 0, bal: 0 });
-  const unlanded = useRef(0); // payouts already in the server balance whose ball hasn't landed yet
 
   // Animation clock.
   useEffect(() => {
@@ -72,13 +72,12 @@ export function Plinko({ nav }: { nav: Nav }) {
   useEffect(() => {
     const landed = balls.filter((b) => now >= b.start + (b.path.length + 1) * ROW_MS);
     if (!landed.length) return;
-    for (const b of landed) { unlanded.current -= b.payout; delete rowSeen.current[b.id]; }
+    for (const b of landed) { releases.current[b.id]?.(); delete releases.current[b.id]; delete rowSeen.current[b.id]; }
     if (landed.some((b) => b.mult >= 2)) sfx.win(); else sfx.slot();
-    applyBalance(latest.current.bal - unlanded.current);
     setHits((h) => ({ ...h, ...Object.fromEntries(landed.map((b) => [b.slot, now])) }));
     setRecent((r) => [...landed.map((b) => ({ mult: b.mult, key: b.id })), ...r].slice(0, 12));
     setBalls((bs) => bs.filter((b) => !landed.includes(b)));
-  }, [now, balls, applyBalance]);
+  }, [now, balls]);
 
   const drop = async () => {
     if (balls.length >= MAX_BALLS) return;
@@ -88,9 +87,8 @@ export function Plinko({ nav }: { nav: Nav }) {
     const { data, error } = await supabase().rpc("plinko_drop", { p_amount: amount, p_rows: rows, p_risk: risk });
     if (error) return showToast(errText(error));
     const r = data as { path: number[]; slot: number; mult: number; payout: number; balance: number };
-    unlanded.current += r.payout;
-    if (my > latest.current.seq) latest.current = { seq: my, bal: r.balance };
-    applyBalance(latest.current.bal - unlanded.current);
+    releases.current[my] = holdWinnings(r.payout, 30000);
+    if (my > latest.current.seq) { latest.current = { seq: my, bal: r.balance }; applyBalance(r.balance); }
     setBalls((bs) => [...bs, { id: my, path: r.path, start: Date.now(), slot: r.slot, mult: Number(r.mult), payout: r.payout, amount }]);
   };
 
