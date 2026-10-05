@@ -26,12 +26,20 @@ interface Seat {
 }
 interface Row { seat: number; name: string; bot: boolean; uid?: string; pts: number | null; score: number; note: string; out: boolean; coins: number | null; hand: RCard[][] | null }
 interface Result { winner: number; winner_name: string; rows: Row[]; match_over: boolean; champion: number | null; champion_name: string | null; prize: number; deal_no: number; wild: Card; rake: number }
+/** One turn on the table (server move log): where the card came from and what was thrown; or the deck reshuffle. */
+interface Move { seat?: number; name?: string; src?: "open" | "closed"; took?: RCard | null; threw?: RCard; reshuffle?: boolean }
 interface View {
   id: string; mode: RummyMode; stake: number; deals: number; code: string | null; status: "waiting" | "playing" | "dealdone";
   match_no: number; deal_no: number; round: number; turn: number | null; phase: "draw" | "discard" | null; turn_ends: string | null; next_at: string | null;
   wild: Card | null; open_top: RCard | null; stock_count: number; prize: number; match_over: boolean; result: Result | null; seats: Seat[];
   queued: boolean; me: number | null; my_cards: RCard[] | null; my_groups: number[][] | null; due_at: string | null; turn_secs: number; server_now: string;
+  discards?: RCard[]; log?: Move[]; open_joker_ok?: boolean; // public table info (migration 024)
 }
+
+const cardTxt = (c?: RCard | null) => (c ? `${c.r}${c.s ?? ""}` : "");
+const moveTxt = (m: Move, me: number | null) =>
+  m.reshuffle ? "Closed deck ran out — open pile reshuffled into it"
+  : `${m.seat === me ? "You" : m.name}: ${m.src === "open" ? `picked ${cardTxt(m.took)} from Open` : "drew from Closed"} • threw ${cardTxt(m.threw)}`;
 
 const dropPts = (mode: RummyMode, middle: boolean) => (mode === "pool201" ? (middle ? 50 : 25) : middle ? 40 : 20);
 
@@ -60,6 +68,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const openRef = useRef<HTMLButtonElement | null>(null);
   const showRef = useRef<HTMLButtonElement | null>(null);
   const [menu, setMenu] = useState(false);
+  const [moves, setMoves] = useState(false);
   // The table scales with the stage: 1 = a typical phone held sideways (844 × 390).
   const [stage, setStage] = useState({ w: 844, h: 390 });
   const ro = useRef<ResizeObserver | null>(null);
@@ -366,6 +375,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             {menu && (
               <div className="absolute right-0 top-11 w-48 rounded-xl bg-[#1a1e1a] border border-white/10 shadow-xl overflow-hidden text-[13px]">
                 <button onClick={() => { setMenu(false); sortHand(); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Sort cards</button>
+                {v?.log && <button onClick={() => { setMenu(false); setMoves(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Table moves &amp; discards</button>}
                 {res && <button onClick={() => { setMenu(false); setSheetFor(key); setPeek(false); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Last deal score</button>}
                 <button onClick={() => { setMenu(false); leave(); }} className="w-full text-left px-4 py-2.5 text-rose-300 hover:bg-white/5">Leave table</button>
               </div>
@@ -384,6 +394,14 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </div>
         ) : null}
 
+        {/* Last move on the table — tap for every move and the discard pile */}
+        {inDeal && v?.log && cards === 13 && (
+          <button onClick={() => setMoves(true)} className="absolute left-[3%] bottom-[66px] z-20 w-[20%] rounded-lg bg-[#1a1e1a]/95 border border-white/10 px-2 py-1 text-left text-[10.5px] leading-tight">
+            <span className="text-white/45">Last move ›</span>
+            <span className="block line-clamp-2 text-white/90">{v.log.length ? moveTxt(v.log[v.log.length - 1], v.me) : "No moves yet"}</span>
+          </button>
+        )}
+
         {/* Opponents */}
         {v && shownOthers.map((si, k) => {
           const b = v.seats[si];
@@ -398,7 +416,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               <div className={`-mt-1.5 relative rounded-full bg-[#141814] border px-2.5 py-0.5 text-[12px] whitespace-nowrap max-w-[150px] truncate ${active ? "border-neon-400/70" : "border-white/15"}`}>
                 {tagText(b, false)}{b.bot && <BotTag />}
               </div>
-              {playing && !dropped && b.action && !active && <div className="mt-0.5 text-[10px] text-white/55 max-w-[130px] truncate">{b.action}</div>}
+              {playing && !dropped && b.action && !active && <div className="mt-0.5 rounded-full bg-black/35 px-2 text-[11px] text-white/80 max-w-[160px] truncate">{b.action}</div>}
             </div>
           );
         })}
@@ -428,10 +446,10 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 <div className={`relative rounded-[10px] ${myTurn && v.phase === "draw" ? "rc-glow" : ""}`}><RcBack w={deckW} h={deckH} /></div>
               </button>
               {/* Open card */}
-              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || isJoker(v.open_top, wild)} onClick={() => act("draw_open")} aria-label="Open card" ref={openRef} className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[10px] transition-transform ${drag?.over === "discard" ? "scale-110 ring-4 ring-white/90" : ""}`} style={{ left: "52%" }}>
+              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || (isJoker(v.open_top, wild) && !v.open_joker_ok)} onClick={() => act("draw_open")} aria-label="Open card" ref={openRef} className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[10px] transition-transform ${drag?.over === "discard" ? "scale-110 ring-4 ring-white/90" : ""}`} style={{ left: "52%" }}>
                 {drag?.over === "discard" && <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[11px] font-bold rounded-full px-2 py-0.5 bg-white text-black whitespace-nowrap z-10">Discard</div>}
                 {v.open_top
-                  ? <div className={`rounded-[10px] ${myTurn && v.phase === "draw" && !isJoker(v.open_top, wild) ? "rc-glow" : ""}`}><RcCard key={v.open_top.id} card={v.open_top} wild={isJoker(v.open_top, wild)} w={deckW} h={deckH} className="flip" /></div>
+                  ? <div className={`rounded-[10px] ${myTurn && v.phase === "draw" && (!isJoker(v.open_top, wild) || v.open_joker_ok) ? "rc-glow" : ""}`}><RcCard key={v.open_top.id} card={v.open_top} wild={isJoker(v.open_top, wild)} w={deckW} h={deckH} className="flip" /></div>
                   : <div className="rounded-[10px] border-2 border-dashed border-white/25" style={{ width: deckW, height: deckH }} />}
               </button>
               {/* Show (finish) slot: select one card to put aside, then tap here */}
@@ -534,6 +552,26 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           <div className="absolute left-[3%] bottom-3 z-20 text-[11px] text-white/45 max-w-[30%]">Leaving mid-deal counts as a drop and forfeits the match</div>
         )}
       </div>
+
+      <Sheet open={moves} onClose={() => setMoves(false)} title="Table moves">
+        <div className="text-[13px]">
+          <div className="text-white/50 text-[12px] mb-1.5">Open pile (top first) • {v?.discards?.length ?? 0} cards</div>
+          <div className="flex flex-wrap gap-1">
+            {(v?.discards ?? []).map((c, i) => <RcCard key={c.id + ":" + i} card={c} wild={isJoker(c, wild)} w={30} h={42} />)}
+            {!v?.discards?.length && <span className="text-white/40">Empty</span>}
+          </div>
+          <div className="text-white/50 text-[12px] mt-4 mb-1.5">This deal, latest first</div>
+          <div className="space-y-1">
+            {[...(v?.log ?? [])].reverse().map((m, i) => (
+              <div key={i} className={`rounded-lg px-2.5 py-1.5 ${m.reshuffle ? "bg-gold-500/15 text-gold-300" : m.seat === v?.me ? "bg-white/10" : "bg-white/5"}`}>{moveTxt(m, v?.me ?? null)}</div>
+            ))}
+            {!v?.log?.length && <div className="text-white/40">No moves yet this deal</div>}
+          </div>
+          <div className="text-[11px] text-white/35 mt-3">
+            Rummy uses {cards === 21 ? "three" : "two"} decks, so each card exists {cards === 21 ? "three" : "two"} times. A thrown card can also be picked up and thrown again, and when the closed deck runs out the open pile is reshuffled back in — so the same card can come round more than once.
+          </div>
+        </div>
+      </Sheet>
 
       <Sheet open={confirm !== null} onClose={() => setConfirm(null)} title={confirm === "drop" ? "Drop this deal?" : "Declare?"}>
         {confirm === null ? null : confirm === "drop" ? (
