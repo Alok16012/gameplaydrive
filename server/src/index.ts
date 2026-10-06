@@ -177,16 +177,29 @@ const server = createServer(async (req, res) => {
       diag.diamondExchCheckIpError = e.message;
     }
 
-    try {
-      const matchRes = await fetch("https://apis.diamondexchapi.com/api/cricket/matches", {
-        headers: { "Accept": "application/json" },
-        cache: "no-store",
-      });
-      diag.diamondExchStatus = matchRes.status;
-      const text = await matchRes.text();
-      diag.diamondExchSnippet = text.slice(0, 300);
-    } catch (e: any) {
-      diag.diamondExchError = e.message;
+    const testUrls = [
+      "https://apis.diamondexchapi.com/api/cricket/odds?eventId=761013765",
+      "https://apis.diamondexchapi.com/api/cricket/odds?marketId=5188803657540",
+      "https://apis.diamondexchapi.com/api/cricket/odds?eventId=473531415",
+      "https://apis.diamondexchapi.com/api/odds?eventId=761013765",
+      "https://apis.diamondexchapi.com/api/cricket/odds/761013765",
+      "https://apis.diamondexchapi.com/api/cricket/fancy?eventId=761013765",
+      "https://apis.diamondexchapi.com/api/cricket/fancy-results?eventId=761013765",
+    ];
+
+    diag.probes = {};
+    for (const url of testUrls) {
+      try {
+        const pRes = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+        const text = await pRes.text();
+        diag.probes[url] = {
+          status: pRes.status,
+          isJson: (pRes.headers.get("content-type") || "").includes("json"),
+          snippet: text.slice(0, 150),
+        };
+      } catch (err: any) {
+        diag.probes[url] = { error: err.message };
+      }
     }
 
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
