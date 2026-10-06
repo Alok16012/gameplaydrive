@@ -267,26 +267,50 @@ export function getMatchDepthOdds(
     },
   ];
 
-  // Fancy session markets with live ball-by-ball shifting
-  const runShift = Math.floor(drift * 20);
-  const sixRuns = Math.max(30, 48 + (hash % 12) + runShift);
-  const tenRuns = Math.max(65, 84 + (hash % 18) + runShift * 2);
-  const fifteenRuns = Math.max(110, 132 + (hash % 24) + runShift * 3);
-  const sixes = Math.max(6, 13 + (hash % 6));
-  const nextWicket = Math.max(80, 175 + (hash % 30) + runShift * 4);
+  // Sport-specific fancy / special markets
+  let fancyOddDatas: RunnerOdd[] = [];
+
+  if (match.sport === "soccer") {
+    const ouBase = Number((1.85 + (hash % 3) * 0.05).toFixed(2));
+    const bttsBase = Number((1.78 + (hash % 4) * 0.04).toFixed(2));
+    fancyOddDatas = [
+      { sid: "201", rname: "Total Goals Over 2.5", b1: String(Number((ouBase + 0.10).toFixed(2))), bs1: "100", l1: String(ouBase), ls1: "100", status: "ACTIVE" },
+      { sid: "202", rname: "Both Teams to Score (BTTS)", b1: String(Number((bttsBase + 0.12).toFixed(2))), bs1: "100", l1: String(bttsBase), ls1: "100", status: "ACTIVE" },
+      { sid: "203", rname: "1st Half Over 0.5 Goals", b1: "1.45", bs1: "100", l1: "1.40", ls1: "100", status: "ACTIVE" },
+      { sid: "204", rname: "Total Match Corners Over 8.5", b1: "1.90", bs1: "100", l1: "1.82", ls1: "100", status: "ACTIVE" },
+      { sid: "205", rname: `${match.team1.short || "Home"} Clean Sheet`, b1: "2.40", bs1: "100", l1: "2.25", ls1: "100", status: "ACTIVE" },
+    ];
+  } else if (match.sport === "tennis") {
+    fancyOddDatas = [
+      { sid: "301", rname: `Set 1 Winner (${match.team1.name})`, b1: String(b1), bs1: "100", l1: String(l1), ls1: "100", status: "ACTIVE" },
+      { sid: "302", rname: "Total Games Over 21.5", b1: "1.92", bs1: "100", l1: "1.85", ls1: "100", status: "ACTIVE" },
+      { sid: "303", rname: "Set 1 Tie-Break (Yes/No)", b1: "3.50", bs1: "100", l1: "3.20", ls1: "100", status: "ACTIVE" },
+      { sid: "304", rname: "Match to go 3 Sets", b1: "2.25", bs1: "100", l1: "2.10", ls1: "100", status: "ACTIVE" },
+    ];
+  } else {
+    // Cricket Sessions
+    const runShift = Math.floor(drift * 20);
+    const sixRuns = Math.max(30, 48 + (hash % 12) + runShift);
+    const tenRuns = Math.max(65, 84 + (hash % 18) + runShift * 2);
+    const fifteenRuns = Math.max(110, 132 + (hash % 24) + runShift * 3);
+    const sixes = Math.max(6, 13 + (hash % 6));
+    const nextWicket = Math.max(80, 175 + (hash % 30) + runShift * 4);
+
+    fancyOddDatas = [
+      { sid: "101", rname: `6 Over Runs ${match.team1.short || "T1"}`, b1: String(sixRuns), bs1: "100", l1: String(sixRuns - 2), ls1: "100", status: "ACTIVE" },
+      { sid: "102", rname: `10 Over Runs ${match.team1.short || "T1"}`, b1: String(tenRuns), bs1: "100", l1: String(tenRuns - 2), ls1: "100", status: "ACTIVE" },
+      { sid: "103", rname: `15 Over Runs ${match.team1.short || "T1"}`, b1: String(fifteenRuns), bs1: "100", l1: String(fifteenRuns - 3), ls1: "100", status: "ACTIVE" },
+      { sid: "104", rname: "Total Match Sixes", b1: String(sixes + 1), bs1: "100", l1: String(sixes), ls1: "100", status: "ACTIVE" },
+      { sid: "105", rname: "Fall of Next Wicket", b1: String(nextWicket), bs1: "100", l1: String(nextWicket - 5), ls1: "100", status: "ACTIVE" },
+    ];
+  }
 
   const fancyOdds: MarketOdds[] = [
     {
       mid: `f.${match.eventId}`,
-      mname: "FANCY",
+      mname: match.sport === "soccer" ? "GOALS_SPECIALS" : match.sport === "tennis" ? "SETS_GAMES" : "FANCY",
       status: "ACTIVE",
-      oddDatas: [
-        { sid: "101", rname: `6 Over Runs ${match.team1.short || "T1"}`, b1: String(sixRuns), bs1: "100", l1: String(sixRuns - 2), ls1: "100", status: "ACTIVE" },
-        { sid: "102", rname: `10 Over Runs ${match.team1.short || "T1"}`, b1: String(tenRuns), bs1: "100", l1: String(tenRuns - 2), ls1: "100", status: "ACTIVE" },
-        { sid: "103", rname: `15 Over Runs ${match.team1.short || "T1"}`, b1: String(fifteenRuns), bs1: "100", l1: String(fifteenRuns - 3), ls1: "100", status: "ACTIVE" },
-        { sid: "104", rname: "Total Match Sixes", b1: String(sixes + 1), bs1: "100", l1: String(sixes), ls1: "100", status: "ACTIVE" },
-        { sid: "105", rname: "Fall of Next Wicket", b1: String(nextWicket), bs1: "100", l1: String(nextWicket - 5), ls1: "100", status: "ACTIVE" },
-      ],
+      oddDatas: fancyOddDatas,
     },
   ];
 

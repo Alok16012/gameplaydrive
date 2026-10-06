@@ -414,15 +414,27 @@ export function Cricket({
               <div className="bg-black/40 rounded-xl p-2.5 border border-white/5">
                 <div className="text-xs text-white/80 font-bold truncate">{activeMatch.team1.name}</div>
                 <div className="text-base font-black text-white mt-0.5">
-                  {activeMatch.team1.score || (activeMatch.inPlay ? "168/4" : "-")}
-                  {activeMatch.team1.overs && <span className="text-xs font-normal text-white/60 ml-1">({activeMatch.team1.overs} ov)</span>}
+                  {activeMatch.team1.score || (
+                    activeMatch.inPlay
+                      ? (activeMatch.sport === "soccer" ? "1" : activeMatch.sport === "tennis" ? "6 (4)" : "168/4")
+                      : "-"
+                  )}
+                  {activeMatch.sport === "cricket" && activeMatch.team1.overs && (
+                    <span className="text-xs font-normal text-white/60 ml-1">({activeMatch.team1.overs} ov)</span>
+                  )}
                 </div>
               </div>
               <div className="bg-black/40 rounded-xl p-2.5 border border-white/5">
                 <div className="text-xs text-white/80 font-bold truncate">{activeMatch.team2.name}</div>
                 <div className="text-base font-black text-white/90 mt-0.5">
-                  {activeMatch.team2.score || (activeMatch.inPlay ? "182/6" : "-")}
-                  {activeMatch.team2.overs && <span className="text-xs font-normal text-white/60 ml-1">({activeMatch.team2.overs} ov)</span>}
+                  {activeMatch.team2.score || (
+                    activeMatch.inPlay
+                      ? (activeMatch.sport === "soccer" ? "0" : activeMatch.sport === "tennis" ? "4 (3)" : "154/6")
+                      : "-"
+                  )}
+                  {activeMatch.sport === "cricket" && activeMatch.team2.overs && (
+                    <span className="text-xs font-normal text-white/60 ml-1">({activeMatch.team2.overs} ov)</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -468,7 +480,10 @@ export function Cricket({
               { id: "all", label: "All Markets" },
               { id: "match_odds", label: "Match Odds" },
               { id: "bookmaker", label: "Bookmaker" },
-              { id: "fancy", label: "Fancy & Sessions" },
+              {
+                id: "fancy",
+                label: activeMatch.sport === "soccer" ? "Goals & Specials" : activeMatch.sport === "tennis" ? "Sets & Games" : "Fancy & Sessions"
+              },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -572,21 +587,25 @@ export function Cricket({
             </div>
           )}
 
-          {/* 3. Fancy & Sessions Market Table */}
-          {activeMatch.sport === "cricket" && (activeMarketTab === "all" || activeMarketTab === "fancy") && (
+          {/* 3. Fancy, Goals & Specials Market Table */}
+          {(activeMarketTab === "all" || activeMarketTab === "fancy") && fancyOdds.length > 0 && (
             <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
               <div className="px-3 py-2 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
                 <div className="flex items-center gap-1.5">
                   <Flame size={14} className="text-amber-400 animate-pulse" />
-                  <span className="font-extrabold text-xs text-white">SESSION & FANCY MARKETS</span>
+                  <span className="font-extrabold text-xs text-white">
+                    {activeMatch.sport === "soccer" ? "GOALS & SPECIAL MARKETS" : activeMatch.sport === "tennis" ? "SETS & GAMES MARKETS" : "SESSION & FANCY MARKETS"}
+                  </span>
                 </div>
-                <span className="text-[10px] text-amber-400 font-extrabold">Ball by Ball</span>
+                <span className="text-[10px] text-amber-400 font-extrabold">
+                  {activeMatch.sport === "cricket" ? "Ball by Ball" : "Live Match"}
+                </span>
               </div>
 
               <div className="grid grid-cols-12 px-2 py-1 bg-black/50 text-[10px] font-extrabold text-white/70 border-b border-white/5 text-center">
-                <div className="col-span-6 text-left pl-1">SESSION</div>
-                <div className="col-span-3 text-[#faa9ba] bg-pink-950/50 rounded py-0.5">NO (Khai)</div>
-                <div className="col-span-3 text-[#72bbef] bg-blue-950/50 rounded py-0.5">YES (Lagai)</div>
+                <div className="col-span-6 text-left pl-1">MARKET</div>
+                <div className="col-span-3 text-[#faa9ba] bg-pink-950/50 rounded py-0.5">NO / UNDER</div>
+                <div className="col-span-3 text-[#72bbef] bg-blue-950/50 rounded py-0.5">YES / OVER</div>
               </div>
 
               <div className="divide-y divide-white/5">
