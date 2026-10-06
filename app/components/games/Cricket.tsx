@@ -166,7 +166,7 @@ export function Cricket({
     };
 
     fetchOdds();
-    const intervalMs = activeMatch.inPlay ? 1000 : 3000;
+    const intervalMs = activeMatch.inPlay ? 500 : 1500;
     const intervalId = setInterval(fetchOdds, intervalMs);
 
     return () => {

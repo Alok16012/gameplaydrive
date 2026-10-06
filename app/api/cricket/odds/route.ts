@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   // 1. Attempt via Railway Proxy first (Live: 500ms cache, Upcoming: 2s cache)
   try {
-    const railwayRes = await fetch(`${railwayHost}/api/cricket/odds?eventId=${eventId}&sport=${sportParam}&live=${isLive}`, {
+    const railwayRes = await fetch(`${railwayHost}/api/cricket/odds?gameId=${eventId}&eventId=${eventId}&sport=${sportParam}&live=${isLive}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
       headers["x-api-key"] = apiKey;
     }
 
-    const res = await fetch(`${baseUrl}/api/${sportParam === "football" ? "soccer" : sportParam}/odds?eventId=${eventId}`, {
+    const res = await fetch(`${baseUrl}/api/${sportParam === "football" ? "soccer" : sportParam}/odds?gameId=${eventId}&eventId=${eventId}`, {
       headers,
       cache: "no-store",
       signal: AbortSignal.timeout(6000),

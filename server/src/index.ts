@@ -279,7 +279,7 @@ const server = createServer(async (req, res) => {
   // 3. Proxy: Match Odds from DiamondExch (Live: 500ms, Upcoming: 2s)
   const oddsMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/odds$/);
   if (oddsMatch || pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
-    const eventId = parsedUrl.searchParams.get("eventId") || "";
+    const eventId = parsedUrl.searchParams.get("gameId") || parsedUrl.searchParams.get("eventId") || "";
     let sportName = oddsMatch ? oddsMatch[1] : (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
     if (sportName === "football" || sportName === "sports") sportName = "soccer";
     const isLive = parsedUrl.searchParams.get("live") === "true" || parsedUrl.searchParams.get("inPlay") === "true";
@@ -288,7 +288,7 @@ const server = createServer(async (req, res) => {
 
     try {
       const cachedRes = await fetchWithCache(cacheKey, ttl, async () => {
-        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?eventId=${encodeURIComponent(eventId)}`, {
+        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?gameId=${encodeURIComponent(eventId)}&eventId=${encodeURIComponent(eventId)}`, {
           headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
           cache: "no-store",
         });
