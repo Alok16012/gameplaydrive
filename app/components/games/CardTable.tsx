@@ -69,6 +69,53 @@ function fresh(bots: Seat[]): G {
   };
 }
 
+const RANK_V: Record<string, number> = { "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, J: 11, Q: 12, K: 13, A: 14 };
+
+/**
+ * How good a poker hand is, 0 (rubbish) … 1 (the nuts), from the computer's two cards and the board so far.
+ * Before the flop: pairs, high cards, suited and connected cards. After it: the made hand (counting only what the
+ * hole cards add over the board), top pair, and flush draws.
+ */
+function pokerStrength(hole: Card[], board: Card[]): number {
+  const [a, b] = hole.map((c) => RANK_V[c.r]).sort((x, y) => y - x);
+  if (board.length < 3) {
+    if (a === b) return Math.min(1, 0.55 + (a / 14) * 0.45);
+    let s = ((a + b) / 28) * 0.55;
+    if (hole[0].s === hole[1].s) s += 0.07;
+    const gap = a - b;
+    s += gap === 1 ? 0.06 : gap === 2 ? 0.03 : 0;
+    if (a === 14) s += 0.05;
+    return Math.min(1, s);
+  }
+  const all = [...hole, ...board];
+  const sc = all.length >= 5 ? pokerScore(all) : [-1];
+  const cat = Math.max(0, sc[0]);
+  const BY_CAT = [0.12, 0.38, 0.62, 0.72, 0.8, 0.85, 0.93, 0.98, 1];
+  let s = BY_CAT[cat] ?? 0.12;
+  const boardCat = board.length >= 5 ? pokerScore(board)[0] : new Set(board.map((c) => c.r)).size < board.length ? 1 : 0;
+  if (cat <= boardCat) s *= 0.5; // just playing the board
+  const topBoard = Math.max(...board.map((c) => RANK_V[c.r]));
+  if (cat === 1 && (sc[1] ?? 0) >= topBoard) s += 0.12; // top pair or an overpair
+  if (board.length < 5) {
+    const suits: Record<string, number> = {};
+    for (const c of all) suits[c.s] = (suits[c.s] ?? 0) + 1;
+    if (Object.values(suits).some((n) => n === 4) && hole.some((c) => suits[c.s] === 4)) s += 0.15; // flush draw
+  }
+  return Math.min(1, s);
+}
+
+/** Chance the computer folds: weak hands fold more, and more so against bigger bets; nothing to call, no fold. */
+function pokerFoldChance(strength: number, toCall: number, boot: number, preflop: boolean): number {
+  if (toCall <= 0) return 0;
+  const pressure = Math.min(1, toCall / (boot * 4));
+  const p = strength < 0.2 ? 0.55 + 0.35 * pressure
+    : strength < 0.35 ? 0.2 + 0.4 * pressure
+    : strength < 0.5 ? 0.05 + 0.2 * pressure
+    : strength < 0.65 ? 0.02 + 0.06 * pressure
+    : 0;
+  return preflop && pressure <= 0.25 ? p * 0.6 : p;
+}
+
 export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: GameId; table: string; buyIn: number }) {
   const game = gameById(gameId);
   const gs = useGameSettings();
@@ -200,11 +247,13 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       bump();
       await sleep(delay * 1000);
       if (g.current !== st) return; // left / restarted
-      const packChance = poker ? 0.14 : 0.08 + st.round * 0.04 + (b.seen ? 0.04 : 0);
-      if (timedOut) {
+      // Poker: fold or stay by the strength of the hand against the bet; Teen Patti: the old random packing.
+      const board = st.community.slice(0, st.stage >= 3 ? 5 : st.stage === 2 ? 4 : st.stage === 1 ? 3 : 0);
+      const packChance = poker ? pokerFoldChance(pokerStrength(b.cards, board), st.stake, buyIn, board.length === 0) : 0.08 + st.round * 0.04 + (b.seen ? 0.04 : 0);
+      if (timedOut && !(poker && st.stake === 0)) {
         b.packed = true;
         b.action = "Timed out";
-      } else if (Math.random() < packChance) {
+      } else if (!timedOut && Math.random() < packChance) {
         b.packed = true;
         b.action = poker ? "Fold" : "Pack";
       } else {

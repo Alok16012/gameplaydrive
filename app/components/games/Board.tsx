@@ -609,13 +609,20 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     if (!started || white || done !== null) return;
     const g = gameNo.current;
     const wait = chessThinkMs(pos, last, botMoves.current, clock[1]) * pace;
+    let t2 = 0;
+    // Work the move out first (iterative deepening, up to ~1 s), then play it when the "thinking" time is up.
     const t = setTimeout(() => {
       if (g !== gameNo.current) return;
-      const m = bestMove(pos, 2);
-      botMoves.current += 1;
-      if (m) play(pos, m);
-    }, wait);
-    return () => clearTimeout(t);
+      const began = Date.now();
+      const m = bestMove(pos, { ms: Math.min(1100, Math.max(300, wait - 200)), variety: botMoves.current < 4 });
+      const rest = Math.max(0, wait - 60 - (Date.now() - began));
+      t2 = window.setTimeout(() => {
+        if (g !== gameNo.current) return;
+        botMoves.current += 1;
+        if (m) play(pos, m);
+      }, rest);
+    }, 60);
+    return () => { clearTimeout(t); clearTimeout(t2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, started, done]);
 

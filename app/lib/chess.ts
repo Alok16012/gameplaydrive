@@ -152,30 +152,76 @@ const PST: Record<string, number[]> = {
   k: [-30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -30, -40, -40, -50, -50, -40, -40, -30, -20, -30, -30, -40, -40, -30, -30, -20, -10, -20, -20, -20, -20, -20, -20, -10, 20, 20, 0, 0, 0, 0, 20, 20, 20, 30, 10, 0, 0, 10, 30, 20],
 };
 
-/** Score from white's point of view (centipawns). */
+// King in the endgame: walk to the centre.
+const KING_END = [-50, -40, -30, -20, -20, -30, -40, -50, -30, -20, -10, 0, 0, -10, -20, -30, -30, -10, 20, 30, 30, 20, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30, -30, -10, 20, 30, 30, 20, -10, -30, -30, -30, 0, 0, 0, 0, -30, -30, -50, -30, -30, -30, -30, -30, -30, -50];
+const PASSED = [0, 120, 80, 50, 30, 15, 10, 0]; // bonus for a passed pawn by rows left to promote (white: its row)
+
+/** Score from white's point of view (centipawns): material, piece squares, bishop pair, passed pawns, open-file
+ *  rooks, and a king that comes to the centre once the queens and most pieces are gone. */
 function evaluate(b: Board): number {
-  let s = 0;
+  let s = 0, wMat = 0, bMat = 0, wB = 0, bB = 0;
+  const wPawnCol = new Array(8).fill(0), bPawnCol = new Array(8).fill(0);
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const pc = b[r][c];
+    if (pc === "p") bPawnCol[c]++;
+    else if (pc === "P") wPawnCol[c]++;
+    else if (pc !== "." && pc.toLowerCase() !== "k") {
+      if (isW(pc)) wMat += VAL[pc.toLowerCase()]; else bMat += VAL[pc];
+      if (pc === "B") wB++; if (pc === "b") bB++;
+    }
+  }
+  const endgame = wMat + bMat <= 2600;
   for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
     const pc = b[r][c];
     if (pc === ".") continue;
     const t = pc.toLowerCase();
-    if (isW(pc)) s += VAL[t] + PST[t][r * 8 + c];
-    else s -= VAL[t] + PST[t][(7 - r) * 8 + c];
+    const wsq = r * 8 + c, bsq = (7 - r) * 8 + c;
+    const pst = t === "k" && endgame ? KING_END : PST[t];
+    if (isW(pc)) s += VAL[t] + pst[wsq];
+    else s -= VAL[t] + pst[bsq];
+    if (t === "p") {
+      // passed pawn: no enemy pawn ahead on this or a neighbouring file
+      let passed = true;
+      for (let cc = Math.max(0, c - 1); cc <= Math.min(7, c + 1) && passed; cc++) {
+        if (isW(pc)) { for (let rr = r - 1; rr >= 0; rr--) if (b[rr][cc] === "p") { passed = false; break; } }
+        else { for (let rr = r + 1; rr < 8; rr++) if (b[rr][cc] === "P") { passed = false; break; } }
+      }
+      if (passed) s += isW(pc) ? PASSED[r] : -PASSED[7 - r];
+    } else if (t === "r") {
+      const open = !wPawnCol[c] && !bPawnCol[c], half = isW(pc) ? !wPawnCol[c] : !bPawnCol[c];
+      const bonus = open ? 20 : half ? 10 : 0;
+      s += isW(pc) ? bonus : -bonus;
+    }
   }
+  if (wB >= 2) s += 30;
+  if (bB >= 2) s -= 30;
   return s;
 }
 
-/** Captures first (most valuable victim, least valuable attacker) so alpha-beta prunes well. */
-const order = (ms: Move[]) => ms.sort((a, b) => (b.captured === "." ? 0 : VAL[b.captured.toLowerCase()] * 10 - VAL[b.piece.toLowerCase()]) - (a.captured === "." ? 0 : VAL[a.captured.toLowerCase()] * 10 - VAL[a.piece.toLowerCase()]) + ((b.promo ? 800 : 0) - (a.promo ? 800 : 0)));
+/** Captures first (most valuable victim, least valuable attacker), then promotions, then the killer moves. */
+const mvv = (m: Move) => (m.captured === "." ? 0 : VAL[m.captured.toLowerCase()] * 10 - VAL[m.piece.toLowerCase()] + 10000) + (m.promo ? 9000 : 0);
+const same = (a: Move | undefined, b: Move) => !!a && a.from[0] === b.from[0] && a.from[1] === b.from[1] && a.to[0] === b.to[0] && a.to[1] === b.to[1];
+const order = (ms: Move[], ply = -1) =>
+  ms.sort((a, b) => (mvv(b) + (ply >= 0 && (same(killers[ply]?.[0], b) || same(killers[ply]?.[1], b)) ? 5000 : 0)) - (mvv(a) + (ply >= 0 && (same(killers[ply]?.[0], a) || same(killers[ply]?.[1], a)) ? 5000 : 0)));
+
+// Search state: killer moves per ply, a node counter and a deadline (the search stops when time is up).
+let killers: Move[][] = [];
+let nodes = 0;
+let deadline = Infinity;
+class TimeUp extends Error {}
+const clock = () => { if ((++nodes & 1023) === 0 && Date.now() > deadline) throw new TimeUp(); };
 
 /** Follow captures to the end so the computer doesn't stop counting in the middle of a trade. */
 function quiesce(p: Pos, alpha: number, beta: number, depth: number): number {
+  clock();
   const stand = (p.turn === "w" ? 1 : -1) * evaluate(p.board);
   if (stand >= beta) return beta;
   if (alpha < stand) alpha = stand;
   if (depth <= 0) return alpha;
-  for (const m of order(legalMoves(p).filter((x) => x.captured !== "." || x.promo))) {
-    const sc = -quiesce(makeMove(p, m), -beta, -alpha, depth - 1);
+  for (const m of order(pseudo(p).filter((x) => x.captured !== "." || x.promo))) {
+    const next = makeMove(p, m);
+    if (inCheck(next, p.turn)) continue; // illegal: leaves own king in check
+    const sc = -quiesce(next, -beta, -alpha, depth - 1);
     if (sc >= beta) return beta;
     if (sc > alpha) alpha = sc;
   }
@@ -183,24 +229,69 @@ function quiesce(p: Pos, alpha: number, beta: number, depth: number): number {
 }
 
 function search(p: Pos, depth: number, alpha: number, beta: number, ply: number): number {
-  const moves = legalMoves(p);
-  if (!moves.length) return inCheck(p) ? -100000 + ply : 0; // mated (prefer the quickest mate) or stalemate
-  if (depth === 0) return quiesce(p, alpha, beta, 4);
-  for (const m of order(moves)) {
-    const sc = -search(makeMove(p, m), depth - 1, -beta, -alpha, ply + 1);
-    if (sc >= beta) return beta;
+  clock();
+  const check = inCheck(p);
+  if (check && ply < 12) depth += 1; // look further when in check
+  if (depth <= 0) {
+    if (!legalMoves(p).length) return check ? -100000 + ply : 0;
+    return quiesce(p, alpha, beta, 6);
+  }
+  let legal = 0;
+  for (const m of order(pseudo(p), ply)) {
+    const next = makeMove(p, m);
+    if (inCheck(next, p.turn)) continue; // illegal: leaves own king in check
+    legal++;
+    const sc = -search(next, depth - 1, -beta, -alpha, ply + 1);
+    if (sc >= beta) {
+      if (m.captured === ".") { const k = killers[ply] ?? (killers[ply] = []); if (!same(k[0], m)) { k[1] = k[0]; k[0] = m; } }
+      return beta;
+    }
     if (sc > alpha) alpha = sc;
   }
+  if (!legal) return check ? -100000 + ply : 0; // mated (prefer the quickest mate) or stalemate
   return alpha;
 }
 
-/** The computer's move. `level` = search depth (2 is quick and plays sensible, capturing chess). */
-export function bestMove(p: Pos, level = 2): Move | null {
-  const moves = order(legalMoves(p));
-  if (!moves.length) return null;
-  const scored = moves.map((m) => ({ m, sc: -search(makeMove(p, m), level - 1, -Infinity, Infinity, 1) }));
-  const top = Math.max(...scored.map((x) => x.sc));
-  // Pick at random among moves within 15 centipawns of the best, so games don't repeat.
-  const near = scored.filter((x) => x.sc >= top - 15);
-  return near[Math.floor(Math.random() * near.length)].m;
+/**
+ * The computer's move: iterative deepening (1, 2, 3 … ply) until the time budget runs out, keeping the best move
+ * of the deepest search that finished. `variety` picks among near-equal moves (used in the opening so games
+ * differ). A number argument is read as a plain depth, for older callers.
+ */
+export function bestMove(p: Pos, opt: number | { ms?: number; maxDepth?: number; variety?: boolean } = {}): Move | null {
+  const o = typeof opt === "number" ? { ms: Infinity, maxDepth: opt } : opt;
+  const ms = o.ms ?? 900, maxDepth = o.maxDepth ?? 6;
+  let root = order(legalMoves(p));
+  if (!root.length) return null;
+  if (root.length === 1) return root[0];
+  killers = [];
+  nodes = 0;
+  deadline = Date.now() + ms;
+  let best = root[0];
+  let lastScores: { m: Move; sc: number }[] = [];
+  for (let d = 1; d <= maxDepth; d++) {
+    try {
+      let alpha = -Infinity;
+      const scores: { m: Move; sc: number }[] = [];
+      for (const m of root) {
+        // a little slack on the window keeps near-best scores exact enough to choose between
+        const sc = -search(makeMove(p, m), d - 1, -Infinity, -(alpha - 12), 1);
+        scores.push({ m, sc });
+        if (sc > alpha) alpha = sc;
+      }
+      scores.sort((a, b) => b.sc - a.sc);
+      root = scores.map((x) => x.m); // best first for the next, deeper pass
+      best = scores[0].m;
+      lastScores = scores;
+      if (Math.abs(scores[0].sc) > 90000) break; // found a mate
+    } catch (e) {
+      if (e instanceof TimeUp) break;
+      throw e;
+    }
+  }
+  deadline = Infinity;
+  if (o.variety && lastScores.length) {
+    const near = lastScores.filter((x) => x.sc >= lastScores[0].sc - 10);
+    return near[Math.floor(Math.random() * near.length)].m;
+  }
+  return best;
 }
