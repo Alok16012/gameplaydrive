@@ -464,9 +464,9 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             </div>
           ))}
 
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none">
             {s.phase === "idle" ? (
-              <div className="text-center">
+              <div className="text-center pointer-events-auto">
                 {lowBal ? (
                   <>
                     <div className="text-xs text-white/70">Not enough balance for the 🪙 {buyIn} boot</div>
@@ -489,10 +489,11 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             ) : (
               <>
                 {poker && (
-                  <div className="flex gap-1 mb-2">
+                  // The five board cards overlap a little so they fit between the side seats (and sit above them).
+                  <div className="flex -space-x-1.5 mb-2">
                     {s.community.map((c, i) => {
                       const shown = s.stage >= 4 || (s.stage >= 1 && i < 3) || (s.stage >= 2 && i === 3) || (s.stage >= 3 && i === 4);
-                      return <PlayingCard key={i} card={c} faceDown={!shown} size="sm" className={shown ? "flip" : "opacity-60"} />;
+                      return <PlayingCard key={i} card={c} faceDown={!shown} size="sm" className={`shadow-md ${shown ? "flip" : "opacity-60"}`} />;
                     })}
                   </div>
                 )}
