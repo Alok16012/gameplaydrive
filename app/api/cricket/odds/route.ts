@@ -84,13 +84,39 @@ export async function GET(req: NextRequest) {
     console.warn("Live DiamondExch Odds fetch exception:", err);
   }
 
-  // Generate realistic fluctuating odds for the requested match
-  const time = Date.now() / 1000;
-  const drift = (Math.sin(time / 5) * 0.05);
+  // 3. Generate match-specific realistic exchange odds with live tick drift
+  const eventNum = Math.abs([...eventId].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7));
+  const team1Name = searchParams.get("team1") || "Team 1";
+  const team2Name = searchParams.get("team2") || "Team 2";
+
+  // Base decimal price between 1.30 and 2.60 depending on match eventId
+  const base1 = Number((1.30 + ((eventNum % 130) / 100)).toFixed(2)); // 1.30 to 2.60
+  const timeDrift = isLive ? (Math.sin(Date.now() / 4000) * 0.03) : 0;
+  
+  const b1 = Number((base1 + timeDrift).toFixed(2));
+  const l1 = Number((b1 + 0.02 + (eventNum % 3) * 0.01).toFixed(2));
+  
+  // Implied fair probability calculation for Runner 2
+  const p1 = 1 / b1;
+  const p2 = Math.max(0.15, Math.min(0.85, 1.05 - p1));
+  const b2 = Number((1 / p2 - timeDrift).toFixed(2));
+  const l2 = Number((b2 + 0.03 + (eventNum % 4) * 0.01).toFixed(2));
+
+  // Bookmaker Indian format (0-100 basis point differential)
+  const bm1_back = Math.round((b1 - 1) * 100);
+  const bm1_lay = bm1_back + 2;
+  const bm2_back = Math.round((b2 - 1) * 100);
+  const bm2_lay = bm2_back + 3;
+
+  // Fancy session runs based on event hash
+  const sixOverBase = 44 + (eventNum % 14);
+  const tenOverBase = 80 + (eventNum % 20);
+  const fifteenOverBase = 125 + (eventNum % 25);
+  const sixesBase = 11 + (eventNum % 8);
 
   const matchOddsData = [
     {
-      mid: "1.241309100",
+      mid: `1.${eventId}`,
       mname: "MATCH_ODDS",
       status: "OPEN",
       min: 100,
@@ -98,37 +124,37 @@ export async function GET(req: NextRequest) {
       oddDatas: [
         {
           sid: "1",
-          rname: "Team 1",
+          rname: team1Name,
           status: "ACTIVE",
-          b1: (1.62 + drift).toFixed(2),
-          bs1: "154200",
-          b2: (1.61 + drift).toFixed(2),
-          bs2: "89000",
-          b3: (1.60 + drift).toFixed(2),
-          bs3: "210000",
-          l1: (1.65 + drift).toFixed(2),
-          ls1: "125000",
-          l2: (1.66 + drift).toFixed(2),
-          ls2: "92000",
-          l3: (1.67 + drift).toFixed(2),
-          ls3: "180000",
+          b1: b1.toFixed(2),
+          bs1: `${(100 + (eventNum % 150))}K`,
+          b2: (b1 - 0.01).toFixed(2),
+          bs2: `${(60 + (eventNum % 80))}K`,
+          b3: (b1 - 0.02).toFixed(2),
+          bs3: `${(150 + (eventNum % 100))}K`,
+          l1: l1.toFixed(2),
+          ls1: `${(90 + (eventNum % 120))}K`,
+          l2: (l1 + 0.01).toFixed(2),
+          ls2: `${(70 + (eventNum % 60))}K`,
+          l3: (l1 + 0.02).toFixed(2),
+          ls3: `${(180 + (eventNum % 100))}K`,
         },
         {
           sid: "2",
-          rname: "Team 2",
+          rname: team2Name,
           status: "ACTIVE",
-          b1: (2.54 - drift).toFixed(2),
-          bs1: "95000",
-          b2: (2.52 - drift).toFixed(2),
-          bs2: "62000",
-          b3: (2.50 - drift).toFixed(2),
-          bs3: "140000",
-          l1: (2.60 - drift).toFixed(2),
-          ls1: "110000",
-          l2: (2.62 - drift).toFixed(2),
-          ls2: "75000",
-          l3: (2.64 - drift).toFixed(2),
-          ls3: "130000",
+          b1: b2.toFixed(2),
+          bs1: `${(80 + (eventNum % 110))}K`,
+          b2: (b2 - 0.01).toFixed(2),
+          bs2: `${(50 + (eventNum % 70))}K`,
+          b3: (b2 - 0.02).toFixed(2),
+          bs3: `${(120 + (eventNum % 90))}K`,
+          l1: l2.toFixed(2),
+          ls1: `${(95 + (eventNum % 130))}K`,
+          l2: (l2 + 0.01).toFixed(2),
+          ls2: `${(65 + (eventNum % 75))}K`,
+          l3: (l2 + 0.02).toFixed(2),
+          ls3: `${(140 + (eventNum % 110))}K`,
         },
       ],
     },
@@ -136,7 +162,7 @@ export async function GET(req: NextRequest) {
 
   const bookmakerOddsData = [
     {
-      mid: "7399926127946",
+      mid: `bm.${eventId}`,
       mname: "BOOKMAKER_ODDS_1",
       status: "ACTIVE",
       min: 100,
@@ -144,21 +170,21 @@ export async function GET(req: NextRequest) {
       oddDatas: [
         {
           sid: "1",
-          rname: "Team 1 (Bookmaker)",
+          rname: team1Name,
           status: "ACTIVE",
-          b1: "62",
-          bs1: "100000",
-          l1: "65",
-          ls1: "100000",
+          b1: String(bm1_back),
+          bs1: "100K",
+          l1: String(bm1_lay),
+          ls1: "100K",
         },
         {
           sid: "2",
-          rname: "Team 2 (Bookmaker)",
+          rname: team2Name,
           status: "ACTIVE",
-          b1: "154",
-          bs1: "100000",
-          l1: "160",
-          ls1: "100000",
+          b1: String(bm2_back),
+          bs1: "100K",
+          l1: String(bm2_lay),
+          ls1: "100K",
         },
       ],
     },
@@ -166,27 +192,27 @@ export async function GET(req: NextRequest) {
 
   const fancyOddsData = [
     {
-      mid: "303988021090",
+      mid: `fancy.${eventId}`,
       mname: "FANCY_ODDS",
       gtype: "Normal",
       oddDatas: [
         {
           sid: "101",
-          rname: "6 Over Runs Team 1",
-          b1: "48", // Yes score
-          bs1: "100", // Yes price
-          l1: "46", // No score
-          ls1: "100", // No price
+          rname: `6 Over Runs (${team1Name.split(" ")[0]})`,
+          b1: String(sixOverBase + 2), // Yes score
+          bs1: "100",
+          l1: String(sixOverBase),     // No score
+          ls1: "100",
           status: "ACTIVE",
           min: 100,
           max: 50000,
         },
         {
           sid: "102",
-          rname: "10 Over Runs Team 1",
-          b1: "86",
+          rname: `10 Over Runs (${team1Name.split(" ")[0]})`,
+          b1: String(tenOverBase + 2),
           bs1: "100",
-          l1: "84",
+          l1: String(tenOverBase),
           ls1: "100",
           status: "ACTIVE",
           min: 100,
@@ -194,10 +220,10 @@ export async function GET(req: NextRequest) {
         },
         {
           sid: "103",
-          rname: "15 Over Runs Team 1",
-          b1: "135",
+          rname: `15 Over Runs (${team1Name.split(" ")[0]})`,
+          b1: String(fifteenOverBase + 3),
           bs1: "100",
-          l1: "132",
+          l1: String(fifteenOverBase),
           ls1: "100",
           status: "ACTIVE",
           min: 100,
@@ -206,9 +232,9 @@ export async function GET(req: NextRequest) {
         {
           sid: "104",
           rname: "Total Match Sixes",
-          b1: "14",
+          b1: String(sixesBase + 1),
           bs1: "100",
-          l1: "13",
+          l1: String(sixesBase),
           ls1: "100",
           status: "ACTIVE",
           min: 100,
@@ -216,10 +242,10 @@ export async function GET(req: NextRequest) {
         },
         {
           sid: "105",
-          rname: "Fall of Next Wicket (Runs)",
-          b1: "185",
+          rname: "Fall of 1st Wicket",
+          b1: "32",
           bs1: "100",
-          l1: "180",
+          l1: "28",
           ls1: "100",
           status: "ACTIVE",
           min: 100,

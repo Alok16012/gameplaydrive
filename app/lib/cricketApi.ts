@@ -169,13 +169,15 @@ export async function fetchCricketMatches(sport: SportType = "cricket"): Promise
 export async function fetchCricketOdds(
   eventId: string,
   sport: SportType = "cricket",
-  isLive = true
+  isLive = true,
+  team1 = "",
+  team2 = ""
 ): Promise<CricketOddsResponse> {
   const sportName = sport === "soccer" ? "soccer" : sport;
 
   try {
     const res = await fetch(
-      `/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}`,
+      `/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}&team1=${encodeURIComponent(team1)}&team2=${encodeURIComponent(team2)}`,
       { cache: "no-store" }
     );
     if (!res.ok) throw new Error("Failed to fetch odds");

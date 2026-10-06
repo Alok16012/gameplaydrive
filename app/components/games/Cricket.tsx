@@ -124,7 +124,13 @@ export function Cricket({
     let isMounted = true;
     const fetchOdds = async () => {
       try {
-        const res = await fetchCricketOdds(activeMatch.eventId, activeMatch.sport, activeMatch.inPlay);
+        const res = await fetchCricketOdds(
+          activeMatch.eventId,
+          activeMatch.sport,
+          activeMatch.inPlay,
+          activeMatch.team1.name,
+          activeMatch.team2.name
+        );
         if (isMounted && res) {
           setOddsData(res);
         }
@@ -141,7 +147,7 @@ export function Cricket({
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [activeMatch?.eventId, activeMatch?.inPlay, activeMatch?.sport]);
+  }, [activeMatch?.eventId, activeMatch?.inPlay, activeMatch?.sport, activeMatch?.team1?.name, activeMatch?.team2?.name]);
 
   const filteredMatches = useMemo(() => {
     return matches.filter((m) => {
@@ -248,23 +254,43 @@ export function Cricket({
     const scorecardIframeUrl = `https://apis.diamondexchapi.com/api/scorecard?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
 
     // Extract dynamic odds from API if available
-    const matchOdds = oddsData?.matchOdds?.[0]?.oddDatas || [
-      { sid: "1", rname: activeMatch.team1.name, status: "ACTIVE", b1: String(activeMatch.back1 || 1.85), bs1: "1.5L", l1: String(activeMatch.lay1 || 1.89), ls1: "1.2L" },
-      { sid: "2", rname: activeMatch.team2.name, status: "ACTIVE", b1: String(activeMatch.back2 || 2.05), bs1: "95K", l1: String(activeMatch.lay2 || 2.12), ls1: "1.1L" },
-    ];
+    const matchOdds = (oddsData?.matchOdds?.[0]?.oddDatas && oddsData.matchOdds[0].oddDatas.length > 0)
+      ? oddsData.matchOdds[0].oddDatas.map((r, idx) => ({
+          ...r,
+          rname: (!r.rname || r.rname === "Team 1" || r.rname === "Runner 1")
+            ? (idx === 0 ? activeMatch.team1.name : activeMatch.team2.name)
+            : (!r.rname || r.rname === "Team 2" || r.rname === "Runner 2")
+            ? activeMatch.team2.name
+            : r.rname,
+        }))
+      : [
+          { sid: "1", rname: activeMatch.team1.name, status: "ACTIVE", b1: String(activeMatch.back1 || 1.85), bs1: "1.5L", l1: String(activeMatch.lay1 || 1.89), ls1: "1.2L" },
+          { sid: "2", rname: activeMatch.team2.name, status: "ACTIVE", b1: String(activeMatch.back2 || 2.05), bs1: "95K", l1: String(activeMatch.lay2 || 2.12), ls1: "1.1L" },
+        ];
 
-    const bookMakerOdds = oddsData?.bookMakerOdds?.[0]?.oddDatas || [
-      { sid: "1", rname: activeMatch.team1.name, status: "ACTIVE", b1: "85", bs1: "100K", l1: "89", ls1: "100K" },
-      { sid: "2", rname: activeMatch.team2.name, status: "ACTIVE", b1: "105", bs1: "100K", l1: "112", ls1: "100K" },
-    ];
+    const bookMakerOdds = (oddsData?.bookMakerOdds?.[0]?.oddDatas && oddsData.bookMakerOdds[0].oddDatas.length > 0)
+      ? oddsData.bookMakerOdds[0].oddDatas.map((bm, idx) => ({
+          ...bm,
+          rname: (!bm.rname || bm.rname === "Team 1" || bm.rname === "Team 1 (Bookmaker)")
+            ? (idx === 0 ? activeMatch.team1.name : activeMatch.team2.name)
+            : (!bm.rname || bm.rname === "Team 2" || bm.rname === "Team 2 (Bookmaker)")
+            ? activeMatch.team2.name
+            : bm.rname,
+        }))
+      : [
+          { sid: "1", rname: activeMatch.team1.name, status: "ACTIVE", b1: "85", bs1: "100K", l1: "89", ls1: "100K" },
+          { sid: "2", rname: activeMatch.team2.name, status: "ACTIVE", b1: "105", bs1: "100K", l1: "112", ls1: "100K" },
+        ];
 
-    const fancyOdds = oddsData?.fancyOdds?.[0]?.oddDatas || [
-      { sid: "101", rname: `6 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "48", bs1: "100", l1: "46", ls1: "100", status: "ACTIVE" },
-      { sid: "102", rname: `10 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "86", bs1: "100", l1: "84", ls1: "100", status: "ACTIVE" },
-      { sid: "103", rname: `15 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "135", bs1: "100", l1: "132", ls1: "100", status: "ACTIVE" },
-      { sid: "104", rname: "Total Match Sixes", b1: "14", bs1: "100", l1: "13", ls1: "100", status: "ACTIVE" },
-      { sid: "105", rname: "Fall of Next Wicket", b1: "185", bs1: "100", l1: "180", ls1: "100", status: "ACTIVE" },
-    ];
+    const fancyOdds = (oddsData?.fancyOdds?.[0]?.oddDatas && oddsData.fancyOdds[0].oddDatas.length > 0)
+      ? oddsData.fancyOdds[0].oddDatas
+      : [
+          { sid: "101", rname: `6 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "48", bs1: "100", l1: "46", ls1: "100", status: "ACTIVE" },
+          { sid: "102", rname: `10 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "86", bs1: "100", l1: "84", ls1: "100", status: "ACTIVE" },
+          { sid: "103", rname: `15 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "135", bs1: "100", l1: "132", ls1: "100", status: "ACTIVE" },
+          { sid: "104", rname: "Total Match Sixes", b1: "14", bs1: "100", l1: "13", ls1: "100", status: "ACTIVE" },
+          { sid: "105", rname: "Fall of Next Wicket", b1: "185", bs1: "100", l1: "180", ls1: "100", status: "ACTIVE" },
+        ];
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
