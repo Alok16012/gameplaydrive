@@ -304,7 +304,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const seats = game.id === "ludo" ? ludoN : game.id === "chess" ? 2 : 6;
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
-  const privMin = rummy && mode !== "points" ? 10 : 1;
+  const privMin = (rummy && mode !== "points") || gameId === "ludo" ? 10 : 1;
   const privMax = rummy && mode === "points" ? 100 : 10000;
   const privStake = privAmt === "" ? privEntries[1] : Number(privAmt);
   // Rummy gets one table per stake on the ladder (Points has 7, Pool/Deals have 8).
@@ -362,7 +362,9 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     }
     setBusy(true);
     try {
-      const code = gameId === "teen-patti"
+      const code = gameId === "ludo"
+        ? await supabase().rpc("ld_create_private", { p_entry: privStake, p_players: ludoN }).then(({ data, error }) => { if (error) throw error; return data as string; })
+        : gameId === "teen-patti"
         ? (await gameServerUp())
           ? await createTeenPattiPrivate(privStake)
           : await supabase().rpc("tp_create_private", { p_boot: privStake }).then(({ data, error }) => { if (error) throw error; return data as string; })
@@ -465,10 +467,14 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         <button onClick={() => setPriv(true)} className="btn-green w-full py-3.5 rounded-2xl flex items-center justify-center gap-2"><Users size={18} /> Private Table</button>
       </div>
       <Sheet open={priv} onClose={() => setPriv(false)} title="Private Table">
-        {online ? (
+        {online || gameId === "ludo" ? (
           <>
-            <div className="text-sm text-[var(--ink-soft)]">Play with friends only — no bots. A game starts when at least 2 players are in.</div>
-            <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy ? "Entry" : "Boot"}</div>
+            <div className="text-sm text-[var(--ink-soft)]">
+              {gameId === "ludo"
+                ? `Play with friends only — no bots. ${ludoN === 2 ? "1 vs 1" : "4 players"} (switch above); the game starts when the table is full.`
+                : "Play with friends only — no bots. A game starts when at least 2 players are in."}
+            </div>
+            <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy || gameId === "ludo" ? "Entry" : "Boot"}</div>
             <div className="grid grid-cols-3 gap-2 mt-2">
               {privEntries.map((b) => (
                 <button key={b} onClick={() => setPrivAmt(String(b))} className={`card py-3 text-center text-sm ${privStake === b ? "ring-2 ring-neon-400" : ""}`}>{inr(b)}</button>

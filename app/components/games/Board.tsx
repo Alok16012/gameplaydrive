@@ -38,7 +38,7 @@ interface LP {
   yard: [number, number][]; // 4 yard spots
 }
 
-const LPLAYERS: LP[] = [
+export const LPLAYERS: LP[] = [
   { name: "You", color: "#ef4444", dark: "#991b1b", start: 0, home: [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]], yard: [[1.5, 1.5], [1.5, 3.5], [3.5, 1.5], [3.5, 3.5]] },
   { name: "", color: "#22c55e", dark: "#166534", start: 13, home: [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]], yard: [[1.5, 10.5], [1.5, 12.5], [3.5, 10.5], [3.5, 12.5]] },
   { name: "", color: "#eab308", dark: "#854d0e", start: 26, home: [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]], yard: [[10.5, 10.5], [10.5, 12.5], [12.5, 10.5], [12.5, 12.5]] },
@@ -57,7 +57,7 @@ const absIdx = (p: number, prog: number) => (prog >= 0 && prog <= 50 ? (LPLAYERS
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling?: boolean }) {
+export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling?: boolean }) {
   const spots: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   return (
     <div className={`grid grid-cols-3 p-2 gap-0.5 rounded-xl bg-white ${rolling ? "roll" : ""}`} style={{ width: size, height: size, boxShadow: "inset -3px -3px 6px rgba(0,0,0,.2), 0 6px 14px rgba(0,0,0,.5)" }}>
@@ -70,7 +70,7 @@ function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling
 
 // Animation pacing: tokens walk one square at a time so every move can be followed.
 const STEP_MS = 170;
-const LUDO_TURN_SECS = 20; // each player's turn; when yours runs out the game rolls and moves for you
+export const LUDO_TURN_SECS = 20; // each player's turn; when yours runs out the game rolls and moves for you
 const BOT_STEP_MS = 320; // bots walk their tokens a little slower, like a person tapping square by square
 const ROLL_MS = 560;
 /** A human-looking pause: usually between a and b ms, now and then a longer think. */
@@ -362,7 +362,6 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 
   const firstIn = useAutoNext(!started && !lowBal, 3, start);
   const nextIn = useAutoNext(winner !== null, NEXT_GAME_SECS, start);
-  const CELL = 100 / 15;
   const myOpts = awaitMove ? movable(0, dice) : [];
 
   // Player badges sit at the board corners next to their yards (red top-left, green top-right, blue bottom-left,
@@ -402,6 +401,50 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
       <div className="px-3">
         <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(0, "left")}{inPlay(1) && badge(1, "right")}</div>
 
+        <LudoBoardSurface
+          tokens={tokens}
+          inPlay={inPlay}
+          glowAt={(p, i) => p === 0 && myOpts.includes(i)}
+          onTap={tapToken}
+          overlay={!started && (
+            <div className="absolute inset-0 bg-black/55 grid place-items-center z-30">
+              <Waiting lowBal={lowBal} left={firstIn} onRetry={start} onAddCash={() => nav.push({ name: "addcash" })} />
+            </div>
+          )}
+        />
+
+        <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{inPlay(3) ? badge(3, "left") : <span />}{badge(2, "right")}</div>
+
+        {/* Your dice */}
+        <div className="mt-4 flex flex-col items-center">
+          <button onClick={myRoll} disabled={!started || turn !== 0 || rolling || moving || awaitMove} className={`rounded-2xl p-2 active:scale-95 transition-[transform,opacity] ${!started || turn !== 0 || moving || awaitMove ? "opacity-45" : ""} ${started && turn === 0 && !rolling && !moving && !awaitMove ? "pulse-ring" : ""}`} style={{ background: "linear-gradient(145deg,#ef4444,#991b1b)", boxShadow: "0 8px 18px rgba(0,0,0,.45)" }}>
+            <DiceFace v={dice} rolling={rolling} size={68} />
+          </button>
+          <div className="text-sm font-semibold mt-2.5">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
+          <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{msg}</div>
+        </div>
+      </div>
+
+      <ResultSheet
+        open={winner !== null}
+        won={winner === 0}
+        title={winner === 0 ? `You won ${inr(Math.floor(buyIn * SEATS.length * keep))}!` : `${winner !== null ? names[winner] : ""} wins`}
+        left={nextIn}
+        onLeave={nav.back}
+        onClose={() => {}}
+      />
+    </div>
+  );
+}
+
+const CELL = 100 / 15;
+
+/** The Ludo board with its tokens (shared by the practice table and the online private table). */
+export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay }: {
+  tokens: number[][]; inPlay: (p: number) => boolean; glowAt: (p: number, i: number) => boolean; onTap: (p: number, i: number) => void; overlay?: React.ReactNode;
+}) {
+  return (
+    <>
         {/* Board in a wooden frame */}
         <div className="rounded-[22px] p-[2.6%] shadow-[0_18px_40px_rgba(0,0,0,.55)]" style={{ background: "linear-gradient(145deg,#8a5a2b,#5a3416 55%,#3f2410)" }}>
         <div className="relative w-full aspect-square rounded-[14px] overflow-hidden bg-white shadow-[inset_0_0_0_2px_rgba(0,0,0,.25)]">
@@ -438,7 +481,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
           {tokens.map((row, p) =>
             !inPlay(p) ? null : row.map((prog, i) => {
               const [r, c] = cellOf(p, prog, i);
-              const glow = p === 0 && myOpts.includes(i);
+              const glow = glowAt(p, i);
               // Tokens sharing a square fan out a little so each stays visible.
               const same = prog >= 0 && prog < 56 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
               const k = same.findIndex((o) => o.q === p && o.j === i);
@@ -447,7 +490,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
               return (
                 <button
                   key={`${p}-${i}`}
-                  onClick={() => tapToken(p, i)}
+                  onClick={() => onTap(p, i)}
                   className={`absolute left-0 top-0 ${glow ? "z-20" : "z-10"}`}
                   style={{
                     width: `${CELL}%`,
@@ -476,35 +519,10 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
               );
             }),
           )}
-          {!started && (
-            <div className="absolute inset-0 bg-black/55 grid place-items-center z-30">
-              <Waiting lowBal={lowBal} left={firstIn} onRetry={start} onAddCash={() => nav.push({ name: "addcash" })} />
-            </div>
-          )}
+          {overlay}
         </div>
         </div>
-
-        <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{inPlay(3) ? badge(3, "left") : <span />}{badge(2, "right")}</div>
-
-        {/* Your dice */}
-        <div className="mt-4 flex flex-col items-center">
-          <button onClick={myRoll} disabled={!started || turn !== 0 || rolling || moving || awaitMove} className={`rounded-2xl p-2 active:scale-95 transition-[transform,opacity] ${!started || turn !== 0 || moving || awaitMove ? "opacity-45" : ""} ${started && turn === 0 && !rolling && !moving && !awaitMove ? "pulse-ring" : ""}`} style={{ background: "linear-gradient(145deg,#ef4444,#991b1b)", boxShadow: "0 8px 18px rgba(0,0,0,.45)" }}>
-            <DiceFace v={dice} rolling={rolling} size={68} />
-          </button>
-          <div className="text-sm font-semibold mt-2.5">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
-          <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{msg}</div>
-        </div>
-      </div>
-
-      <ResultSheet
-        open={winner !== null}
-        won={winner === 0}
-        title={winner === 0 ? `You won ${inr(Math.floor(buyIn * SEATS.length * keep))}!` : `${winner !== null ? names[winner] : ""} wins`}
-        left={nextIn}
-        onLeave={nav.back}
-        onClose={() => {}}
-      />
-    </div>
+    </>
   );
 }
 
