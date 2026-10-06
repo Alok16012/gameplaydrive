@@ -148,7 +148,7 @@ function parseMatchesList(rawList: any[], sport: SportType, isReal = false): Cri
 // Fetch matches list for specific sport (cricket, tennis, soccer) via backend proxy
 export async function fetchCricketMatches(sport: SportType = "cricket"): Promise<CricketMatch[]> {
   try {
-    const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}`, {
+    const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}&_t=${Date.now()}`, {
       cache: "no-store",
     });
     if (res.ok) {

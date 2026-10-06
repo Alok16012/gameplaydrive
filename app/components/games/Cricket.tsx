@@ -90,6 +90,22 @@ export function Cricket({
   const [oddsLoading, setOddsLoading] = useState(false);
   const [activeMarketTab, setActiveMarketTab] = useState<"all" | "match_odds" | "bookmaker" | "fancy">("all");
 
+  // Sync prop changes
+  useEffect(() => {
+    if (initialSport && initialSport !== selectedSport) {
+      setSelectedSport(initialSport);
+      setActiveTabFilter("all");
+      setSearchQuery("");
+      setSelectedMatchId(null);
+    }
+  }, [initialSport]);
+
+  useEffect(() => {
+    if (matchId !== undefined) {
+      setSelectedMatchId(matchId || null);
+    }
+  }, [matchId]);
+
   // Bet Slip State
   const [betSlip, setBetSlip] = useState<BetSlipState | null>(null);
   const [stake, setStake] = useState<number>(500);
@@ -737,6 +753,9 @@ export function Cricket({
                 onClick={() => {
                   sfx.click();
                   setSelectedSport(sport.id);
+                  setActiveTabFilter("all");
+                  setSearchQuery("");
+                  setSelectedMatchId(null);
                 }}
                 className={`px-3.5 py-2 rounded-t-xl text-xs font-extrabold flex items-center gap-1.5 transition-all border-t border-x ${
                   isSelected
@@ -794,7 +813,7 @@ export function Cricket({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={`Search ${selectedSport} match or series...`}
+            placeholder={`Search ${selectedSport === "soccer" ? "football" : selectedSport} match or series...`}
             className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-white/40 focus:outline-none focus:border-emerald-400"
           />
         </div>
@@ -836,10 +855,19 @@ export function Cricket({
 
           {/* Table Body Rows */}
           <tbody className="divide-y divide-white/5 bg-[#090e24]">
-            {filteredMatches.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={7} className="text-center py-12 text-white/60 text-xs">
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <RefreshCw size={18} className="animate-spin text-emerald-400" />
+                    <span>Loading live {selectedSport === "soccer" ? "football" : selectedSport} matches...</span>
+                  </div>
+                </td>
+              </tr>
+            ) : filteredMatches.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center py-10 text-white/50 text-xs">
-                  No matches found for {selectedSport}.
+                  No {activeTabFilter !== "all" ? activeTabFilter : ""} matches found for {selectedSport === "soccer" ? "football" : selectedSport}.
                 </td>
               </tr>
             ) : (
