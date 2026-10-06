@@ -242,15 +242,70 @@ const server = createServer(async (req, res) => {
     return res.end(JSON.stringify(results, null, 2));
   }
 
-  // 2. Proxy: Sports Matches from DiamondExch (Cached for 15 minutes)
+  // 2. Proxy: Sports Matches from my99exch / DiamondExch (Cached for 15 minutes)
   const matchesMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/matches$/);
   if (matchesMatch || pathname === "/api/sports/matches") {
     let sportName = matchesMatch ? matchesMatch[1] : (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
     if (sportName === "football" || sportName === "sports") sportName = "soccer";
     const cacheKey = `matches_${sportName}`;
+    const etid = sportName === "soccer" ? 1 : sportName === "tennis" ? 2 : 4;
 
     try {
       const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.MATCH_LIST, async () => {
+        // 1. Try my99exch highlight odds feed
+        try {
+          const my99Res = await fetch("https://my99exch.cx/api/front_open/highlightodds-direct/", {
+            headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+            cache: "no-store",
+          });
+          if (my99Res.ok) {
+            const json = await my99Res.json();
+            const list = json?.data?.t1;
+            if (Array.isArray(list) && list.length > 0) {
+              const filtered = list.filter((m: any) => !etid || m.etid === etid || m.etid === 4);
+              const mapped = (filtered.length > 0 ? filtered : list).map((m: any) => {
+                const parts = (m.ename || "").split(/ v | vs | VS /i);
+                const t1 = parts[0]?.trim() || m.section?.[0]?.nat || "Team 1";
+                const t2 = parts[1]?.trim() || m.section?.[1]?.nat || "Team 2";
+                const o1 = m.section?.[0]?.odds || [];
+                const o2 = m.section?.[1]?.odds || [];
+                const b1 = o1.find((x: any) => x.oname === "back1")?.odds || 0;
+                const l1 = o1.find((x: any) => x.oname === "lay1")?.odds || 0;
+                const b2 = o2.find((x: any) => x.oname === "back1")?.odds || 0;
+                const l2 = o2.find((x: any) => x.oname === "lay1")?.odds || 0;
+
+                return {
+                  gameId: String(m.gmid),
+                  eventId: String(m.gmid),
+                  marketId: String(m.mid || ""),
+                  eventName: m.ename || `${t1} v ${t2}`,
+                  eventTime: m.stime || new Date().toISOString(),
+                  seriesName: m.cname || "Tournament",
+                  inPlay: Boolean(m.iplay),
+                  status: m.iplay ? "INPLAY" : "OPEN",
+                  tv: Boolean(m.tv),
+                  bm: Boolean(m.bm),
+                  f: Boolean(m.f || m.f1),
+                  back1: b1,
+                  lay1: l1,
+                  back2: b2,
+                  lay2: l2,
+                  team1: { name: t1, short: t1.slice(0, 3).toUpperCase() },
+                  team2: { name: t2, short: t2.slice(0, 3).toUpperCase() },
+                  section: m.section,
+                };
+              });
+
+              return {
+                status: 200,
+                contentType: "application/json",
+                data: JSON.stringify({ status: 200, success: true, data: mapped }),
+              };
+            }
+          }
+        } catch {}
+
+        // 2. Fallback to DiamondExch matches
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
           headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
           cache: "no-store",
@@ -272,11 +327,11 @@ const server = createServer(async (req, res) => {
       return res.end(cachedRes.data);
     } catch (err: any) {
       res.writeHead(502, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Failed to fetch from DiamondExch", details: err.message }));
+      return res.end(JSON.stringify({ error: "Failed to fetch from sports provider", details: err.message }));
     }
   }
 
-  // 3. Proxy: Match Odds from DiamondExch (Live: 500ms, Upcoming: 2s)
+  // 3. Proxy: Match Odds from my99exch / DiamondExch (Live: 500ms, Upcoming: 2s)
   const oddsMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/odds$/);
   if (oddsMatch || pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
     const eventId = parsedUrl.searchParams.get("gameId") || parsedUrl.searchParams.get("eventId") || "";
@@ -288,6 +343,98 @@ const server = createServer(async (req, res) => {
 
     try {
       const cachedRes = await fetchWithCache(cacheKey, ttl, async () => {
+        // 1. Try my99exch highlight odds directly with gmid
+        try {
+          const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?gmid=${encodeURIComponent(eventId)}`, {
+            headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+            cache: "no-store",
+          });
+          if (my99Res.ok) {
+            const json = await my99Res.json();
+            const list = json?.data?.t1 || [];
+            const match = list.find((x: any) => String(x.gmid) === String(eventId)) || list[0];
+            if (match && Array.isArray(match.section) && match.section.length > 0) {
+              const oddDatas = match.section.map((sec: any, idx: number) => {
+                const oddsArr = sec.odds || [];
+                const b1 = oddsArr.find((o: any) => o.oname === "back1");
+                const b2 = oddsArr.find((o: any) => o.oname === "back2");
+                const b3 = oddsArr.find((o: any) => o.oname === "back3");
+                const l1 = oddsArr.find((o: any) => o.oname === "lay1");
+                const l2 = oddsArr.find((o: any) => o.oname === "lay2");
+                const l3 = oddsArr.find((o: any) => o.oname === "lay3");
+
+                return {
+                  sid: sec.sid || idx + 1,
+                  rname: sec.nat || `Runner ${idx + 1}`,
+                  status: sec.gstatus || "ACTIVE",
+                  b1: b1 ? String(b1.odds) : undefined,
+                  bs1: b1 ? `${b1.size}L` : undefined,
+                  b2: b2 ? String(b2.odds) : undefined,
+                  bs2: b2 ? `${b2.size}L` : undefined,
+                  b3: b3 ? String(b3.odds) : undefined,
+                  bs3: b3 ? `${b3.size}L` : undefined,
+                  l1: l1 ? String(l1.odds) : undefined,
+                  ls1: l1 ? `${l1.size}L` : undefined,
+                  l2: l2 ? String(l2.odds) : undefined,
+                  ls2: l2 ? `${l2.size}L` : undefined,
+                  l3: l3 ? String(l3.odds) : undefined,
+                  ls3: l3 ? `${l3.size}L` : undefined,
+                  min: sec.min || 100,
+                  max: sec.max || 500000,
+                };
+              });
+
+              // Construct Bookmaker Odds
+              const bmOddDatas = oddDatas.map((r: any) => {
+                const price = Number(r.b1 || 1.85);
+                const rate = Math.max(10, Math.min(190, Math.round((price - 1) * 100)));
+                return {
+                  sid: r.sid,
+                  rname: r.rname,
+                  status: r.status,
+                  b1: String(rate),
+                  bs1: "1.5L",
+                  l1: String(rate + 2),
+                  ls1: "1.2L",
+                };
+              });
+
+              const transformed = {
+                matchOdds: [
+                  {
+                    mid: match.mid || `mo.${eventId}`,
+                    mname: match.mname || "MATCH_ODDS",
+                    status: match.status || "OPEN",
+                    min: match.min || 100,
+                    max: match.max || 500000,
+                    gtype: match.gtype || "match",
+                    oddDatas,
+                  },
+                ],
+                bookMakerOdds: [
+                  {
+                    mid: `bm.${eventId}`,
+                    mname: "BOOKMAKER",
+                    status: "OPEN",
+                    min: 100,
+                    max: 200000,
+                    gtype: "bookmaker",
+                    oddDatas: bmOddDatas,
+                  },
+                ],
+                fancyOdds: [],
+              };
+
+              return {
+                status: 200,
+                contentType: "application/json",
+                data: JSON.stringify({ status: 200, success: true, source: "my99exch_live", data: transformed }),
+              };
+            }
+          }
+        } catch {}
+
+        // 2. Fallback to DiamondExch
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?gameId=${encodeURIComponent(eventId)}&eventId=${encodeURIComponent(eventId)}`, {
           headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
           cache: "no-store",
@@ -309,7 +456,7 @@ const server = createServer(async (req, res) => {
       return res.end(cachedRes.data);
     } catch (err: any) {
       res.writeHead(502, { "Content-Type": "application/json" });
-      return res.end(JSON.stringify({ error: "Failed to fetch odds from DiamondExch", details: err.message }));
+      return res.end(JSON.stringify({ error: "Failed to fetch odds from sports provider", details: err.message }));
     }
   }
 

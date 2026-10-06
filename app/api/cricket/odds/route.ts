@@ -40,6 +40,108 @@ export async function GET(req: NextRequest) {
     // fallback
   }
 
+  // 1.5 Direct my99exch Highlight Odds Ingestion
+  try {
+    const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?gmid=${encodeURIComponent(eventId)}`, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (my99Res.ok) {
+      const json = await my99Res.json();
+      const list = json?.data?.t1 || [];
+      const match = list.find((x: any) => String(x.gmid) === String(eventId)) || list[0];
+      if (match && Array.isArray(match.section) && match.section.length > 0) {
+        const oddDatas = match.section.map((sec: any, idx: number) => {
+          const oddsArr = sec.odds || [];
+          const b1 = oddsArr.find((o: any) => o.oname === "back1");
+          const b2 = oddsArr.find((o: any) => o.oname === "back2");
+          const b3 = oddsArr.find((o: any) => o.oname === "back3");
+          const l1 = oddsArr.find((o: any) => o.oname === "lay1");
+          const l2 = oddsArr.find((o: any) => o.oname === "lay2");
+          const l3 = oddsArr.find((o: any) => o.oname === "lay3");
+
+          return {
+            sid: sec.sid || idx + 1,
+            rname: sec.nat || `Runner ${idx + 1}`,
+            status: sec.gstatus || "ACTIVE",
+            b1: b1 ? String(b1.odds) : undefined,
+            bs1: b1 ? `${b1.size}L` : undefined,
+            b2: b2 ? String(b2.odds) : undefined,
+            bs2: b2 ? `${b2.size}L` : undefined,
+            b3: b3 ? String(b3.odds) : undefined,
+            bs3: b3 ? `${b3.size}L` : undefined,
+            l1: l1 ? String(l1.odds) : undefined,
+            ls1: l1 ? `${l1.size}L` : undefined,
+            l2: l2 ? String(l2.odds) : undefined,
+            ls2: l2 ? `${l2.size}L` : undefined,
+            l3: l3 ? String(l3.odds) : undefined,
+            ls3: l3 ? `${l3.size}L` : undefined,
+            min: sec.min || 100,
+            max: sec.max || 500000,
+          };
+        });
+
+        // Bookmaker rates in 0-100 format
+        const bmOddDatas = oddDatas.map((r: any) => {
+          const price = Number(r.b1 || 1.85);
+          const rate = Math.max(10, Math.min(190, Math.round((price - 1) * 100)));
+          return {
+            sid: r.sid,
+            rname: r.rname,
+            status: r.status,
+            b1: String(rate),
+            bs1: "1.5L",
+            l1: String(rate + 2),
+            ls1: "1.2L",
+          };
+        });
+
+        const transformed = {
+          matchOdds: [
+            {
+              mid: match.mid || `mo.${eventId}`,
+              mname: match.mname || "MATCH_ODDS",
+              status: match.status || "OPEN",
+              min: match.min || 100,
+              max: match.max || 500000,
+              gtype: match.gtype || "match",
+              oddDatas,
+            },
+          ],
+          bookMakerOdds: [
+            {
+              mid: `bm.${eventId}`,
+              mname: "BOOKMAKER",
+              status: "OPEN",
+              min: 100,
+              max: 200000,
+              gtype: "bookmaker",
+              oddDatas: bmOddDatas,
+            },
+          ],
+          fancyOdds: [],
+        };
+
+        return NextResponse.json(
+          {
+            success: true,
+            source: "my99exch_direct_live",
+            data: transformed,
+          },
+          {
+            headers: {
+              "Cache-Control": cacheControl,
+            },
+          }
+        );
+      }
+    }
+  } catch {}
+
   // 2. Direct DiamondExch API call
   try {
     const headers: Record<string, string> = {

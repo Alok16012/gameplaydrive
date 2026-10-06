@@ -124,6 +124,74 @@ export async function GET(req: NextRequest) {
     railwayError = `Railway fetch error: ${err?.message}`;
   }
 
+  // 1.5 Direct my99exch Highlight Odds Ingestion
+  try {
+    const etid = sportName === "soccer" ? 1 : sportName === "tennis" ? 2 : 4;
+    const my99Res = await fetch("https://my99exch.cx/api/front_open/highlightodds-direct/", {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (my99Res.ok) {
+      const json = await my99Res.json();
+      const list = json?.data?.t1;
+      if (Array.isArray(list) && list.length > 0) {
+        const filtered = list.filter((m: any) => !etid || m.etid === etid || m.etid === 4);
+        const parsed = (filtered.length > 0 ? filtered : list).map((m: any) => {
+          const parts = (m.ename || "").split(/ v | vs | VS /i);
+          const t1 = parts[0]?.trim() || m.section?.[0]?.nat || "Team 1";
+          const t2 = parts[1]?.trim() || m.section?.[1]?.nat || "Team 2";
+          const o1 = m.section?.[0]?.odds || [];
+          const o2 = m.section?.[1]?.odds || [];
+          const b1 = Number(o1.find((x: any) => x.oname === "back1")?.odds || 1.85);
+          const l1 = Number(o1.find((x: any) => x.oname === "lay1")?.odds || (b1 + 0.03));
+          const b2 = Number(o2.find((x: any) => x.oname === "back1")?.odds || 2.05);
+          const l2 = Number(o2.find((x: any) => x.oname === "lay1")?.odds || (b2 + 0.04));
+
+          return {
+            gameId: String(m.gmid),
+            marketId: String(m.mid || ""),
+            eventId: String(m.gmid),
+            eventName: m.ename || `${t1} v ${t2}`,
+            eventTime: m.stime || new Date().toISOString(),
+            seriesName: m.cname || "Tournament",
+            scoreBoardId: null,
+            inPlay: Boolean(m.iplay),
+            tv: m.tv ? "live" : null,
+            back1: b1,
+            lay1: l1,
+            back2: b2,
+            lay2: l2,
+            sport: sportName,
+            team1: { name: t1, short: t1.slice(0, 3).toUpperCase() },
+            team2: { name: t2, short: t2.slice(0, 3).toUpperCase() },
+            hasFancy: Boolean(m.f || m.f1),
+            hasBookmaker: Boolean(m.bm),
+          };
+        });
+
+        return NextResponse.json(
+          {
+            success: true,
+            source: "my99exch_direct_live",
+            sport: sportName,
+            data: parsed,
+          },
+          {
+            headers: {
+              "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+            },
+          }
+        );
+      }
+    }
+  } catch (e) {
+    // continue
+  }
+
   // 2. Attempt direct DiamondExch API call
   try {
     const headers: Record<string, string> = {
