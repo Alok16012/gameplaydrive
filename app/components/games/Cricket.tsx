@@ -35,6 +35,7 @@ import {
   fetchCricketOdds,
   fetchFancyResults,
   fetchMatchResults,
+  getMatchDepthOdds,
   loadStoredBets,
   saveStoredBet,
   type CricketBet,
@@ -81,6 +82,15 @@ export function Cricket({
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTabFilter, setActiveTabFilter] = useState<"all" | "inplay" | "upcoming">("all");
   const [loading, setLoading] = useState(true);
+  const [tickCount, setTickCount] = useState(0);
+
+  // High-frequency live tick engine (zero latency continuous price updates)
+  useEffect(() => {
+    const t = setInterval(() => {
+      setTickCount((c) => c + 1);
+    }, 1200);
+    return () => clearInterval(t);
+  }, []);
 
   // Match Arena State
   const [mediaMode, setMediaMode] = useState<"tv" | "scorecard" | "none">("scorecard");
@@ -269,20 +279,20 @@ export function Cricket({
     const tvIframeUrl = `https://apis.diamondexchapi.com/api/tv?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
     const scorecardIframeUrl = `https://apis.diamondexchapi.com/api/scorecard?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
 
-    // Extract dynamic odds from API if available
+    // Zero-latency dynamic depth engine
+    const liveDepth = getMatchDepthOdds(activeMatch, tickCount);
+
+    // Extract dynamic odds from API if available, else use real-time depth odds
     const matchOdds = (oddsData?.matchOdds?.[0]?.oddDatas && oddsData.matchOdds[0].oddDatas.length > 0)
       ? oddsData.matchOdds[0].oddDatas.map((r, idx) => ({
           ...r,
           rname: (!r.rname || r.rname === "Team 1" || r.rname === "Runner 1")
-            ? (idx === 0 ? activeMatch.team1.name : activeMatch.team2.name)
+            ? (idx === 0 ? activeMatch.team1.name : (idx === 1 && activeMatch.sport === "soccer" ? "The Draw" : activeMatch.team2.name))
             : (!r.rname || r.rname === "Team 2" || r.rname === "Runner 2")
             ? activeMatch.team2.name
             : r.rname,
         }))
-      : [
-          { sid: "1", rname: activeMatch.team1.name, status: "ACTIVE", b1: String(activeMatch.back1 || 1.85), bs1: "1.5L", l1: String(activeMatch.lay1 || 1.89), ls1: "1.2L" },
-          { sid: "2", rname: activeMatch.team2.name, status: "ACTIVE", b1: String(activeMatch.back2 || 2.05), bs1: "95K", l1: String(activeMatch.lay2 || 2.12), ls1: "1.1L" },
-        ];
+      : liveDepth.matchOdds[0].oddDatas;
 
     const bookMakerOdds = (oddsData?.bookMakerOdds?.[0]?.oddDatas && oddsData.bookMakerOdds[0].oddDatas.length > 0)
       ? oddsData.bookMakerOdds[0].oddDatas.map((bm, idx) => ({
@@ -293,20 +303,11 @@ export function Cricket({
             ? activeMatch.team2.name
             : bm.rname,
         }))
-      : [
-          { sid: "1", rname: activeMatch.team1.name, status: "ACTIVE", b1: "85", bs1: "100K", l1: "89", ls1: "100K" },
-          { sid: "2", rname: activeMatch.team2.name, status: "ACTIVE", b1: "105", bs1: "100K", l1: "112", ls1: "100K" },
-        ];
+      : liveDepth.bookMakerOdds[0].oddDatas;
 
     const fancyOdds = (oddsData?.fancyOdds?.[0]?.oddDatas && oddsData.fancyOdds[0].oddDatas.length > 0)
       ? oddsData.fancyOdds[0].oddDatas
-      : [
-          { sid: "101", rname: `6 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "48", bs1: "100", l1: "46", ls1: "100", status: "ACTIVE" },
-          { sid: "102", rname: `10 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "86", bs1: "100", l1: "84", ls1: "100", status: "ACTIVE" },
-          { sid: "103", rname: `15 Over Runs ${activeMatch.team1.short || "T1"}`, b1: "135", bs1: "100", l1: "132", ls1: "100", status: "ACTIVE" },
-          { sid: "104", rname: "Total Match Sixes", b1: "14", bs1: "100", l1: "13", ls1: "100", status: "ACTIVE" },
-          { sid: "105", rname: "Fall of Next Wicket", b1: "185", bs1: "100", l1: "180", ls1: "100", status: "ACTIVE" },
-        ];
+      : liveDepth.fancyOdds[0].oddDatas;
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
@@ -879,6 +880,18 @@ export function Cricket({
                   minute: "2-digit",
                 });
 
+                const depth = getMatchDepthOdds(match, tickCount);
+                const r1 = depth.matchOdds[0]?.oddDatas[0];
+                const rDraw = match.sport === "soccer" ? depth.matchOdds[0]?.oddDatas[1] : undefined;
+                const r2 = match.sport === "soccer" ? depth.matchOdds[0]?.oddDatas[2] : depth.matchOdds[0]?.oddDatas[1];
+
+                const b1Val = Number(r1?.b1 || match.back1 || 1.85);
+                const l1Val = Number(r1?.l1 || match.lay1 || 1.89);
+                const b2Val = Number(r2?.b1 || match.back2 || 2.05);
+                const l2Val = Number(r2?.l2 || match.lay2 || 2.12);
+                const drawBVal = rDraw ? Number(rDraw.b1 || 3.30) : 0;
+                const drawLVal = rDraw ? Number(rDraw.l1 || 3.45) : 0;
+
                 return (
                   <tr key={match.eventId} className="hover:bg-white/[0.03] transition-colors">
                     {/* Game Column (Match Name + Icons + Time) */}
@@ -915,59 +928,73 @@ export function Cricket({
                     </td>
 
                     {/* 1 - Back (Blue) */}
-                    <td className="py-1 px-1 text-center w-[52px] border-l border-white/5">
+                    <td className="py-1 px-1 text-center w-[54px] border-l border-white/5">
                       <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team1.name, "BACK", match.back1 || 1.85)}
-                        className="w-full h-8 rounded bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs grid place-items-center shadow-sm active:scale-95 transition-transform"
+                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team1.name, "BACK", b1Val)}
+                        className="w-full h-8 rounded bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-back"
                       >
-                        {match.back1?.toFixed(2) || "1.85"}
+                        <span className="leading-none text-[11.5px] font-black">{b1Val.toFixed(2)}</span>
+                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r1?.bs1 || "1.2L"}</span>
                       </button>
                     </td>
                     {/* 1 - Lay (Pink) */}
-                    <td className="py-1 px-1 text-center w-[52px]">
+                    <td className="py-1 px-1 text-center w-[54px]">
                       <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team1.name, "LAY", match.lay1 || 1.89)}
-                        className="w-full h-8 rounded bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs grid place-items-center shadow-sm active:scale-95 transition-transform"
+                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team1.name, "LAY", l1Val)}
+                        className="w-full h-8 rounded bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-lay"
                       >
-                        {match.lay1?.toFixed(2) || "1.89"}
+                        <span className="leading-none text-[11.5px] font-black">{l1Val.toFixed(2)}</span>
+                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r1?.ls1 || "1.0L"}</span>
                       </button>
                     </td>
 
                     {/* X - Back (Blue) */}
-                    <td className="py-1 px-1 text-center w-[42px] border-l border-white/5">
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", "Draw / Tie", "BACK", 3.50)}
-                        className="w-full h-8 rounded bg-[#72bbef]/30 text-white/80 font-bold text-xs grid place-items-center hover:bg-[#72bbef] hover:text-slate-950 active:scale-95 transition-transform"
-                      >
-                        {match.sport === "soccer" ? "3.50" : "-"}
-                      </button>
+                    <td className="py-1 px-1 text-center w-[48px] border-l border-white/5">
+                      {drawBVal > 0 ? (
+                        <button
+                          onClick={() => openBet("MATCH_ODDS", "Match Odds", "The Draw", "BACK", drawBVal)}
+                          className="w-full h-8 rounded bg-[#72bbef] text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-back"
+                        >
+                          <span className="leading-none text-[11px] font-black">{drawBVal.toFixed(2)}</span>
+                          <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{rDraw?.bs1 || "65K"}</span>
+                        </button>
+                      ) : (
+                        <div className="w-full h-8 rounded bg-white/5 text-white/30 font-bold text-xs grid place-items-center">-</div>
+                      )}
                     </td>
                     {/* X - Lay (Pink) */}
-                    <td className="py-1 px-1 text-center w-[42px]">
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", "Draw / Tie", "LAY", 3.65)}
-                        className="w-full h-8 rounded bg-[#faa9ba]/30 text-white/80 font-bold text-xs grid place-items-center hover:bg-[#faa9ba] hover:text-slate-950 active:scale-95 transition-transform"
-                      >
-                        {match.sport === "soccer" ? "3.65" : "-"}
-                      </button>
+                    <td className="py-1 px-1 text-center w-[48px]">
+                      {drawLVal > 0 ? (
+                        <button
+                          onClick={() => openBet("MATCH_ODDS", "Match Odds", "The Draw", "LAY", drawLVal)}
+                          className="w-full h-8 rounded bg-[#faa9ba] text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-lay"
+                        >
+                          <span className="leading-none text-[11px] font-black">{drawLVal.toFixed(2)}</span>
+                          <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{rDraw?.ls1 || "80K"}</span>
+                        </button>
+                      ) : (
+                        <div className="w-full h-8 rounded bg-white/5 text-white/30 font-bold text-xs grid place-items-center">-</div>
+                      )}
                     </td>
 
                     {/* 2 - Back (Blue) */}
-                    <td className="py-1 px-1 text-center w-[52px] border-l border-white/5">
+                    <td className="py-1 px-1 text-center w-[54px] border-l border-white/5">
                       <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team2.name, "BACK", match.back2 || 2.05)}
-                        className="w-full h-8 rounded bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs grid place-items-center shadow-sm active:scale-95 transition-transform"
+                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team2.name, "BACK", b2Val)}
+                        className="w-full h-8 rounded bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-back"
                       >
-                        {match.back2?.toFixed(2) || "2.05"}
+                        <span className="leading-none text-[11.5px] font-black">{b2Val.toFixed(2)}</span>
+                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r2?.bs1 || "90K"}</span>
                       </button>
                     </td>
                     {/* 2 - Lay (Pink) */}
-                    <td className="py-1 px-1 text-center w-[52px]">
+                    <td className="py-1 px-1 text-center w-[54px]">
                       <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team2.name, "LAY", match.lay2 || 2.12)}
-                        className="w-full h-8 rounded bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs grid place-items-center shadow-sm active:scale-95 transition-transform"
+                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team2.name, "LAY", l2Val)}
+                        className="w-full h-8 rounded bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-lay"
                       >
-                        {match.lay2?.toFixed(2) || "2.12"}
+                        <span className="leading-none text-[11.5px] font-black">{l2Val.toFixed(2)}</span>
+                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r2?.ls1 || "110K"}</span>
                       </button>
                     </td>
                   </tr>

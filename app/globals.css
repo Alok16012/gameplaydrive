@@ -99,6 +99,24 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
 
+@keyframes oddsFlashBack {
+  0% { background-color: #38bdf8; color: #000; }
+  100% { background-color: #72bbef; }
+}
+
+@keyframes oddsFlashLay {
+  0% { background-color: #fb7185; color: #000; }
+  100% { background-color: #faa9ba; }
+}
+
+.flash-back {
+  animation: oddsFlashBack 0.45s ease-out;
+}
+
+.flash-lay {
+  animation: oddsFlashLay 0.45s ease-out;
+}
+
 .felt {
   background:
     radial-gradient(60% 55% at 50% 45%, #1f8a55 0%, #13673f 55%, #0c4a2d 100%);
