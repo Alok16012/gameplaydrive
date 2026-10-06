@@ -183,11 +183,11 @@ begin
 end;
 $$;
 
--- set_game_settings: from 018_admin_controls.sql
+-- set_game_settings: from 023_stock_market.sql (the latest version, with Stock Market)
 create or replace function public.set_game_settings(p_game text, p_cfg jsonb) returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare old jsonb := public.game_cfg(p_game); new jsonb := public.game_cfg(p_game); k text; v jsonb; n numeric;
-        games text[] := array['teen-patti','rummy','andar-bahar','dragon-tiger','lucky-7','aviator','roulette','plinko','blackjack','poker','ludo','carrom','chess'];
+        games text[] := array['teen-patti','rummy','andar-bahar','dragon-tiger','lucky-7','aviator','roulette','plinko','blackjack','poker','ludo','chess','stock-market'];
 begin
   if not public.is_superadmin() then raise exception 'Only the Super Admin can change game settings'; end if;
   if not (p_game = any (games)) then raise exception 'Unknown game'; end if;
@@ -215,7 +215,7 @@ begin
       if n < 1 or n > 10 then raise exception 'Blind limit must be between 1 and 10'; end if;
       new := new || jsonb_build_object(k, n::int);
     elsif k = 'bot_speed' then
-      if p_game not in ('ludo', 'carrom', 'chess', 'poker') then continue; end if;
+      if p_game not in ('ludo', 'chess', 'poker') then continue; end if;
       if v #>> '{}' not in ('slow', 'normal', 'fast') then raise exception 'Bot speed must be slow, normal or fast'; end if;
       new := new || jsonb_build_object(k, v #>> '{}');
     else
