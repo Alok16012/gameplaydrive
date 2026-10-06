@@ -524,7 +524,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 
         {/* Last move on the table — tap for every move and the discard pile */}
         {inDeal && v?.log && cards === 13 && (
-          <button onClick={() => setMoves(true)} className="absolute left-[3%] bottom-[66px] z-20 w-[20%] rounded-lg bg-[#1a1e1a]/95 border border-white/10 px-2 py-1 text-left text-[10.5px] leading-tight">
+          <button onClick={() => setMoves(true)} className="absolute left-[3%] bottom-[104px] z-20 w-[20%] rounded-lg bg-[#1a1e1a]/95 border border-white/10 px-2 py-1 text-left text-[10.5px] leading-tight">
             <span className="text-white/45">Last move ›</span>
             <span className="block line-clamp-2 text-white/90">{v.log.length ? moveTxt(v.log[v.log.length - 1], v.me) : "No moves yet"}</span>
           </button>
@@ -670,14 +670,13 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 
         {/* Bottom-left: sort and group */}
         {inDeal && (
-          <div className="absolute left-[3%] bottom-2 z-20 flex items-end gap-3">
-            <button onClick={sortHand} className="flex flex-col items-center gap-0.5">
-              <span className="w-12 h-9 rounded-full border border-white/25 bg-black/30 grid place-items-center"><ArrowDownUp size={18} /></span>
-              <span className="text-[11px] text-white/70">Sort</span>
+          <div className="absolute left-[3%] bottom-2 z-20 flex flex-col-reverse items-start gap-1.5">
+            {/* Same size as the Drop button */}
+            <button onClick={sortHand} className="rounded-full border-2 border-white/85 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 bg-black/30">
+              <ArrowDownUp size={18} /> Sort
             </button>
-            <button onClick={makeGroup} className="flex flex-col items-center gap-0.5">
-              <span className={`w-12 h-9 rounded-full border grid place-items-center ${sel.length ? "border-white/70 bg-white/10" : "border-white/25 bg-black/30"}`}><Layers size={18} /></span>
-              <span className="text-[11px] text-white/70">Group</span>
+            <button onClick={makeGroup} className={`rounded-full border-2 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 ${sel.length ? "border-white bg-white/15" : "border-white/85 bg-black/30"}`}>
+              <Layers size={18} /> Group
             </button>
           </div>
         )}

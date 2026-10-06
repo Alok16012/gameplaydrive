@@ -16,9 +16,8 @@ import type { Nav } from "../nav";
 // moves smoothly between polls.
 //   UP is worth stake × P, DOWN is worth stake × (2 − P), where P starts at 1.00 (0%). The fee comes off every payout.
 
-const TICK_MS = 250;
 const TICKS = 80;
-const BET_SECS = 10;
+const BET_SECS = 7; // betting window (supabase/migrations/027_stock_market_pace.sql)
 const LAG_TICKS = 1.5; // draw this far behind the server so there is always a known next tick to glide to
 const CHIPS = [10, 50, 100, 500, 1000, 5000];
 
@@ -92,6 +91,8 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const serverNow = now + offset.current;
   const startsAt = v ? new Date(v.starts_at).getTime() : 0;
   const endsAt = v ? new Date(v.ends_at).getTime() : 0;
+  // One tick's length, taken from the round itself (the server sets the pace).
+  const TICK_MS = v ? Math.max(50, (endsAt - startsAt) / TICKS) : 180;
   const phase: View["phase"] | null = !v ? null : serverNow < startsAt ? "betting" : serverNow < endsAt ? "live" : "closed";
   const live = phase === "live";
 
@@ -429,6 +430,11 @@ export function StockMarket({ nav }: { nav: Nav }) {
 
         <div className="shrink-0 mt-2 flex items-center justify-between text-[12px] text-white/60 px-1 tabular-nums">
           <span>Total Bet <b className="text-white">🪙 {fmt(totalBet)}</b></span>
+          {canBet && !totalBet && (lastStake.current.up > 0 || lastStake.current.down > 0) && (
+            <button onClick={double} className="rounded-full bg-[#ffd166] text-[#1b1200] font-bold px-3 py-1 text-[12px]">
+              Rebet 🪙 {fmt(lastStake.current.up + lastStake.current.down)}
+            </button>
+          )}
           <button onClick={() => setHelp(true)} className="rounded-full border border-white/15 px-2.5 py-0.5 text-white/70">How to play</button>
         </div>
       </div>
