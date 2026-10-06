@@ -206,10 +206,47 @@ const server = createServer(async (req, res) => {
     return res.end(JSON.stringify(diag, null, 2));
   }
 
+  // 1b. Test vendor odds with various headers/params
+  if (pathname === "/test-vendor-odds") {
+    const eventId = parsedUrl.searchParams.get("eventId") || "761013765";
+    const marketId = parsedUrl.searchParams.get("marketId") || "5188803657540";
+    
+    const attempts: Array<{ name: string; url: string; headers: Record<string, string> }> = [
+      { name: "standard_eventId", url: `https://apis.diamondexchapi.com/api/cricket/odds?eventId=${eventId}`, headers: { "Accept": "application/json" } },
+      { name: "with_referer", url: `https://apis.diamondexchapi.com/api/cricket/odds?eventId=${eventId}`, headers: { "Accept": "application/json", "Origin": "https://khelobaazi.in", "Referer": "https://khelobaazi.in/" } },
+      { name: "my99_origin", url: `https://apis.diamondexchapi.com/api/cricket/odds?eventId=${eventId}`, headers: { "Accept": "application/json", "Origin": "https://my99exch.cx", "Referer": "https://my99exch.cx/" } },
+      { name: "marketId_param", url: `https://apis.diamondexchapi.com/api/cricket/odds?marketId=${marketId}`, headers: { "Accept": "application/json" } },
+      { name: "both_params", url: `https://apis.diamondexchapi.com/api/cricket/odds?eventId=${eventId}&marketId=${marketId}`, headers: { "Accept": "application/json" } },
+      { name: "root_odds", url: `https://apis.diamondexchapi.com/api/odds?eventId=${eventId}`, headers: { "Accept": "application/json" } },
+      { name: "fancy_endpoint", url: `https://apis.diamondexchapi.com/api/cricket/fancy?eventId=${eventId}`, headers: { "Accept": "application/json" } },
+      { name: "fancy_results", url: `https://apis.diamondexchapi.com/api/cricket/fancy-results?eventId=${eventId}`, headers: { "Accept": "application/json" } },
+    ];
+
+    const results: Record<string, any> = {};
+    for (const att of attempts) {
+      try {
+        const r = await fetch(att.url, { headers: att.headers, cache: "no-store" });
+        const text = await r.text();
+        results[att.name] = {
+          url: att.url,
+          status: r.status,
+          contentType: r.headers.get("content-type"),
+          snippet: text.slice(0, 200),
+        };
+      } catch (e: any) {
+        results[att.name] = { error: e.message };
+      }
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify(results, null, 2));
+  }
+
   // 2. Proxy: Sports Matches from DiamondExch (Cached for 15 minutes)
-  if (pathname === "/api/sports/matches" || pathname === "/api/cricket/matches") {
-    const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
-    const sportName = sportParam === "football" ? "soccer" : sportParam;
+  const matchesMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/matches$/);
+  if (matchesMatch || pathname === "/api/sports/matches") {
+    let sportName = matchesMatch ? matchesMatch[1] : (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
+    if (sportName === "football" || sportName === "sports") sportName = "soccer";
     const cacheKey = `matches_${sportName}`;
 
     try {
@@ -240,10 +277,11 @@ const server = createServer(async (req, res) => {
   }
 
   // 3. Proxy: Match Odds from DiamondExch (Live: 500ms, Upcoming: 2s)
-  if (pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
+  const oddsMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/odds$/);
+  if (oddsMatch || pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
     const eventId = parsedUrl.searchParams.get("eventId") || "";
-    const sportParam = (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
-    const sportName = sportParam === "football" ? "soccer" : sportParam;
+    let sportName = oddsMatch ? oddsMatch[1] : (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
+    if (sportName === "football" || sportName === "sports") sportName = "soccer";
     const isLive = parsedUrl.searchParams.get("live") === "true" || parsedUrl.searchParams.get("inPlay") === "true";
     const ttl = isLive ? CACHE_TTLS.LIVE_MATCH_ODDS : CACHE_TTLS.UPCOMING_MATCH_ODDS;
     const cacheKey = `odds_${sportName}_${eventId}`;
