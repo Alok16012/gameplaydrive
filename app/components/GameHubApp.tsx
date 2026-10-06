@@ -134,7 +134,7 @@ function Shell() {
       ? <TeenPattiAuto key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
       : <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
     case "rummy": screen = <RummyOnline key={route.table + route.mode + route.buyIn + (route.cards ?? 13)} nav={nav} mode={route.mode} stake={route.buyIn} deals={route.deals ?? 2} cards={route.cards ?? 13} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />; break;
-    case "board": screen = <BoardGame nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
+    case "board": screen = <BoardGame key={route.table + route.buyIn + (route.players ?? 4)} nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} players={route.players} />; break;
     case "wallet": screen = <WalletScreen nav={nav} />; break;
     case "addcash": screen = <AddCash nav={nav} />; break;
     case "txns": screen = <Transactions nav={nav} />; break;

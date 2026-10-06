@@ -16,7 +16,7 @@ export type Route =
   | { name: "stockmarket" }
   | { name: "cardtable"; game: GameId; table: string; buyIn: number }
   | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number; cards?: 13 | 21 } // buyIn = point value (points) or entry fee
-  | { name: "board"; game: GameId; table: string; buyIn: number }
+  | { name: "board"; game: GameId; table: string; buyIn: number; players?: 2 | 4 } // Ludo: 2 or 4 players
   | { name: "wallet" }
   | { name: "addcash" } // "Get coins": coins come from your agent
   | { name: "txns" }

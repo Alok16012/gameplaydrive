@@ -299,7 +299,9 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const maxPts = cards === 21 ? 120 : 80;
   const online = SERVER_GAMES.includes(gameId);
   const [mode, setMode] = useState<RummyMode>("points");
-  const seats = game.id === "ludo" ? 4 : game.id === "chess" ? 2 : 6;
+  // Ludo: 4-player tables or 1-vs-1 tables.
+  const [ludoN, setLudoN] = useState<2 | 4>(4);
+  const seats = game.id === "ludo" ? ludoN : game.id === "chess" ? 2 : 6;
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
   const privMin = rummy && mode !== "points" ? 10 : 1;
@@ -341,13 +343,14 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const isActiveRow = (tableId: string, buyIn: number, deals: number) => {
     if (!activeHere || !ar) return false;
     if (ar.name === "rummy") return ar.mode === mode && ar.buyIn === buyIn && (mode !== "deals" || (ar.deals ?? 0) === deals);
+    if (ar.name === "board" && gameId === "ludo" && (ar.players ?? 4) !== ludoN) return false;
     if (ar.name === "cardtable" || ar.name === "board") return ar.buyIn === buyIn && ar.table === (online ? `S-${buyIn}` : tableId);
     return false;
   };
 
   const join = (table: string, buyIn: number, deals?: number) => {
     if (game.kind === "rummy") nav.push({ name: "rummy", table, buyIn, mode, deals, cards });
-    else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn });
+    else if (game.kind === "board") nav.push({ name: "board", game: game.id, table, buyIn, ...(game.id === "ludo" ? { players: ludoN } : {}) });
     else nav.push({ name: "cardtable", game: game.id, table, buyIn });
   };
 
@@ -408,6 +411,15 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             </div>
             <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards from three decks + 3 printed jokers. Cut joker ± same-suit neighbours are jokers. Declare with 3 pure sequences (a 3 Naali counts). 3× 3 Naali or 8 Doubles = rummy; 7 Doubles = game maaf." : ""}</div>
           </>
+        )}
+        {gameId === "ludo" && (
+          <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-white/5 mb-3">
+            {([4, 2] as const).map((n) => (
+              <button key={n} onClick={() => setLudoN(n)} className={`rounded-xl py-2 text-sm font-medium ${ludoN === n ? "btn-green" : "text-white/70"}`}>
+                {n === 4 ? "4 Players" : "2 Players (1 vs 1)"}
+              </button>
+            ))}
+          </div>
         )}
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           {(["All", "Low", "Mid", "High"] as const).map((s) => (

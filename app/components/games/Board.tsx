@@ -13,8 +13,8 @@ import type { Nav, Route } from "../nav";
 import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
 import { bestMove, inCheck, kingSquare, legalMoves, makeMove, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
 
-export function BoardGame({ nav, gameId, table, buyIn }: { nav: Nav; gameId: GameId; table: string; buyIn: number }) {
-  if (gameId === "ludo") return <Ludo nav={nav} table={table} buyIn={buyIn} />;
+export function BoardGame({ nav, gameId, table, buyIn, players }: { nav: Nav; gameId: GameId; table: string; buyIn: number; players?: 2 | 4 }) {
+  if (gameId === "ludo") return <Ludo nav={nav} table={table} buyIn={buyIn} players={players} />;
   return <Chess nav={nav} table={table} buyIn={buyIn} />;
 }
 
@@ -78,7 +78,10 @@ const ROLL_MS = 560;
 let PACE = 1;
 const think = (a: number, b: number) => sleep((a + Math.random() * (b - a) + (Math.random() < 0.15 ? 700 + Math.random() * 900 : 0)) * PACE);
 
-function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
+function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buyIn: number; players?: 2 | 4 }) {
+  // Seats in play: all four colours, or (2 players) you on red against yellow, across the board.
+  const SEATS = players === 2 ? [0, 2] : [0, 1, 2, 3];
+  const inPlay = (p: number) => SEATS.includes(p);
   const gs = useGameSettings();
   const keep = 1 - feeOf(gs, "ludo", 10);
   PACE = botPace(gs, "ludo");
@@ -130,8 +133,8 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   // Rejoin: the game is saved on this phone at every settled point (and right after you roll), so leaving the
   // screen and coming back carries on from there — same tokens, same dice, entry not charged again.
-  const snapKey = `ludo:${table}:${buyIn}`;
-  const route: Route = { name: "board", game: "ludo", table, buyIn };
+  const snapKey = `ludo:${table}:${buyIn}:${players}`;
+  const route: Route = { name: "board", game: "ludo", table, buyIn, players };
   interface LudoSnap { tokens: number[][]; turn: number; dice: number; awaitMove: boolean; names: string[] }
   const snap = (over: Partial<LudoSnap> = {}) =>
     saveSnap<LudoSnap>(snapKey, { tokens: tokRef.current, turn, dice, awaitMove, names: namesRef.current, ...over });
@@ -186,7 +189,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     if (a >= 0 && !SAFE.has(a)) {
       const t = tokRef.current.map((r) => [...r]);
       let hit = false;
-      for (let q = 0; q < 4; q++) {
+      for (const q of SEATS) {
         if (q === p) continue;
         t[q].forEach((op, j) => {
           if (absIdx(q, op) === a) {
@@ -219,12 +222,12 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     setWinner(p);
     dropSnap(snapKey);
     clearActive(route);
-    if (p === 0) credit(Math.floor(buyIn * 4 * keep), label);
+    if (p === 0) credit(Math.floor(buyIn * SEATS.length * keep), label);
   };
 
   const nextTurn = (from: number) => {
     if (over.current || !alive.current) return;
-    const n = (from + 1) % 4;
+    const n = SEATS[(SEATS.indexOf(from) + 1) % SEATS.length];
     sixes.current = 0;
     setTurn(n);
     startClock(n);
@@ -353,7 +356,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
     startClock(0);
     setWinner(null);
     setStarted(true);
-    markActive(route, `Ludo • Table #${table}`);
+    markActive(route, `Ludo ${players === 2 ? "1 vs 1" : "4 players"} • Table #${table}`);
     setMsg("Your turn — roll the dice");
   };
 
@@ -395,9 +398,9 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein" style={{ background: "radial-gradient(120% 70% at 50% 35%, #1d3a8a 0%, #0b1438 60%, #070b22 100%)" }}>
-      <Header title="Ludo" sub={`Table #${table} • 4 Players • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Ludo" sub={`Table #${table} • ${players === 2 ? "1 vs 1" : "4 Players"} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <div className="flex justify-between items-center mb-2 px-1">{badge(0, "left")}{badge(1, "right")}</div>
+        <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(0, "left")}{inPlay(1) && badge(1, "right")}</div>
 
         {/* Board in a wooden frame */}
         <div className="rounded-[22px] p-[2.6%] shadow-[0_18px_40px_rgba(0,0,0,.55)]" style={{ background: "linear-gradient(145deg,#8a5a2b,#5a3416 55%,#3f2410)" }}>
@@ -433,7 +436,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
           <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from 45deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)`, boxShadow: "inset 0 0 10px rgba(0,0,0,.35)" }} />
           {/* tokens: positioned with transforms (GPU) and a hop on every square they land on */}
           {tokens.map((row, p) =>
-            row.map((prog, i) => {
+            !inPlay(p) ? null : row.map((prog, i) => {
               const [r, c] = cellOf(p, prog, i);
               const glow = p === 0 && myOpts.includes(i);
               // Tokens sharing a square fan out a little so each stays visible.
@@ -481,7 +484,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
         </div>
         </div>
 
-        <div className="flex justify-between items-center mt-2 px-1">{badge(3, "left")}{badge(2, "right")}</div>
+        <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{inPlay(3) ? badge(3, "left") : <span />}{badge(2, "right")}</div>
 
         {/* Your dice */}
         <div className="mt-4 flex flex-col items-center">
@@ -496,7 +499,7 @@ function Ludo({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number })
       <ResultSheet
         open={winner !== null}
         won={winner === 0}
-        title={winner === 0 ? `You won ${inr(Math.floor(buyIn * 4 * keep))}!` : `${winner !== null ? names[winner] : ""} wins`}
+        title={winner === 0 ? `You won ${inr(Math.floor(buyIn * SEATS.length * keep))}!` : `${winner !== null ? names[winner] : ""} wins`}
         left={nextIn}
         onLeave={nav.back}
         onClose={() => {}}
