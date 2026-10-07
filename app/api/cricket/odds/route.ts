@@ -16,6 +16,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, message: "eventId required", data: { matchOdds: [], bookMakerOdds: [], fancyOdds: [], otherMarketOdds: [] } });
   }
 
+  let diamondError: any = null;
+  let my99Error: any = null;
+
   // 1. Direct DiamondExch API — primary source
   try {
     const sportPath = sportParam === "football" ? "soccer" : sportParam;
@@ -47,8 +50,11 @@ export async function GET(req: NextRequest) {
           { headers: { "Cache-Control": cacheControl } }
         );
       }
+    } else {
+        diamondError = `HTTP Error: ${res.status} ${res.statusText}`;
     }
   } catch (err) {
+    diamondError = String(err);
     console.warn("DiamondExch Odds fetch failed:", err);
   }
 
@@ -115,14 +121,16 @@ export async function GET(req: NextRequest) {
         );
       }
     }
-  } catch {
+  } catch (e) {
     // silent
+    my99Error = String(e);
   }
 
   // 3. All sources failed — return empty (no mock data)
   return NextResponse.json({
     success: false,
     message: "No live odds available",
+    debug: { diamondExchError: String(diamondError), my99Error: String(my99Error) },
     data: { matchOdds: [], bookMakerOdds: [], fancyOdds: [], otherMarketOdds: [] },
   });
 }
