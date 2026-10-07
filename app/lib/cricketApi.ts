@@ -316,8 +316,7 @@ export function getMatchDepthOdds(
 // Fetch matches list for specific sport (cricket, tennis, soccer) via backend proxy
 export async function fetchCricketMatches(sport: SportType = "cricket"): Promise<CricketMatch[]> {
   try {
-    const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
-    const res = await fetch(`${railwayHost}/api/sports/matches?sport=${encodeURIComponent(sport)}&_t=${Date.now()}`, {
+    const res = await fetch(`/api/sports/matches?sport=${encodeURIComponent(sport)}&_t=${Date.now()}`, {
       cache: "no-store",
     });
     if (res.ok) {
@@ -345,9 +344,8 @@ export async function fetchCricketOdds(
   const sportName = sport === "soccer" ? "soccer" : sport;
 
   try {
-    const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
     const res = await fetch(
-      `${railwayHost}/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}&team1=${encodeURIComponent(team1)}&team2=${encodeURIComponent(team2)}`,
+      `/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}&team1=${encodeURIComponent(team1)}&team2=${encodeURIComponent(team2)}`,
       { cache: "no-store" }
     );
     if (!res.ok) throw new Error("Failed to fetch odds");
@@ -370,8 +368,7 @@ export async function fetchCricketOdds(
 // Fetch Fancy Results (Cached for 1 minute on server)
 export async function fetchFancyResults(eventId: string, sport: SportType = "cricket"): Promise<any[]> {
   try {
-    const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
-    const res = await fetch(`${railwayHost}/api/cricket/fancy-results?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
+    const res = await fetch(`/api/cricket/fancy-results?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
       cache: "no-store",
     });
     if (!res.ok) return [];
@@ -385,8 +382,7 @@ export async function fetchFancyResults(eventId: string, sport: SportType = "cri
 // Fetch Betfair & Bookmaker Results (Cached for 5 minutes on server)
 export async function fetchMatchResults(eventId: string, sport: SportType = "cricket"): Promise<any[]> {
   try {
-    const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
-    const res = await fetch(`${railwayHost}/api/cricket/results?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
+    const res = await fetch(`/api/cricket/results?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sport)}`, {
       cache: "no-store",
     });
     if (!res.ok) return [];
