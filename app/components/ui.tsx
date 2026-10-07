@@ -142,7 +142,9 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
   return (
     <div className="fixed inset-0 z-50 flex justify-center">
       <div className="absolute inset-0 bg-black/60 fadein" onClick={onClose} />
-      <div className="absolute bottom-0 w-full max-w-[430px] slideup rounded-t-3xl bg-[#111838] border-t border-white/10 p-5 pb-8 max-h-[85dvh] overflow-y-auto">
+      {/* Height from the containing box (85%), not the screen: inside a turned table (Rummy, Teen Patti held
+          upright) the box is only as tall as the phone is wide, so the sheet must fit that and scroll. */}
+      <div className="absolute bottom-0 w-full max-w-[430px] slideup rounded-t-3xl bg-[#111838] border-t border-white/10 p-5 pb-8 max-h-[88%] overflow-y-auto overscroll-contain">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
         {title && <div className="text-lg font-semibold mb-4">{title}</div>}
         {children}

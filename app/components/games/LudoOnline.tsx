@@ -5,7 +5,7 @@ import { Copy, LogOut, Share2, Trophy } from "lucide-react";
 import { inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, joinOnce, supabase } from "../../lib/supabase";
-import { clearActive, markActive } from "../../lib/rejoin";
+import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
 import { sfx, vibrate } from "../../lib/sound";
 import { Avatar, Header, Money } from "../ui";
 import { DiceFace, LPLAYERS, LUDO_TURN_SECS, LudoBoardSurface } from "./Board";
@@ -98,7 +98,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
   useEffect(() => {
     if (!v) return;
     const route = { name: "board" as const, game: "ludo" as const, table: `P-${v.code}`, buyIn: v.entry, players: v.max_players };
-    if (v.status === "waiting" || v.status === "playing") markActive(route, `Ludo with friends • ${v.code}`);
+    if (v.status === "waiting" || v.status === "playing") markActive(route, `Ludo with friends • ${v.code}`, REJOIN_MS.ludo);
     else clearActive(route);
   }, [v?.status, v?.code, v?.entry, v?.max_players]); // eslint-disable-line react-hooks/exhaustive-deps
 

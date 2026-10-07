@@ -1,7 +1,7 @@
 "use client";
 
 import { LudoOnline } from "./games/LudoOnline";
-import { markActive } from "../lib/rejoin";
+import { REJOIN_MS, markActive, touchActive } from "../lib/rejoin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
 import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
@@ -59,8 +59,11 @@ function Shell() {
   // Rejoin: server tables keep your seat when the screen closes, so remember the one you're at and offer it on
   // Home. (Ludo, Chess, Poker and Blackjack mark themselves when a game is actually under way.)
   useEffect(() => {
-    if (route.name === "rummy") markActive(route, `${route.cards === 21 ? "21 Card Rummy" : "Rummy"} • Table #${route.table}`);
-    else if (route.name === "cardtable" && route.game === "teen-patti") markActive(route, `Teen Patti • Boot 🪙 ${route.buyIn}`);
+    if (route.name === "rummy") markActive(route, `${route.cards === 21 ? "21 Card Rummy" : "Rummy"} • Table #${route.table}`, REJOIN_MS.rummy);
+    else if (route.name === "cardtable" && route.game === "teen-patti") markActive(route, `Teen Patti • Boot 🪙 ${route.buyIn}`, REJOIN_MS.teenPatti);
+    // While the table is open the rejoin window keeps resetting; it starts counting once you leave the screen.
+    const t = setInterval(() => touchActive(route), 5000);
+    return () => { touchActive(route); clearInterval(t); };
   }, [route]);
 
   // Sound: phones only allow audio after a touch, so wake the engine (and the music) on the first tap; every

@@ -1,6 +1,6 @@
 "use client";
 
-import { clearActive, dropSnap, loadSnap, markActive, saveSnap } from "../../lib/rejoin";
+import { REJOIN_MS, clearActive, dropSnap, loadSnap, markActive, saveSnap, snapAge } from "../../lib/rejoin";
 import { sfx, vibrate } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { Star } from "lucide-react";
@@ -147,8 +147,16 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   useEffect(() => {
     if (resumed.current) return;
     resumed.current = true;
+    const age = snapAge(snapKey);
     const sn = loadSnap<LudoSnap>(snapKey);
     if (!sn) return;
+    // Away for three turns or more: the game was given up while you were gone (the entry is lost).
+    if (age !== null && age > REJOIN_MS.ludo) {
+      dropSnap(snapKey);
+      clearActive(route);
+      showToast("You were away for 3 turns — that game was given up");
+      return;
+    }
     gameNo.current += 1;
     over.current = false;
     games.current = 1;
@@ -356,7 +364,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     startClock(0);
     setWinner(null);
     setStarted(true);
-    markActive(route, `Ludo ${players === 2 ? "1 vs 1" : "4 players"} • Table #${table}`);
+    markActive(route, `Ludo ${players === 2 ? "1 vs 1" : "4 players"} • Table #${table}`, REJOIN_MS.ludo);
     setMsg("Your turn — roll the dice");
   };
 

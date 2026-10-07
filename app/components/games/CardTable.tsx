@@ -1,6 +1,6 @@
 "use client";
 
-import { clearActive, dropSnap, loadSnap, markActive, saveSnap } from "../../lib/rejoin";
+import { REJOIN_MS, clearActive, dropSnap, loadSnap, markActive, saveSnap, snapAge } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { MoreVertical } from "lucide-react";
@@ -129,8 +129,12 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const route: Route = { name: "cardtable", game: gameId, table, buyIn };
   const g = useRef<G>(null as unknown as G);
   const restored = useRef<boolean | null>(null);
+  const foldedAway = useRef(false);
   if (restored.current === null) {
-    const sn = loadSnap<G>(snapKey);
+    const age = snapAge(snapKey);
+    let sn = loadSnap<G>(snapKey);
+    // Away for three turns or more: the hand was folded while you were gone.
+    if (sn && age !== null && age > REJOIN_MS.poker) { dropSnap(snapKey); clearActive(route); sn = null; foldedAway.current = true; }
     restored.current = !!sn && sn.phase === "playing";
     if (sn && restored.current) g.current = { ...sn, busy: false };
   }
@@ -197,7 +201,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     next.turn = "me";
     next.timerEnd = Date.now() + TURN_SECS * 1000;
     g.current = next;
-    markActive(route, `${game.name} • Table #${table}`);
+    markActive(route, `${game.name} • Table #${table}`, REJOIN_MS.poker);
     bump();
   };
 
@@ -400,6 +404,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.phase, g.current]);
+
+  useEffect(() => { if (foldedAway.current) showToast("You were away for 3 turns — your hand was folded"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Back at a saved hand: carry on where it stopped (your turn keeps its clock; otherwise the table plays on).
   const resumed = useRef(false); // once only (React may run mount effects twice in development)

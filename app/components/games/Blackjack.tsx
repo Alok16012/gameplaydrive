@@ -1,6 +1,6 @@
 "use client";
 
-import { clearActive, markActive } from "../../lib/rejoin";
+import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
 import { sfx, vibrate } from "../../lib/sound";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { inr, type Card } from "../../lib/data";
@@ -124,7 +124,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
     vRef.current = view;
     setV(view);
     // Rejoin: an unfinished hand stays on the server; offer it on Home until it is settled.
-    if (view.status === "playing") markActive({ name: "blackjack" }, `Blackjack • hand of 🪙 ${view.bet ?? ""} in play`);
+    if (view.status === "playing") markActive({ name: "blackjack" }, `Blackjack • hand of 🪙 ${view.bet ?? ""} in play`, REJOIN_MS.blackjack);
     else clearActive({ name: "blackjack" });
     if (!animate) { setAnim(null); applyBalance(view.balance); return; }
     const frames = plan(prev, view);
