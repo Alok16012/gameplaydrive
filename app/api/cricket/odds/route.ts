@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // DiamondExch Odds API Proxy — returns real data only, NO mock/static data
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
