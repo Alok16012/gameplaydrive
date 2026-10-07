@@ -255,7 +255,7 @@ const server = createServer(async (req, res) => {
         // 1. Try my99exch highlight odds feed
         try {
           const my99Res = await fetch("https://my99exch.cx/api/front_open/highlightodds-direct/", {
-            headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+            headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
             cache: "no-store",
           });
           if (my99Res.ok) {
@@ -307,7 +307,7 @@ const server = createServer(async (req, res) => {
 
         // 2. Fallback to DiamondExch matches
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
-          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
           cache: "no-store",
         });
         const text = await dRes.text();
@@ -346,7 +346,7 @@ const server = createServer(async (req, res) => {
         // 1. Try my99exch highlight odds directly with gmid
         try {
           const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?gmid=${encodeURIComponent(eventId)}`, {
-            headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+            headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
             cache: "no-store",
           });
           if (my99Res.ok) {
@@ -436,7 +436,7 @@ const server = createServer(async (req, res) => {
 
         // 2. Fallback to DiamondExch
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?gameId=${encodeURIComponent(eventId)}&eventId=${encodeURIComponent(eventId)}`, {
-          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
           cache: "no-store",
         });
         const text = await dRes.text();
@@ -470,7 +470,7 @@ const server = createServer(async (req, res) => {
     try {
       const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.FANCY_RESULTS, async () => {
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/fancy-results?eventId=${encodeURIComponent(eventId)}`, {
-          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
           cache: "no-store",
         });
         const text = await dRes.text();
@@ -504,7 +504,7 @@ const server = createServer(async (req, res) => {
     try {
       const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.BETFAIR_BOOKMAKER_RESULTS, async () => {
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/results?eventId=${encodeURIComponent(eventId)}`, {
-          headers: { "Accept": "application/json", "User-Agent": "GameHub-Railway-Proxy/1.0" },
+          headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
           cache: "no-store",
         });
         const text = await dRes.text();
