@@ -17,7 +17,7 @@ import type { Nav } from "../nav";
 //   UP is worth stake × P, DOWN is worth stake × (2 − P), where P starts at 1.00 (0%). The fee comes off every payout.
 
 const TICKS = 80;
-const BET_SECS = 7; // betting window (supabase/migrations/027_stock_market_pace.sql)
+const BET_SECS = 10; // betting window (supabase/migrations/031_stock_market_bet_window.sql)
 const LAG_TICKS = 1.5; // draw this far behind the server so there is always a known next tick to glide to
 const CHIPS = [10, 50, 100, 500, 1000, 5000];
 
@@ -46,6 +46,9 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const [err, setErr] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  const [queued, setQueued] = useState<{ up: number; down: number }>({ up: 0, down: 0 });
+  const betQueue = useRef<{ side: Side; amount: number }[]>([]);
+  const sending = useRef(false);
   const [chip, setChip] = useState(100);
   const [result, setResult] = useState<{ round: number; text: string; won: boolean } | null>(null);
   const [help, setHelp] = useState(false);
@@ -81,13 +84,6 @@ export function StockMarket({ nav }: { nav: Nav }) {
     return () => { [html.style.overflow, body.style.overflow, body.style.overscrollBehavior] = old; };
   }, []);
 
-  useEffect(() => {
-    let raf = 0;
-    const loop = () => { setNow(Date.now()); raf = requestAnimationFrame(loop); };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
   const serverNow = now + offset.current;
   const startsAt = v ? new Date(v.starts_at).getTime() : 0;
   const endsAt = v ? new Date(v.ends_at).getTime() : 0;
@@ -95,6 +91,19 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const TICK_MS = v ? Math.max(50, (endsAt - startsAt) / TICKS) : 180;
   const phase: View["phase"] | null = !v ? null : serverNow < startsAt ? "betting" : serverNow < endsAt ? "live" : "closed";
   const live = phase === "live";
+
+  // Clock: every frame only while the line is moving; a few times a second otherwise, so taps stay quick on
+  // slower phones while bets are open.
+  useEffect(() => {
+    if (live) {
+      let raf = 0;
+      const loop = () => { setNow(Date.now()); raf = requestAnimationFrame(loop); };
+      raf = requestAnimationFrame(loop);
+      return () => cancelAnimationFrame(raf);
+    }
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [live]);
 
   useEffect(() => {
     pull();
@@ -119,7 +128,8 @@ export function StockMarket({ nav }: { nav: Nav }) {
 
   const fee = v?.fee ?? 0.01;
   const mine = v?.mine ?? [];
-  const stake = { up: mine.find((b) => b.side === "up")?.amount ?? 0, down: mine.find((b) => b.side === "down")?.amount ?? 0 };
+  // Your stake: what the server has, plus chips tapped and still on their way (shown at once, sent in order).
+  const stake = { up: (mine.find((b) => b.side === "up")?.amount ?? 0) + queued.up, down: (mine.find((b) => b.side === "down")?.amount ?? 0) + queued.down };
   const open = mine.filter((b) => b.cash_tick === null);
   const cashed = mine.length > 0 && open.length === 0;
   const totalBet = stake.up + stake.down;
@@ -166,19 +176,45 @@ export function StockMarket({ nav }: { nav: Nav }) {
     return data as View;
   };
 
-  const bet = async (side: Side) => {
+  // Taps are counted straight away and sent to the server one after another, so quick taps are never lost
+  // and the buttons don't freeze while a bet is on its way.
+  const flush = async () => {
+    if (sending.current) return;
+    sending.current = true;
+    while (betQueue.current.length) {
+      const b = betQueue.current.shift()!;
+      const { data, error } = await supabase().rpc("sm_bet", { p_side: b.side, p_amount: b.amount });
+      setQueued((q) => ({ ...q, [b.side]: Math.max(0, q[b.side] - b.amount) }));
+      if (error) {
+        showToast(errText(error));
+        betQueue.current = [];
+        setQueued({ up: 0, down: 0 });
+        pull();
+        break;
+      }
+      take(data as View);
+    }
+    sending.current = false;
+  };
+  const queueBet = (side: Side, amount: number) => {
+    betQueue.current.push({ side, amount });
+    setQueued((q) => ({ ...q, [side]: q[side] + amount }));
+    flush();
+  };
+  const bet = (side: Side) => {
     if (phase !== "betting") return showToast("Bets are closed — wait for the next round");
-    if (total < chip) return showToast("Not enough coins");
+    if (total - queued.up - queued.down < chip) return showToast("Not enough coins");
     sfx.chip();
-    await call("sm_bet", { p_side: side, p_amount: chip });
+    queueBet(side, chip);
   };
   const double = async () => {
     const s = totalBet ? stake : lastStake.current;
     if (!s.up && !s.down) return;
-    if (total < s.up + s.down) return showToast("Not enough coins");
+    if (phase !== "betting") return showToast("Bets are closed — wait for the next round");
+    if (total - queued.up - queued.down < s.up + s.down) return showToast("Not enough coins");
     sfx.chip();
-    if (s.up) await call("sm_bet", { p_side: "up", p_amount: s.up });
-    if (s.down) await call("sm_bet", { p_side: "down", p_amount: s.down });
+    if (s.up) queueBet("up", s.up);
+    if (s.down) queueBet("down", s.down);
   };
   const cashOut = async () => {
     const r = await call("sm_cashout");
@@ -256,7 +292,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const secsToStart = Math.max(0, Math.ceil((startsAt - serverNow) / 1000));
   const secsToEnd = Math.max(0, Math.ceil((endsAt - serverNow) / 1000));
   const status = !v ? "CONNECTING…" : phase === "betting" ? `PLACE YOUR BETS ${secsToStart}` : phase === "live" ? `MARKET OPEN • ${secsToEnd}s` : "NEXT GAME SOON";
-  const canBet = phase === "betting" && !busy;
+  const canBet = phase === "betting";
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden overscroll-none select-none fadein bg-[#070b1f]" style={{ touchAction: "manipulation" }}>
