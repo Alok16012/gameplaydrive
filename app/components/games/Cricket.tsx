@@ -926,18 +926,18 @@ export function Cricket({
                 return (
                   <tr key={match.eventId} className="hover:bg-slate-50 transition-colors">
                     {/* Game Column (Match Name + Icons + Time) */}
-                    <td className="py-2.5 px-3 align-middle max-w-[280px]">
-                      <div className="flex items-center justify-between">
+                    <td className="py-2.5 px-3 align-middle max-w-[150px] md:max-w-[280px]">
+                      <div className="flex items-center justify-between gap-1 w-full">
                         <div
                           onClick={() => setSelectedMatchId(match.eventId)}
-                          className="cursor-pointer group flex items-center gap-2 flex-wrap"
+                          className="cursor-pointer group flex-1 min-w-0"
                         >
-                          <div className="font-semibold text-slate-800 text-[11px] group-hover:text-blue-600 transition-colors whitespace-nowrap overflow-hidden text-ellipsis">
+                          <div className="font-semibold text-slate-800 text-[11px] group-hover:text-blue-600 transition-colors truncate">
                             {match.eventName} <span className="text-slate-500 font-normal">/ {formattedDate} (IST)</span>
                           </div>
                         </div>
                         {/* Feature Badges */}
-                        <div className="flex items-center gap-1.5 ml-2 shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {match.inPlay || match.isLive ? (
                             <span className="w-2 h-2 rounded-full bg-[#22c55e]" title="In-Play Live" />
                           ) : null}
