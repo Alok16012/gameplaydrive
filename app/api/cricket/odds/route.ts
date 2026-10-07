@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`${baseUrl}/api/${sportPath}/odds?gameId=${eventId}`, {
       headers: {
         "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "User-Agent": "curl/7.81.0",
       },
       cache: "no-store",
       signal: AbortSignal.timeout(6000),

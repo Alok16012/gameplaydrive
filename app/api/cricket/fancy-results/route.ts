@@ -12,11 +12,13 @@ export async function GET(req: NextRequest) {
   const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
 
   // 1. Fetch via Railway Proxy (with 1-minute server-side cache)
-  try {
-    const railwayRes = await fetch(`${railwayHost}/api/cricket/fancy-results?eventId=${encodeURIComponent(eventId)}&sport=${sportName}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(8000),
-    });
+  if (!process.env.RAILWAY_PROJECT_ID && !req.headers.get("x-from-railway")) {
+    try {
+      const railwayRes = await fetch(`${railwayHost}/api/cricket/fancy-results?eventId=${encodeURIComponent(eventId)}&sport=${sportName}`, {
+        headers: { "x-from-railway": "1" },
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
+      });
     if (railwayRes.ok) {
       const json = await railwayRes.json();
       return NextResponse.json(
@@ -31,18 +33,17 @@ export async function GET(req: NextRequest) {
           },
         }
       );
+      }
+    } catch (err) {
+      // fallback to direct
     }
-  } catch (err) {
-    // fallback to direct
   }
 
   // 2. Direct DiamondExch API call
   try {
     const headers: Record<string, string> = {
       "Accept": "application/json",
-      "User-Agent": "Khelobaazi-Exchange/1.0",
-      "Origin": "https://khelobaazi.in",
-      "Referer": "https://khelobaazi.in/",
+      "User-Agent": "curl/7.81.0",
     };
     if (apiKey) {
       headers["Authorization"] = `Bearer ${apiKey}`;

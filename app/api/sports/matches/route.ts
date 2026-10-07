@@ -39,10 +39,12 @@ export async function GET(req: NextRequest) {
 
   let railwayError: string | null = null;
 
-  // 1. Attempt via Railway Proxy first (if deployed with static/whitelisted IP)
-  try {
-    const railwayRes = await fetch(`${railwayHost}/api/sports/matches?sport=${sportName}`, {
-      cache: "no-store",
+  // 1. Attempt via Railway Proxy first (if deployed on Netlify/Vercel)
+  if (!process.env.RAILWAY_PROJECT_ID && !req.headers.get("x-from-railway")) {
+    try {
+      const railwayRes = await fetch(`${railwayHost}/api/sports/matches?sport=${sportName}`, {
+        headers: { "x-from-railway": "1" },
+        cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
     if (railwayRes.ok) {
@@ -109,11 +111,12 @@ export async function GET(req: NextRequest) {
       } else {
         railwayError = `Railway returned non-array or empty: ${JSON.stringify(json).slice(0, 200)}`;
       }
-    } else {
-      railwayError = `Railway HTTP status: ${railwayRes.status}`;
+      } else {
+        railwayError = `Railway HTTP status: ${railwayRes.status}`;
+      }
+    } catch (err: any) {
+      railwayError = `Railway fetch error: ${err?.message}`;
     }
-  } catch (err: any) {
-    railwayError = `Railway fetch error: ${err?.message}`;
   }
 
   // 1.5 Direct my99exch Highlight Odds Ingestion
@@ -210,9 +213,7 @@ export async function GET(req: NextRequest) {
   try {
     const headers: Record<string, string> = {
       "Accept": "application/json",
-      "User-Agent": "Khelobaazi-Exchange/1.0",
-      "Origin": "https://khelobaazi.in",
-      "Referer": "https://khelobaazi.in/",
+      "User-Agent": "curl/7.81.0",
     };
     if (apiKey) {
       headers["Authorization"] = `Bearer ${apiKey}`;
