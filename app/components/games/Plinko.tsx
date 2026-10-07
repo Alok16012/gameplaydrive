@@ -47,6 +47,8 @@ export function Plinko({ nav }: { nav: Nav }) {
   const [balls, setBalls] = useState<Ball[]>([]);
   const [hits, setHits] = useState<Record<number, number>>({}); // slot → time it was last hit (for the bounce)
   const [recent, setRecent] = useState<{ mult: number; key: number }[]>([]);
+  // The slot the last ball fell into, with what it paid — shown over the slot for a moment.
+  const [lastLand, setLastLand] = useState<{ slot: number; mult: number; payout: number; at: number; key: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const seq = useRef(0);
   const latest = useRef({ seq: 0, bal: 0 });
@@ -75,6 +77,8 @@ export function Plinko({ nav }: { nav: Nav }) {
     for (const b of landed) { releases.current[b.id]?.(); delete releases.current[b.id]; delete rowSeen.current[b.id]; }
     if (landed.some((b) => b.mult >= 2)) sfx.win(); else sfx.slot();
     setHits((h) => ({ ...h, ...Object.fromEntries(landed.map((b) => [b.slot, now])) }));
+    const lastBall = landed[landed.length - 1];
+    setLastLand({ slot: lastBall.slot, mult: lastBall.mult, payout: lastBall.payout, at: now, key: lastBall.id });
     setRecent((r) => [...landed.map((b) => ({ mult: b.mult, key: b.id })), ...r].slice(0, 12));
     setBalls((bs) => bs.filter((b) => !landed.includes(b)));
   }, [now, balls]);
@@ -154,14 +158,20 @@ export function Plinko({ nav }: { nav: Nav }) {
           {/* Slots */}
           <div className="flex gap-[2px] -mt-1" style={{ paddingInline: `${(gap / W) * 100 * 0.55}%` }}>
             {mults.map((m, k) => {
-              const hit = hits[k] && now - hits[k] < 350;
+              const hit = hits[k] && now - hits[k] < 700;
+              const label = lastLand && lastLand.slot === k && now - lastLand.at < 1500 ? lastLand : null;
               return (
                 <div
                   key={k}
-                  className="flex-1 min-w-0 rounded-[5px] text-center font-bold text-slate-900 py-1 transition-transform"
+                  className="relative flex-1 min-w-0 rounded-[5px] text-center font-bold text-slate-900 py-1 transition-transform"
                   style={{ background: slotColor(k, mults.length), fontSize: rows === 16 ? 8 : rows === 12 ? 10 : 12, transform: hit ? "translateY(5px)" : "none", boxShadow: "0 3px 0 rgba(0,0,0,.35)" }}
                 >
                   {m >= 100 ? m : `${m}`}{rows === 16 ? "" : "x"}
+                  {label && (
+                    <span key={label.key} className="pop absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-10 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-extrabold shadow-lg" style={{ background: label.mult >= 1 ? "#fbbf24" : "#fb7185" }}>
+                      {label.mult}x{label.payout > 0 ? ` +${label.payout.toLocaleString("en-IN")}` : ""}
+                    </span>
+                  )}
                 </div>
               );
             })}

@@ -578,8 +578,17 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 <div className={`relative rounded-[10px] ${myTurn && v.phase === "draw" ? "rc-glow" : ""}`}><RcBack w={deckW} h={deckH} /></div>
               </button>
               {/* Open card */}
-              <button disabled={!myTurn || v.phase !== "draw" || busy || !v.open_top || (isJoker(v.open_top, wild) && !v.open_joker_ok)} onClick={() => act("draw_open")} aria-label="Open card" ref={openRef} className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[10px] transition-transform ${drag?.over === "discard" ? "scale-110 ring-4 ring-white/90" : ""}`} style={{ left: "52%" }}>
-                {drag?.over === "discard" && <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[11px] font-bold rounded-full px-2 py-0.5 bg-white text-black whitespace-nowrap z-10">Discard</div>}
+              {/* The open pile: tap to pick its card on your draw; with one card selected on your discard turn, tap it
+                  to throw that card here (or drag the card onto it). */}
+              <button
+                disabled={!(canDiscard || (myTurn && v.phase === "draw" && !busy && v.open_top && !(isJoker(v.open_top, wild) && !v.open_joker_ok)))}
+                onClick={() => (canDiscard ? act("discard", sel[0]) : act("draw_open"))}
+                aria-label={canDiscard ? "Discard the selected card" : "Open card"}
+                ref={openRef}
+                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-[10px] transition-transform ${drag?.over === "discard" ? "scale-110 ring-4 ring-white/90" : canDiscard ? "ring-4 ring-gold-300 animate-pulse" : ""}`}
+                style={{ left: "52%" }}
+              >
+                {(drag?.over === "discard" || canDiscard) && <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[11px] font-bold rounded-full px-2 py-0.5 bg-white text-black whitespace-nowrap z-10">{drag?.over === "discard" ? "Discard" : "Tap to discard here"}</div>}
                 {(() => {
                   const top = pileHold ? pileHold.card : v.open_top;
                   return top
@@ -588,7 +597,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 })()}
               </button>
               {/* Show (finish) slot: select one card to put aside, then tap here */}
-              <button ref={showRef} disabled={!canDiscard} onClick={() => setConfirm("declare")} aria-label="Show" className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-md border grid place-items-center text-[12px] font-semibold tracking-wide leading-tight text-center transition-transform ${drag?.over === "show" ? "scale-110 border-2 border-gold-300 text-gold-300 bg-gold-500/25" : canDiscard || (myTurn && v.phase === "discard" && drag?.moving) ? "border-gold-300 text-gold-300 bg-black/20 animate-pulse" : "border-black/40 text-black/45 bg-black/10"}`} style={{ left: "71%", width: deckW * 0.95, height: deckH * 1.02 }}>
+              <button ref={showRef} disabled={!canDiscard} onClick={() => setConfirm("declare")} aria-label="Show" className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-md border grid place-items-center text-[12px] font-semibold tracking-wide leading-tight text-center transition-transform ${drag?.over === "show" ? "scale-110 border-2 border-gold-300 text-gold-300 bg-gold-500/25" : canDiscard || (myTurn && v.phase === "discard" && drag?.moving) ? "border-gold-300 text-gold-300 bg-black/20 animate-pulse" : "border-black/40 text-black/45 bg-black/10"}`} style={{ left: "60%", width: deckW * 0.82, height: deckH * 0.92 }}>
                 SHOW<br />HERE
               </button>
             </div>
@@ -909,7 +918,7 @@ function RcCard({ card, w, h, wild, selected, onClick, className = "", style }: 
 function RcBack({ w, h }: { w: number; h: number }) {
   return (
     <div className="rounded-[10px] grid place-items-center shadow-[0_4px_10px_rgba(0,0,0,.45)] border border-black/30" style={{ width: w, height: h, background: "linear-gradient(160deg,#a3202f,#6e0f1b)" }}>
-      <span className="font-black italic text-white/95" style={{ fontSize: h * 0.3, textShadow: "0 2px 0 rgba(0,0,0,.25)" }}>GH</span>
+      <span className="font-black italic text-white/95 text-center leading-[1.05]" style={{ fontSize: h * 0.17, textShadow: "0 2px 0 rgba(0,0,0,.25)" }}>Khelo<br />Baazi</span>
     </div>
   );
 }
