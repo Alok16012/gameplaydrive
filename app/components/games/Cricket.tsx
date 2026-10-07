@@ -299,7 +299,7 @@ export function Cricket({
             ? activeMatch.team2.name
             : r.rname,
         }))
-      : liveDepth.matchOdds[0].oddDatas;
+      : [];
 
     const bookMakerOdds = (oddsData?.bookMakerOdds?.[0]?.oddDatas && oddsData.bookMakerOdds[0].oddDatas.length > 0)
       ? oddsData.bookMakerOdds[0].oddDatas.map((bm, idx) => ({
@@ -310,9 +310,9 @@ export function Cricket({
             ? activeMatch.team2.name
             : bm.rname,
         }))
-      : liveDepth.bookMakerOdds[0].oddDatas;
+      : [];
 
-    const fancyMarketGroups = oddsData?.fancyOdds || liveDepth.fancyOdds || [];
+    const fancyMarketGroups = oddsData?.fancyOdds || [];
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">

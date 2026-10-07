@@ -62,23 +62,14 @@ export async function GET(req: NextRequest) {
           const t2 = parts[1]?.trim() || "Team 2";
           const isLive = Boolean(m.inPlay === true || m.inPlay === "true" || m.isLive === true || m.status === "INPLAY");
           const evId = String(m.eventId || m.gameId || m.id || "0");
-          const evHash = Math.abs([...evId].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7));
+          
           
           let b1 = Number(m.back1 || m.b1 || 0);
           let l1 = Number(m.lay1 || m.l1 || 0);
           let b2 = Number(m.back2 || m.b2 || 0);
           let l2 = Number(m.lay2 || m.l2 || 0);
 
-          if (b1 <= 0) {
-            // Distinct realistic price per match based on hash
-            const base1 = Number((1.35 + ((evHash % 120) / 100)).toFixed(2));
-            b1 = base1;
-            l1 = Number((b1 + 0.03).toFixed(2));
-            const p1 = 1 / b1;
-            const p2 = Math.max(0.18, Math.min(0.82, 1.05 - p1));
-            b2 = Number((1 / p2).toFixed(2));
-            l2 = Number((b2 + 0.04).toFixed(2));
-          }
+
 
           return {
             gameId: String(m.gameId || m.eventId || m.id),
@@ -124,96 +115,6 @@ export async function GET(req: NextRequest) {
     railwayError = `Railway fetch error: ${err?.message}`;
   }
 
-  // 1.5 Direct my99exch Highlight Odds Ingestion
-  try {
-    const etid = sportName === "soccer" ? 1 : sportName === "tennis" ? 2 : 4;
-    const my99Res = await fetch("https://my99exch.cx/api/front_open/highlightodds-direct/", {
-      headers: {
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-      },
-      cache: "no-store",
-      signal: AbortSignal.timeout(4000),
-    });
-    if (my99Res.ok) {
-      const json = await my99Res.json();
-      const list = json?.data?.t1;
-      if (Array.isArray(list) && list.length > 0) {
-        const filtered = list.filter((m: any) => !etid || m.etid === etid);
-        const parsed = (filtered.length > 0 ? filtered : list).map((m: any) => {
-          const parts = (m.ename || "").split(/ v | vs | VS /i);
-          const t1 = parts[0]?.trim() || m.section?.[0]?.nat || "Team 1";
-          const t2 = parts[1]?.trim() || m.section?.[1]?.nat || "Team 2";
-          const o1 = m.section?.[0]?.odds || [];
-          const o2 = m.section?.[1]?.odds || [];
-          
-          let b1: string | number = o1.find((x: any) => x.oname === "back1")?.odds ?? "-";
-          let l1: string | number = o1.find((x: any) => x.oname === "lay1")?.odds ?? "-";
-          let b2: string | number = o2.find((x: any) => x.oname === "back1")?.odds ?? "-";
-          let l2: string | number = o2.find((x: any) => x.oname === "lay1")?.odds ?? "-";
-
-          // If fallback is needed (though my99exch usually provides odds or "-")
-          if (b1 !== "-" && typeof b1 !== "number") b1 = Number(b1) || "-";
-          if (l1 !== "-" && typeof l1 !== "number") l1 = Number(l1) || "-";
-          if (b2 !== "-" && typeof b2 !== "number") b2 = Number(b2) || "-";
-          if (l2 !== "-" && typeof l2 !== "number") l2 = Number(l2) || "-";
-
-          let drawBack: string | number = "-";
-          let drawLay: string | number = "-";
-          
-          if (sportName === "soccer" && m.section?.length > 2) {
-             const drawSec = m.section.find((s: any) => String(s.nat).toLowerCase().includes("draw"));
-             if (drawSec) {
-                drawBack = drawSec.odds?.find((x: any) => x.oname === "back1")?.odds ?? "-";
-                drawLay = drawSec.odds?.find((x: any) => x.oname === "lay1")?.odds ?? "-";
-                if (drawBack !== "-" && typeof drawBack !== "number") drawBack = Number(drawBack) || "-";
-                if (drawLay !== "-" && typeof drawLay !== "number") drawLay = Number(drawLay) || "-";
-             }
-          }
-
-          return {
-            gameId: String(m.gmid),
-            marketId: String(m.mid || ""),
-            eventId: String(m.gmid),
-            eventName: m.ename || `${t1} v ${t2}`,
-            eventTime: m.stime || new Date().toISOString(),
-            seriesName: m.cname || "Tournament",
-            scoreBoardId: null,
-            inPlay: Boolean(m.iplay),
-            tv: m.tv ? "live" : null,
-            back1: b1,
-            lay1: l1,
-            back2: b2,
-            lay2: l2,
-            drawBack: drawBack,
-            drawLay: drawLay,
-            sport: sportName,
-            team1: { name: t1, short: t1.slice(0, 3).toUpperCase() },
-            team2: { name: t2, short: t2.slice(0, 3).toUpperCase() },
-            hasFancy: Boolean(m.f || m.f1),
-            hasBookmaker: Boolean(m.bm),
-          };
-        });
-
-        return NextResponse.json(
-          {
-            success: true,
-            source: "my99exch_direct_live",
-            sport: sportName,
-            data: parsed,
-          },
-          {
-            headers: {
-              "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-            },
-          }
-        );
-      }
-    }
-  } catch (e) {
-    // continue
-  }
-
   // 2. Attempt direct DiamondExch API call
   try {
     const headers: Record<string, string> = {
@@ -255,22 +156,14 @@ export async function GET(req: NextRequest) {
             const t2 = parts[1]?.trim() || "Team 2";
             const isLive = Boolean(m.inPlay === true || m.inPlay === "true" || m.isLive === true || m.status === "INPLAY");
             const evId = String(m.eventId || m.gameId || m.id || "0");
-            const evHash = Math.abs([...evId].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7));
+            
             
             let b1 = Number(m.back1 || m.b1 || 0);
             let l1 = Number(m.lay1 || m.l1 || 0);
             let b2 = Number(m.back2 || m.b2 || 0);
             let l2 = Number(m.lay2 || m.l2 || 0);
 
-            if (b1 <= 0) {
-              const base1 = Number((1.35 + ((evHash % 120) / 100)).toFixed(2));
-              b1 = base1;
-              l1 = Number((b1 + 0.03).toFixed(2));
-              const p1 = 1 / b1;
-              const p2 = Math.max(0.18, Math.min(0.82, 1.05 - p1));
-              b2 = Number((1 / p2).toFixed(2));
-              l2 = Number((b2 + 0.04).toFixed(2));
-            }
+
 
             return {
               gameId: String(m.gameId || m.eventId || m.id),
@@ -313,307 +206,11 @@ export async function GET(req: NextRequest) {
     console.warn(`DiamondExch API fetch for ${sportName} failed:`, err);
   }
 
-  // Realistic fresh live & upcoming matches for today with live scores and real teams
-  const sec = Math.floor(Date.now() / 1000);
-  const liveRunOffset = (sec % 30);
-  const overBall = (sec % 6) + 1;
-
-  const CRICKET_MATCHES: SportMatchItem[] = [
-    // 1. Live In-Play Matches
-    {
-      gameId: "34151447",
-      marketId: "1.241514470",
-      eventId: "34151447",
-      eventName: "India vs Australia (3rd T20I)",
-      eventTime: getFreshDate(-45),
-      seriesName: "International Twenty20 Series 2026",
-      scoreBoardId: "sb-ind-aus-3",
-      inPlay: true,
-      sport: "cricket",
-      team1: { name: "India", short: "IND", score: `${165 + Math.floor(liveRunOffset / 3)}/4`, overs: `16.${overBall}` },
-      team2: { name: "Australia", short: "AUS", score: "182/6", overs: "20.0" },
-      back1: 1.62,
-      lay1: 1.65,
-      back2: 2.54,
-      lay2: 2.60,
-    },
-    {
-      gameId: "34157325",
-      marketId: "1.241573250",
-      eventId: "34157325",
-      eventName: "Chennai Super Kings vs Mumbai Indians",
-      eventTime: getFreshDate(-75),
-      seriesName: "Indian Premier League 2026",
-      scoreBoardId: "sb-csk-mi-1",
-      inPlay: true,
-      sport: "cricket",
-      team1: { name: "Chennai Super Kings", short: "CSK", score: `${140 + Math.floor(liveRunOffset / 2)}/3`, overs: `14.${overBall}` },
-      team2: { name: "Mumbai Indians", short: "MI", score: "176/8", overs: "20.0" },
-      back1: 1.48,
-      lay1: 1.51,
-      back2: 2.92,
-      lay2: 3.05,
-    },
-    {
-      gameId: "34157338",
-      marketId: "1.241573380",
-      eventId: "34157338",
-      eventName: "Pirate Bay Raiders v MT Irvine Surfers",
-      eventTime: getFreshDate(-20),
-      seriesName: "Trinidad T10 Blast",
-      scoreBoardId: "sb-tri-1",
-      inPlay: true,
-      sport: "cricket",
-      team1: { name: "Pirate Bay Raiders", short: "PBR", score: `${78 + Math.floor(liveRunOffset / 4)}/2`, overs: `6.${overBall}` },
-      team2: { name: "MT Irvine Surfers", short: "MIS", score: "102/5", overs: "10.0" },
-      back1: 1.85,
-      lay1: 1.89,
-      back2: 2.05,
-      lay2: 2.12,
-    },
-    {
-      gameId: "34157672",
-      marketId: "1.241576720",
-      eventId: "34157672",
-      eventName: "Rhinos v Eagles",
-      eventTime: getFreshDate(-35),
-      seriesName: "Zimbabwe Domestic T20",
-      scoreBoardId: "sb-zim-1",
-      inPlay: true,
-      sport: "cricket",
-      team1: { name: "Rhinos", short: "RHI", score: `${112 + Math.floor(liveRunOffset / 3)}/5`, overs: `13.${overBall}` },
-      team2: { name: "Eagles", short: "EAG", score: "154/7", overs: "20.0" },
-      back1: 2.20,
-      lay1: 2.28,
-      back2: 1.74,
-      lay2: 1.80,
-    },
-    // 2. Scheduled Upcoming Matches
-    {
-      gameId: "34151830",
-      marketId: "1.241518300",
-      eventId: "34151830",
-      eventName: "Rajasthan Royals v Kolkata Knight Riders",
-      eventTime: getFreshDate(90),
-      seriesName: "Indian Premier League 2026",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "cricket",
-      team1: { name: "Rajasthan Royals", short: "RR" },
-      team2: { name: "Kolkata Knight Riders", short: "KKR" },
-      back1: 1.91,
-      lay1: 1.95,
-      back2: 1.92,
-      lay2: 1.96,
-    },
-    {
-      gameId: "34154198",
-      marketId: "1.241541980",
-      eventId: "34154198",
-      eventName: "Sunrisers Hyderabad v Lucknow Super Giants",
-      eventTime: getFreshDate(240),
-      seriesName: "Indian Premier League 2026",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "cricket",
-      team1: { name: "Sunrisers Hyderabad", short: "SRH" },
-      team2: { name: "Lucknow Super Giants", short: "LSG" },
-      back1: 1.82,
-      lay1: 1.86,
-      back2: 2.10,
-      lay2: 2.18,
-    },
-    {
-      gameId: "34156738",
-      marketId: "1.241567380",
-      eventId: "34156738",
-      eventName: "England vs South Africa (1st ODI)",
-      eventTime: getFreshDate(420),
-      seriesName: "England Tour of South Africa 2026",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "cricket",
-      team1: { name: "England", short: "ENG" },
-      team2: { name: "South Africa", short: "SA" },
-      back1: 1.75,
-      lay1: 1.80,
-      back2: 2.15,
-      lay2: 2.22,
-    },
-    {
-      gameId: "34156740",
-      marketId: "1.241567400",
-      eventId: "34156740",
-      eventName: "Pakistan vs New Zealand (2nd T20I)",
-      eventTime: getFreshDate(720),
-      seriesName: "New Zealand Tour of Pakistan 2026",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "cricket",
-      team1: { name: "Pakistan", short: "PAK" },
-      team2: { name: "New Zealand", short: "NZ" },
-      back1: 1.88,
-      lay1: 1.94,
-      back2: 1.96,
-      lay2: 2.02,
-    },
-  ];
-
-  const TENNIS_MATCHES: SportMatchItem[] = [
-    // Live In-Play
-    {
-      gameId: "40129811",
-      marketId: "1.240129811",
-      eventId: "40129811",
-      eventName: "Novak Djokovic v Carlos Alcaraz",
-      eventTime: getFreshDate(-35),
-      seriesName: "ATP Masters 1000 - Semi Final",
-      scoreBoardId: "sb-ten-1",
-      inPlay: true,
-      sport: "tennis",
-      team1: { name: "Novak Djokovic", short: "DJO", score: "6-4, 3-4 (40-30)" },
-      team2: { name: "Carlos Alcaraz", short: "ALC", score: "4-6, 4-3" },
-      back1: 1.95,
-      lay1: 1.99,
-      back2: 1.98,
-      lay2: 2.02,
-    },
-    {
-      gameId: "40129815",
-      marketId: "1.240129815",
-      eventId: "40129815",
-      eventName: "Jannik Sinner v Daniil Medvedev",
-      eventTime: getFreshDate(-60),
-      seriesName: "ATP Masters 1000 - Quarter Final",
-      scoreBoardId: "sb-ten-2",
-      inPlay: true,
-      sport: "tennis",
-      team1: { name: "Jannik Sinner", short: "SIN", score: "7-6(4), 5-2" },
-      team2: { name: "Daniil Medvedev", short: "MED", score: "6-7, 2-5" },
-      back1: 1.22,
-      lay1: 1.25,
-      back2: 4.80,
-      lay2: 5.20,
-    },
-    // Upcoming
-    {
-      gameId: "40129820",
-      marketId: "1.240129820",
-      eventId: "40129820",
-      eventName: "Alexander Zverev v Andrey Rublev",
-      eventTime: getFreshDate(150),
-      seriesName: "ATP Masters 1000",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "tennis",
-      team1: { name: "Alexander Zverev", short: "ZVE" },
-      team2: { name: "Andrey Rublev", short: "RUB" },
-      back1: 1.70,
-      lay1: 1.74,
-      back2: 2.24,
-      lay2: 2.32,
-    },
-    {
-      gameId: "40129825",
-      marketId: "1.240129825",
-      eventId: "40129825",
-      eventName: "Aryna Sabalenka v Iga Swiatek",
-      eventTime: getFreshDate(320),
-      seriesName: "WTA 1000 - Final",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "tennis",
-      team1: { name: "Aryna Sabalenka", short: "SAB" },
-      team2: { name: "Iga Swiatek", short: "SWI" },
-      back1: 2.10,
-      lay1: 2.16,
-      back2: 1.80,
-      lay2: 1.85,
-    },
-  ];
-
-  const SOCCER_MATCHES: SportMatchItem[] = [
-    // Live In-Play
-    {
-      gameId: "50198201",
-      marketId: "1.250198201",
-      eventId: "50198201",
-      eventName: "Arsenal v Chelsea",
-      eventTime: getFreshDate(-55),
-      seriesName: "English Premier League",
-      scoreBoardId: "sb-soc-1",
-      inPlay: true,
-      sport: "soccer",
-      team1: { name: "Arsenal", short: "ARS", score: "2" },
-      team2: { name: "Chelsea", short: "CHE", score: "1" },
-      back1: 1.45,
-      lay1: 1.49,
-      back2: 4.50,
-      lay2: 4.80,
-    },
-    {
-      gameId: "50198205",
-      marketId: "1.250198205",
-      eventId: "50198205",
-      eventName: "Real Madrid v Barcelona",
-      eventTime: getFreshDate(-30),
-      seriesName: "Spanish La Liga - El Clasico",
-      scoreBoardId: "sb-soc-2",
-      inPlay: true,
-      sport: "soccer",
-      team1: { name: "Real Madrid", short: "RMA", score: "1" },
-      team2: { name: "Barcelona", short: "BAR", score: "1" },
-      back1: 2.20,
-      lay1: 2.28,
-      back2: 2.30,
-      lay2: 2.38,
-    },
-    // Upcoming
-    {
-      gameId: "50198210",
-      marketId: "1.250198210",
-      eventId: "50198210",
-      eventName: "Manchester City v Liverpool",
-      eventTime: getFreshDate(180),
-      seriesName: "English Premier League",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "soccer",
-      team1: { name: "Manchester City", short: "MCI" },
-      team2: { name: "Liverpool", short: "LIV" },
-      back1: 1.88,
-      lay1: 1.92,
-      back2: 3.75,
-      lay2: 3.90,
-    },
-    {
-      gameId: "50198215",
-      marketId: "1.250198215",
-      eventId: "50198215",
-      eventName: "Bayern Munich v Borussia Dortmund",
-      eventTime: getFreshDate(360),
-      seriesName: "German Bundesliga - Der Klassiker",
-      scoreBoardId: null,
-      inPlay: false,
-      sport: "soccer",
-      team1: { name: "Bayern Munich", short: "BAY" },
-      team2: { name: "Borussia Dortmund", short: "BVB" },
-      back1: 1.65,
-      lay1: 1.70,
-      back2: 4.20,
-      lay2: 4.45,
-    },
-  ];
-
-  let matches = CRICKET_MATCHES;
-  if (sportName === "tennis") matches = TENNIS_MATCHES;
-  if (sportName === "soccer") matches = SOCCER_MATCHES;
-
+  // If we reach here, both Railway Proxy and Direct DiamondExch API failed.
   return NextResponse.json({
-    success: true,
-    source: "simulation",
-    sport: sportName,
-    data: matches,
+    success: false,
+    message: "No live matches available from Diamond API",
+    data: [],
     debug: railwayError || undefined,
   });
 }
