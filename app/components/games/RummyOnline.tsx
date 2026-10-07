@@ -43,7 +43,7 @@ const moveTxt = (m: Move, me: number | null) =>
 
 const dropPts = (mode: RummyMode, middle: boolean) => (mode === "pool201" ? (middle ? 50 : 25) : middle ? 40 : 20);
 
-export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: askedDeals, code, cards = 13 }: { nav: Nav; mode: RummyMode; stake: number; deals: number; code?: string; cards?: 13 | 21 }) {
+export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: askedDeals, code, cards = 13, avoid }: { nav: Nav; mode: RummyMode; stake: number; deals: number; code?: string; cards?: 13 | 21; avoid?: string }) {
   const maxPts = cards === 21 ? 120 : 80;
   const gameName = cards === 21 ? "21 Card Rummy" : "Rummy";
   const { total, showToast, applyBalance } = useStore();
@@ -145,7 +145,10 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     const sb = supabase();
     let channel: ReturnType<typeof sb.channel> | null = null;
     (async () => {
-      const { data, error } = await joinOnce("rm_join", { p_mode: askedMode, p_stake: askedStake, p_deals: askedMode === "deals" ? askedDeals : 0, p_code: code ?? null, p_cards: cards });
+      const args = { p_mode: askedMode, p_stake: askedStake, p_deals: askedMode === "deals" ? askedDeals : 0, p_code: code ?? null, p_cards: cards };
+      // "Join another table": skip the table just left (needs 030_rummy_join_another.sql; without it, join as before).
+      let { data, error } = await joinOnce("rm_join", avoid ? { ...args, p_avoid: avoid } : args);
+      if (error && avoid && /rm_join|function|schema cache/i.test(errText(error))) ({ data, error } = await joinOnce("rm_join", args));
       if (!alive) return;
       if (error) return setErr(errText(error));
       tableId.current = data as string;
@@ -287,12 +290,20 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   };
 
   // Dropped (or a wrong show): move on to another table at the same stake instead of sitting out.
-  const joinAnother = () => {
+  const [moving, setMoving] = useState(false);
+  const joinAnother = async () => {
+    if (moving) return;
     if (mode !== "points" && !window.confirm("Leaving now gives up this match — your entry is not returned. Join another table?")) return;
-    if (tableId.current) fire(supabase().rpc("rm_leave", { p_table: tableId.current }));
+    setMoving(true);
+    const old = tableId.current;
+    // Leave first and wait for it — joining before the leave lands put you back at this same table.
+    if (old) {
+      const { error } = await supabase().rpc("rm_leave", { p_table: old });
+      if (error) { setMoving(false); return showToast(errText(error)); }
+    }
     clearActive();
     nav.back();
-    nav.push({ name: "rummy", table: `S-${askedStake}-${Date.now() % 1000000}`, buyIn: askedStake, mode: askedMode, deals: askedDeals, cards });
+    nav.push({ name: "rummy", table: `S-${askedStake}-${Date.now() % 1000000}`, buyIn: askedStake, mode: askedMode, deals: askedDeals, cards, avoid: old ?? undefined });
   };
 
   const leave = () => {
@@ -510,7 +521,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               {mySeat?.out ? "Out — watching" : mySeat?.dropped ? (mode === "points" ? "Dropped" : "Dropped — next deal soon") : mySeat?.wrong ? `Wrong show (${maxPts})` : v.queued ? "Joining next game" : "Watching"}
             </div>
             {(mySeat?.dropped || mySeat?.wrong || mySeat?.out) && (
-              <button onClick={joinAnother} className="rounded-full px-3 py-1.5 text-[12px] font-semibold bg-neon-500 text-slate-900 shadow-lg whitespace-nowrap">Join another table →</button>
+              <button onClick={joinAnother} disabled={moving} className="rounded-full px-3 py-1.5 text-[12px] font-semibold bg-neon-500 text-slate-900 shadow-lg whitespace-nowrap disabled:opacity-60">{moving ? "Moving…" : "Join another table →"}</button>
             )}
           </div>
         ) : null}
