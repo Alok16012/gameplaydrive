@@ -302,17 +302,21 @@ export function Cricket({
       : liveDepth.matchOdds[0].oddDatas;
 
     const bookMakerOdds = Array.isArray(oddsData?.bookMakerOdds) && oddsData.bookMakerOdds.length > 0
-      ? oddsData.bookMakerOdds.map((group) => ({
-          ...group,
-          oddDatas: (group.oddDatas || []).map((bm: any, idx: number) => ({
-            ...bm,
-            rname: (!bm.rname || bm.rname === "Team 1" || bm.rname === "Team 1 (Bookmaker)")
-              ? (idx === 0 ? activeMatch.team1.name : activeMatch.team2.name)
-              : (!bm.rname || bm.rname === "Team 2" || bm.rname === "Team 2 (Bookmaker)")
-              ? activeMatch.team2.name
-              : bm.rname,
-          }))
-        }))
+      ? oddsData.bookMakerOdds.map((groupWrap) => {
+          // DiamondExch wraps each group in {"bm1": {...}}, so we extract the inner object
+          const group: any = Object.values(groupWrap)[0] || groupWrap;
+          return {
+            ...group,
+            oddDatas: (group.oddDatas || []).map((bm: any, idx: number) => ({
+              ...bm,
+              rname: (!bm.rname || bm.rname === "Team 1" || bm.rname === "Team 1 (Bookmaker)")
+                ? (idx === 0 ? activeMatch.team1.name : activeMatch.team2.name)
+                : (!bm.rname || bm.rname === "Team 2" || bm.rname === "Team 2 (Bookmaker)")
+                ? activeMatch.team2.name
+                : bm.rname,
+            }))
+          };
+        })
       : liveDepth.bookMakerOdds || [];
 
     const fancyMarketGroups = Array.isArray(oddsData?.fancyOdds) ? oddsData.fancyOdds : (liveDepth?.fancyOdds || []);
