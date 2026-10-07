@@ -422,25 +422,13 @@ export function Cricket({
               </div>
             </div>
 
-            {/* Teams & Scores */}
-            <div className="grid grid-cols-2 gap-2.5 my-1">
-              <div className="bg-black/40 rounded-xl p-2.5 border border-white/5">
-                <div className="text-xs text-white/80 font-bold truncate">{activeMatch.team1.name}</div>
-                <div className="text-base font-black text-white mt-0.5">
-                  {activeMatch.team1.score || "-"}
-                  {activeMatch.sport === "cricket" && activeMatch.team1.overs && (
-                    <span className="text-xs font-normal text-white/60 ml-1">({activeMatch.team1.overs} ov)</span>
-                  )}
-                </div>
+            {/* Teams */}
+            <div className="grid grid-cols-2 gap-2.5 my-1 items-center">
+              <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex items-center justify-center">
+                <div className="text-sm text-white font-bold truncate text-center">{activeMatch.team1.name}</div>
               </div>
-              <div className="bg-black/40 rounded-xl p-2.5 border border-white/5">
-                <div className="text-xs text-white/80 font-bold truncate">{activeMatch.team2.name}</div>
-                <div className="text-base font-black text-white/90 mt-0.5">
-                  {activeMatch.team2.score || "-"}
-                  {activeMatch.sport === "cricket" && activeMatch.team2.overs && (
-                    <span className="text-xs font-normal text-white/60 ml-1">({activeMatch.team2.overs} ov)</span>
-                  )}
-                </div>
+              <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex items-center justify-center">
+                <div className="text-sm text-white font-bold truncate text-center">{activeMatch.team2.name}</div>
               </div>
             </div>
           </div>
