@@ -1,0 +1,181 @@
+import { NextRequest, NextResponse } from "next/server";
+
+// DiamondExch Match Odds, Bookmaker & Fancy API proxy
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const eventId = searchParams.get("eventId") || "34157338";
+  const apiKey = process.env.DIAMONDEXCH_API_KEY || process.env.CRICKET_API_KEY;
+  const baseUrl = process.env.DIAMONDEXCH_BASE_URL || "https://apis.diamondexchapi.com";
+  const railwayHost = process.env.NEXT_PUBLIC_GAME_SERVER_HTTP || "https://game-server-production-cc2c.up.railway.app";
+  const sportParam = (searchParams.get("sport") || "cricket").toLowerCase();
+
+  const isLive = searchParams.get("live") === "true" || searchParams.get("inPlay") === "true";
+  const cacheControl = isLive ? "public, max-age=1" : "public, max-age=2";
+
+  // 1. Attempt via Railway Proxy first (Live: 500ms cache, Upcoming: 2s cache)
+  try {
+    const railwayRes = await fetch(`${railwayHost}/api/cricket/odds?gameId=${eventId}&eventId=${eventId}&sport=${sportParam}&live=${isLive}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (railwayRes.ok) {
+      const json = await railwayRes.json();
+      const data = json?.data?.data || json?.data || json;
+      if (data && (data.matchOdds || data.match_odds || data.bookMakerOdds || data.fancyOdds)) {
+        return NextResponse.json(
+          {
+            success: true,
+            source: "railway_diamondexch_live",
+            data,
+          },
+          {
+            headers: {
+              "Cache-Control": cacheControl,
+            },
+          }
+        );
+      }
+    }
+  } catch (err) {
+    // fallback
+  }
+
+  // 2. Direct DiamondExch API call
+  try {
+    const headers: Record<string, string> = {
+      "Accept": "application/json",
+      "User-Agent": "Khelobaazi-Exchange/1.0",
+      "Origin": "https://khelobaazi.in",
+      "Referer": "https://khelobaazi.in/",
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["x-api-key"] = apiKey;
+    }
+
+    const res = await fetch(`${baseUrl}/api/${sportParam === "football" ? "soccer" : sportParam}/odds?gameId=${eventId}&eventId=${eventId}`, {
+      headers,
+      cache: "no-store",
+      signal: AbortSignal.timeout(6000),
+    });
+
+    if (res.ok) {
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const json = await res.json();
+        const data = json?.data?.data || json?.data || json;
+        if (data && (data.matchOdds || data.match_odds || data.bookMakerOdds || data.fancyOdds)) {
+          return NextResponse.json(
+            {
+              success: true,
+              source: "diamondexch_live",
+              data,
+            },
+            {
+              headers: {
+                "Cache-Control": cacheControl,
+              },
+            }
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Live DiamondExch Odds fetch exception:", err);
+  }
+
+  // 2.5 Direct my99exch Highlight Odds Ingestion (Fallback if DiamondExch fails)
+  try {
+    const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?gmid=${encodeURIComponent(eventId)}`, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(4000),
+    });
+    if (my99Res.ok) {
+      const json = await my99Res.json();
+      const list = json?.data?.t1 || [];
+      const match = list.find((x: any) => String(x.gmid) === String(eventId)) || list[0];
+      if (match && Array.isArray(match.section) && match.section.length > 0) {
+        const oddDatas = match.section.map((sec: any, idx: number) => {
+          const oddsArr = sec.odds || [];
+          const b1 = oddsArr.find((o: any) => o.oname === "back1");
+          const b2 = oddsArr.find((o: any) => o.oname === "back2");
+          const b3 = oddsArr.find((o: any) => o.oname === "back3");
+          const l1 = oddsArr.find((o: any) => o.oname === "lay1");
+          const l2 = oddsArr.find((o: any) => o.oname === "lay2");
+          const l3 = oddsArr.find((o: any) => o.oname === "lay3");
+
+          return {
+            sid: sec.sid || idx + 1,
+            rname: sec.nat || `Runner ${idx + 1}`,
+            status: sec.gstatus || "ACTIVE",
+            b1: b1 ? String(b1.odds) : undefined,
+            bs1: b1 ? `${b1.size}L` : undefined,
+            b2: b2 ? String(b2.odds) : undefined,
+            bs2: b2 ? `${b2.size}L` : undefined,
+            b3: b3 ? String(b3.odds) : undefined,
+            bs3: b3 ? `${b3.size}L` : undefined,
+            l1: l1 ? String(l1.odds) : undefined,
+            ls1: l1 ? `${l1.size}L` : undefined,
+            l2: l2 ? String(l2.odds) : undefined,
+            ls2: l2 ? `${l2.size}L` : undefined,
+            l3: l3 ? String(l3.odds) : undefined,
+            ls3: l3 ? `${l3.size}L` : undefined,
+            min: sec.min || 100,
+            max: sec.max || 500000,
+          };
+        });
+
+        const eventNum = Math.abs([...String(eventId)].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 7));
+        const enameParts = (match.ename || "Team 1 v Team 2").split(" v ");
+        const team1Name = enameParts[0] || "Team 1";
+        const team2Name = enameParts[1] || "Team 2";
+        
+        const transformed = {
+          matchOdds: [
+            {
+              mid: match.mid || `mo.${eventId}`,
+              mname: match.mname || "MATCH_ODDS",
+              status: match.status || "OPEN",
+              min: match.min || 100,
+              max: match.max || 500000,
+              gtype: match.gtype || "match",
+              oddDatas: sanitizedMatchOdds,
+            },
+          ],
+          bookMakerOdds: [],
+          fancyOdds: [],
+        };
+
+        return NextResponse.json(
+          {
+            success: true,
+            source: "my99exch_direct_live",
+            data: transformed,
+          },
+          {
+            headers: {
+              "Cache-Control": cacheControl,
+            },
+          }
+        );
+      }
+    }
+  } catch {}
+
+  
+
+  // If we reach here, both Railway Proxy and Direct DiamondExch API failed.
+  return NextResponse.json({
+    success: false,
+    message: "No live odds available from Diamond API",
+    data: {
+      matchOdds: [],
+      bookMakerOdds: [],
+      fancyOdds: [],
+    },
+  });
+}

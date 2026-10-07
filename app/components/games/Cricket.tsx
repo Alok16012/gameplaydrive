@@ -299,7 +299,7 @@ export function Cricket({
             ? activeMatch.team2.name
             : r.rname,
         }))
-      : [];
+      : liveDepth.matchOdds[0].oddDatas;
 
     const bookMakerOdds = (oddsData?.bookMakerOdds?.[0]?.oddDatas && oddsData.bookMakerOdds[0].oddDatas.length > 0)
       ? oddsData.bookMakerOdds[0].oddDatas.map((bm, idx) => ({
@@ -310,9 +310,10 @@ export function Cricket({
             ? activeMatch.team2.name
             : bm.rname,
         }))
-      : [];
+      : liveDepth.bookMakerOdds[0].oddDatas;
 
-    const fancyMarketGroups = oddsData?.fancyOdds || [];
+    const fancyMarketGroups = Array.isArray(oddsData?.fancyOdds) ? oddsData.fancyOdds : (liveDepth?.fancyOdds || []);
+    const otherMarkets = Array.isArray(oddsData?.otherMarketOdds) ? oddsData.otherMarketOdds : (liveDepth?.otherMarketOdds || []);
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
@@ -485,6 +486,7 @@ export function Cricket({
               { id: "all", label: "All Markets" },
               { id: "match_odds", label: "Match Odds" },
               { id: "bookmaker", label: "Bookmaker" },
+              { id: "other", label: "Other Markets" },
               {
                 id: "fancy",
                 label: activeMatch.sport === "soccer" ? "Goals & Specials" : activeMatch.sport === "tennis" ? "Sets & Games" : "Fancy & Sessions"
@@ -529,13 +531,14 @@ export function Cricket({
                 {matchOdds.map((runner, idx) => {
                   const bPrice = Number(runner.b1 || 1.85);
                   const lPrice = Number(runner.l1 || 1.89);
-                  const isSuspended = runner.status === "SUSPENDED" || runner.b1 === "-" || runner.l1 === "-";
+                  const isSuspended = (runner.status && runner.status !== "ACTIVE") || runner.b1 === "-" || runner.l1 === "-";
+                  const displayStatus = (runner.status && runner.status !== "ACTIVE") ? runner.status : "SUSPENDED";
                   return (
                     <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5 hover:bg-white/[0.02]">
                       <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{runner.rname}</div>
                       {isSuspended ? (
                         <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
-                          Suspended
+                          {displayStatus}
                         </div>
                       ) : (
                         <>
@@ -562,40 +565,41 @@ export function Cricket({
             </div>
           )}
 
-          {/* 2. Bookmaker Odds Table (0% Commission) */}
-          {(activeMarketTab === "all" || activeMarketTab === "bookmaker") && (
-            <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
+          {/* 2. Bookmaker Odds Tables (0% Commission) */}
+          {(activeMarketTab === "all" || activeMarketTab === "bookmaker") && bookMakerOdds.map((bookMakerGroup: any, groupIdx: number) => (
+            <div key={`bm_${groupIdx}`} className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl mt-3">
               <div className="px-3 py-2 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="font-extrabold text-xs text-white">BOOKMAKER 0% COMM</span>
+                  <span className="font-extrabold text-xs text-white capitalize">{bookMakerGroup.mname || "Bookmaker"}</span>
                 </div>
-                <span className="text-[10px] text-white/50 font-bold">Min: 🪙 100 • Max: 🪙 2,00,000</span>
+                <span className="text-[10px] text-white/50 font-bold">Min: 🪙 {bookMakerGroup.min || 100} • Max: 🪙 {bookMakerGroup.max || 200000}</span>
               </div>
 
               <div className="divide-y divide-white/5">
-                {bookMakerOdds.map((bm, idx) => {
+                {(bookMakerGroup.oddDatas || []).map((bm: any, idx: number) => {
                   const bRate = Number(bm.b1 || 85);
                   const lRate = Number(bm.l1 || 89);
-                  const isSuspended = bm.status === "SUSPENDED" || bm.b1 === "-" || bm.l1 === "-";
+                  const isSuspended = (bm.status && bm.status !== "ACTIVE") || bm.b1 === "-" || bm.l1 === "-";
+                  const displayStatus = (bm.status && bm.status !== "ACTIVE") ? bm.status : "SUSPENDED";
                   return (
                     <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5">
                       <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{bm.rname}</div>
                       {isSuspended ? (
                         <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
-                          Suspended
+                          {displayStatus}
                         </div>
                       ) : (
                         <>
                           <button
-                            onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.rname, "BACK", bRate, undefined, 100, 200000)}
+                            onClick={() => openBet("BOOKMAKER", bookMakerGroup.mname || "Bookmaker", bm.rname, "BACK", bRate, undefined, 100, 200000)}
                             className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
                           >
                             <div className="text-xs font-black">{bRate}</div>
                             <div className="text-[9px] text-slate-800 font-bold">{bm.bs1 || "100K"}</div>
                           </button>
                           <button
-                            onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.rname, "LAY", lRate, undefined, 100, 200000)}
+                            onClick={() => openBet("BOOKMAKER", bookMakerGroup.mname || "Bookmaker", bm.rname, "LAY", lRate, undefined, 100, 200000)}
                             className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
                           >
                             <div className="text-xs font-black">{lRate}</div>
@@ -608,7 +612,63 @@ export function Cricket({
                 })}
               </div>
             </div>
-          )}
+          ))}
+
+          {/* 2.5 Other Markets */}
+          {(activeMarketTab === "all" || activeMarketTab === "other") && otherMarkets.map((otherMarket: any, groupIdx: number) => (
+            <div key={`om_${groupIdx}`} className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl mt-3">
+              <div className="px-3 py-2 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span className="font-extrabold text-xs text-white uppercase">{otherMarket.mname || "OTHER MARKET"}</span>
+                </div>
+                <span className="text-[10px] text-white/50 font-bold">Min: 🪙 {otherMarket.min || 100} • Max: 🪙 {otherMarket.max || 200000}</span>
+              </div>
+
+              {/* Table Column Headers */}
+              <div className="grid grid-cols-12 px-2 py-1 bg-black/50 text-[10px] font-extrabold text-white/70 border-b border-white/5 text-center">
+                <div className="col-span-6 text-left pl-1">SELECTION</div>
+                <div className="col-span-3 text-[#72bbef] bg-blue-950/50 rounded py-0.5">BACK</div>
+                <div className="col-span-3 text-[#faa9ba] bg-pink-950/50 rounded py-0.5">LAY</div>
+              </div>
+
+              <div className="divide-y divide-white/5">
+                {(otherMarket.oddDatas || []).map((runner: any, idx: number) => {
+                  const bPrice = Number(runner.b1 || 1.85);
+                  const lPrice = Number(runner.l1 || 1.89);
+                  const isSuspended = (runner.status && runner.status !== "ACTIVE") || runner.b1 === "-" || runner.l1 === "-";
+                  const displayStatus = (runner.status && runner.status !== "ACTIVE") ? runner.status : "SUSPENDED";
+                  return (
+                    <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5 hover:bg-white/[0.02]">
+                      <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{runner.rname}</div>
+                      {isSuspended ? (
+                        <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
+                          {displayStatus}
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => openBet("MATCH_ODDS", otherMarket.mname || "Other Market", runner.rname, "BACK", bPrice, undefined, 100, 500000)}
+                            className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                          >
+                            <div className="text-xs font-black leading-tight">{bPrice.toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-800 font-bold">{runner.bs1 || "100"}</div>
+                          </button>
+                          <button
+                            onClick={() => openBet("MATCH_ODDS", otherMarket.mname || "Other Market", runner.rname, "LAY", lPrice, undefined, 100, 500000)}
+                            className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                          >
+                            <div className="text-xs font-black leading-tight">{lPrice.toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-800 font-bold">{runner.ls1 || "100"}</div>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
 
           {/* 3. Fancy, Goals & Specials Market Table */}
           {(activeMarketTab === "all" || activeMarketTab === "fancy") && fancyMarketGroups.length > 0 && (
@@ -637,14 +697,15 @@ export function Cricket({
                     {marketGroup.oddDatas?.map((fancy: any, idx: number) => {
                       const noRuns = Number(fancy.l1 || 46);
                       const yesRuns = Number(fancy.b1 || 48);
-                      const isSuspended = fancy.status === "SUSPENDED" || fancy.b1 === "-" || fancy.l1 === "-";
+                      const isSuspended = (fancy.status && fancy.status !== "ACTIVE") || fancy.b1 === "-" || fancy.l1 === "-";
+                      const displayStatus = (fancy.status && fancy.status !== "ACTIVE") ? fancy.status : "SUSPENDED";
                       
                       return (
                         <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5 hover:bg-white/[0.02]">
                           <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{fancy.rname}</div>
                           {isSuspended ? (
                             <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
-                              Suspended
+                              {displayStatus}
                             </div>
                           ) : (
                             <>

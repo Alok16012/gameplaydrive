@@ -61,6 +61,7 @@ export interface CricketOddsResponse {
   matchOdds: MarketOdds[];
   bookMakerOdds: MarketOdds[];
   fancyOdds: MarketOdds[];
+  otherMarketOdds?: MarketOdds[];
 }
 
 export interface CricketBet {
@@ -291,21 +292,7 @@ export function getMatchDepthOdds(
       { sid: "304", rname: "Match to go 3 Sets", b1: "2.25", bs1: "100", l1: "2.10", ls1: "100", status: "ACTIVE" },
     ];
   } else {
-    // Cricket Sessions
-    const runShift = Math.floor(drift * 20);
-    const sixRuns = Math.max(30, 48 + (hash % 12) + runShift);
-    const tenRuns = Math.max(65, 84 + (hash % 18) + runShift * 2);
-    const fifteenRuns = Math.max(110, 132 + (hash % 24) + runShift * 3);
-    const sixes = Math.max(6, 13 + (hash % 6));
-    const nextWicket = Math.max(80, 175 + (hash % 30) + runShift * 4);
-
-    fancyOddDatas = [
-      { sid: "101", rname: `6 Over Runs ${match.team1.short || "T1"}`, b1: String(sixRuns), bs1: "100", l1: String(sixRuns - 2), ls1: "100", status: "ACTIVE" },
-      { sid: "102", rname: `10 Over Runs ${match.team1.short || "T1"}`, b1: String(tenRuns), bs1: "100", l1: String(tenRuns - 2), ls1: "100", status: "ACTIVE" },
-      { sid: "103", rname: `15 Over Runs ${match.team1.short || "T1"}`, b1: String(fifteenRuns), bs1: "100", l1: String(fifteenRuns - 3), ls1: "100", status: "ACTIVE" },
-      { sid: "104", rname: "Total Match Sixes", b1: String(sixes + 1), bs1: "100", l1: String(sixes), ls1: "100", status: "ACTIVE" },
-      { sid: "105", rname: "Fall of Next Wicket", b1: String(nextWicket), bs1: "100", l1: String(nextWicket - 5), ls1: "100", status: "ACTIVE" },
-    ];
+    fancyOddDatas = [];
   }
 
   const fancyOdds: MarketOdds[] = [
@@ -363,16 +350,16 @@ export async function fetchCricketOdds(
     const json = await res.json();
     const data = json?.data || {};
 
-    const matchOdds = Array.isArray(data.matchOdds) ? data.matchOdds : (data.match_odds ? [data.match_odds] : []);
-    const bookMakerOdds = Array.isArray(data.bookMakerOdds)
-      ? data.bookMakerOdds.map((b: any) => b.bm1 || b)
-      : [];
+    // Pass through all market data as-is from DiamondExch API
+    const matchOdds = Array.isArray(data.matchOdds) ? data.matchOdds : [];
+    const bookMakerOdds = Array.isArray(data.bookMakerOdds) ? data.bookMakerOdds : [];
     const fancyOdds = Array.isArray(data.fancyOdds) ? data.fancyOdds : [];
+    const otherMarketOdds = Array.isArray(data.otherMarketOdds) ? data.otherMarketOdds : [];
 
-    return { matchOdds, bookMakerOdds, fancyOdds };
+    return { matchOdds, bookMakerOdds, fancyOdds, otherMarketOdds };
   } catch (err) {
     console.error("Error fetching sports odds:", err);
-    return { matchOdds: [], bookMakerOdds: [], fancyOdds: [] };
+    return { matchOdds: [], bookMakerOdds: [], fancyOdds: [], otherMarketOdds: [] };
   }
 }
 
