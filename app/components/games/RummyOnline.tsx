@@ -668,15 +668,25 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </button>
         )}
 
-        {/* Bottom-left: sort and group */}
+        {/* Bottom-left: sort and group in sequence next to user profile */}
         {inDeal && (
-          <div className="absolute left-[3%] bottom-2 z-20 flex flex-col-reverse items-start gap-1.5">
-            {/* Same size as the Drop button */}
-            <button onClick={sortHand} className="rounded-full border-2 border-white/85 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 bg-black/30">
-              <ArrowDownUp size={18} /> Sort
+          <div
+            className="absolute z-20 bottom-2 flex items-center gap-2"
+            style={{ right: "calc(50% + " + Math.round(70 * S) + "px)" }}
+          >
+            <button
+              onClick={makeGroup}
+              className={`rounded-full border-2 px-3.5 sm:px-4 py-1.5 text-[15px] sm:text-[16px] font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-all ${
+                sel.length ? "border-white bg-white/20 text-white" : "border-white/85 bg-black/40 text-white/90"
+              }`}
+            >
+              <Layers size={17} /> Group
             </button>
-            <button onClick={makeGroup} className={`rounded-full border-2 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 ${sel.length ? "border-white bg-white/15" : "border-white/85 bg-black/30"}`}>
-              <Layers size={18} /> Group
+            <button
+              onClick={sortHand}
+              className="rounded-full border-2 border-white/85 px-3.5 sm:px-4 py-1.5 text-[15px] sm:text-[16px] font-bold flex items-center gap-1.5 bg-black/40 text-white/90 shadow-md active:scale-95 transition-all"
+            >
+              <ArrowDownUp size={17} /> Sort
             </button>
           </div>
         )}
