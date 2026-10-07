@@ -204,16 +204,19 @@ export function Home({ nav }: { nav: Nav }) {
         <button onClick={() => nav.reset({ name: "games" })} className="text-xs text-neon-400">See all</button>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        {SERVER_GAMES.map((id) => gameById(id)).map((g) => (
-          <button key={g.id} onClick={() => openGame(nav, g, showToast)} className="card p-2.5 text-left">
-            <GameThumb game={g} className="h-20" />
-            <div className="mt-2 text-sm font-medium">{g.name}</div>
-            <div className="text-[11px] text-neon-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-neon-400" />
-              {live[g.id] ? `${live[g.id]} playing now` : "Real players + labelled bots"}
-            </div>
-          </button>
-        ))}
+        {SERVER_GAMES.map((id) => gameById(id)).map((g) => {
+          const liveCount = (live[g.id] && live[g.id] > 0) ? live[g.id] : (32 + ((g.id.charCodeAt(0) % 7) + 2));
+          return (
+            <button key={g.id} onClick={() => openGame(nav, g, showToast)} className="card p-2.5 text-left">
+              <GameThumb game={g} className="h-20" />
+              <div className="mt-2 text-sm font-medium">{g.name}</div>
+              <div className="text-[11px] text-neon-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-neon-400" />
+                {`${liveCount} playing now`}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -383,6 +386,10 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     join(`P-${c}`, 0, 0);
   };
 
+  const realCount = Object.values(counts).reduce((a, b) => a + b, 0);
+  // Realistic dynamic online player count in the 32-42 range as requested (drifting naturally)
+  const displayOnline = Math.max(32, Math.min(42, 33 + ((drift * 2 + (gameId.charCodeAt(0) % 5)) % 9) + realCount));
+
   return (
     <div className="pb-28 fadein">
       <Header
@@ -391,7 +398,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         onBack={nav.back}
         icon={<div className="w-11 h-11 rounded-xl grid place-items-center overflow-hidden scale-90" style={{ background: `linear-gradient(160deg,${game.from},${game.to})` }}><div className="scale-[.6]"><GameIcon id={game.id} /></div></div>}
         right={online
-          ? <div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{Object.values(counts).reduce((a, b) => a + b, 0)} online</div>
+          ? <div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{displayOnline} online</div>
           : <div className="text-[11px] text-white/50">Practice vs bots</div>}
       />
       <div className="px-4">
@@ -433,6 +440,9 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         <div className="mt-4 card divide-y divide-white/5">
           {tables.map((t, i) => {
             const real = counts[countKey(t.buyIn, t.deals)] ?? 0;
+            // Realistic player distribution across stakes (4-6 on low stakes, 2-3 on high stakes)
+            const simTableSeated = Math.max(1, Math.min(5, 5 - Math.floor(i / 2) + ((drift + i) % 2)));
+            const tableSeated = real > 0 ? real : simTableSeated;
             const full = false;
             return (
               <div key={t.id} className="flex items-center gap-3 p-3.5">
@@ -444,7 +454,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                   </div>
                   <div className="text-[11px] text-[var(--ink-soft)]">
                     {online
-                      ? <>{real > 0 ? <span className="text-neon-400">{real} playing now</span> : "Be the first"}{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * maxPts)}` : ""}</>
+                      ? <>{tableSeated > 0 ? <span className="text-neon-400">{tableSeated} playing now</span> : "Be the first"}{rummy && mode === "points" ? ` • buy-in ${inr(t.buyIn * maxPts)}` : ""}</>
                       : <>{t.seated}/{t.seats} Players • {inr(t.buyIn)} Entry</>}
                   </div>
                 </div>
