@@ -344,13 +344,38 @@ export async function fetchCricketOdds(
   const sportName = sport === "soccer" ? "soccer" : sport;
 
   try {
-    const res = await fetch(
-      `/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}&team1=${encodeURIComponent(team1)}&team2=${encodeURIComponent(team2)}`,
-      { cache: "no-store" }
-    );
-    if (!res.ok) throw new Error("Failed to fetch odds");
-    const json = await res.json();
-    const data = json?.data || {};
+    let data: any = {};
+    let fetchSuccess = false;
+
+    // 1. Try fetching directly from the client to bypass Netlify/Railway Datacenter IP Blocks!
+    // Since the client has a normal ISP IP, it won't be blocked by Cloudflare.
+    try {
+      if (typeof window !== "undefined") {
+        const directRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?gameId=${eventId}`, {
+          headers: { "Accept": "application/json" },
+        });
+        if (directRes.ok) {
+          const directJson = await directRes.json();
+          if (directJson?.data) {
+            data = directJson.data;
+            fetchSuccess = true;
+          }
+        }
+      }
+    } catch (directErr) {
+      console.warn("Direct client fetch failed (CORS/AdBlocker), falling back to proxy.");
+    }
+
+    // 2. Fallback to our proxy if direct fetch fails (or if running on Server Side)
+    if (!fetchSuccess) {
+      const res = await fetch(
+        `/api/cricket/odds?eventId=${encodeURIComponent(eventId)}&sport=${encodeURIComponent(sportName)}&live=${isLive}&team1=${encodeURIComponent(team1)}&team2=${encodeURIComponent(team2)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error("Failed to fetch odds");
+      const json = await res.json();
+      data = json?.data || {};
+    }
 
     // Pass through all market data as-is from DiamondExch API
     const matchOdds = Array.isArray(data.matchOdds) ? data.matchOdds : [];
