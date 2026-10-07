@@ -68,3 +68,15 @@ export const deleteRow = (table: string, query: string) =>
   });
 
 
+
+/** Every row matching the query, fetched 1000 at a time. */
+export async function selectAll<T>(table: string, query: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const page = await call<T[]>(`/rest/v1/${table}?${query}`, {
+      headers: { ...headers(), "Range-Unit": "items", Range: `${from}-${from + 999}` },
+    });
+    out.push(...page);
+    if (page.length < 1000) return out;
+  }
+}

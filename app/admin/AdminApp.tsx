@@ -795,6 +795,11 @@ function CreateModal({
     if (!/^\d{10}$/.test(f.phone) && (!staff || f.phone)) return setErr("Enter a 10-digit mobile number");
     if (staff && !/^[a-z0-9._]{3,}$/i.test(f.username)) return setErr("Username: at least 3 letters, numbers, dots or underscores");
     if (f.password.length < 6) return setErr("Password must be at least 6 characters");
+    if (staff) {
+      const up = Number(f.userPart), our = Number(f.ourPart);
+      if (f.userPart === "" || !(up >= 0 && up <= 100) || !(our >= 0 && our <= 100) || up + our > 100)
+        return setErr("User Part + Our Part must be between 0 and 100");
+    }
     setBusy(true);
     try {
       const acc = await createAccount({
@@ -808,13 +813,11 @@ function CreateModal({
         meta: staff
           ? {
               partnershipName: f.partnershipName.trim() || "Partnership With No Return",
-              userPart: Number(f.userPart) || 87,
+              userPart: Number(f.userPart),
               ourPart: Number(f.ourPart) || 0,
               remark: f.remark.trim() || "Nothing",
               city: f.city.trim() || "Aurangabad",
               creditPts: Number(f.creditPts) || 300000,
-              availablePts: Number(f.creditPts) || 111320.8,
-              clientPL: -1839.41,
               exposure: 0,
               casinoPts: 0,
               sportsPts: 0,

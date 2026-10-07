@@ -32,6 +32,14 @@ export interface UserExchangeMeta {
   thirdPartyPts?: number;
 }
 
+interface AccountStats {
+  clientPL: number;
+  userShare: number;
+  ourShare: number;
+  pts: number;
+  players: number;
+}
+
 interface UserDetailsModalProps {
   target: Account;
   me: Account;
@@ -56,8 +64,6 @@ export function UserDetailsModal({
     remark: "Nothing",
     city: target.state || "Aurangabad",
     creditPts: 300000,
-    availablePts: 111320.8,
-    clientPL: -1839.41,
     exposure: 0,
     casinoPts: 0,
     sportsPts: 0,
@@ -70,6 +76,8 @@ export function UserDetailsModal({
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<UserExchangeMeta>(meta);
+  const [stats, setStats] = useState<AccountStats | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Load saved metadata from app_settings or fallback
   useEffect(() => {
@@ -78,6 +86,7 @@ export function UserDetailsModal({
       try {
         const res = await fetch(`/api/account-meta?id=${target.id}`);
         const json = await res.json();
+        if (active) setStats(json?.stats ?? null);
         if (active && json?.meta) {
           const merged: UserExchangeMeta = {
             partnershipName: json.meta.partnershipName ?? "Partnership With No Return",
@@ -86,8 +95,6 @@ export function UserDetailsModal({
             remark: json.meta.remark ?? "Nothing",
             city: json.meta.city || target.state || "Aurangabad",
             creditPts: json.meta.creditPts ?? 300000,
-            availablePts: json.meta.availablePts ?? (target.coins > 0 ? target.coins : 111320.8),
-            clientPL: json.meta.clientPL ?? -1839.41,
             exposure: json.meta.exposure ?? 0,
             casinoPts: json.meta.casinoPts ?? 0,
             sportsPts: json.meta.sportsPts ?? 0,
@@ -103,8 +110,6 @@ export function UserDetailsModal({
             remark: "Nothing",
             city: target.state || "Aurangabad",
             creditPts: 300000,
-            availablePts: target.coins > 0 ? target.coins : 111320.8,
-            clientPL: -1839.41,
             exposure: 0,
             casinoPts: 0,
             sportsPts: 0,
@@ -123,9 +128,15 @@ export function UserDetailsModal({
     return () => {
       active = false;
     };
-  }, [target.id, target.state, target.coins]);
+  }, [target.id, target.state, target.coins, reloadKey]);
 
   const saveMeta = async () => {
+    const up = Number(form.userPart ?? 0);
+    const our = Number(form.ourPart ?? 0);
+    if (up < 0 || up > 100 || our < 0 || our > 100 || up + our > 100) {
+      showToast("User Part + Our Part must be between 0 and 100");
+      return;
+    }
     setSaving(true);
     try {
       const { data: s } = await supabase().auth.getSession();
@@ -145,6 +156,7 @@ export function UserDetailsModal({
 
       setMeta(form);
       setEditing(false);
+      setReloadKey((k) => k + 1);
       showToast("Partnership & Details saved successfully!");
       if (onReload) await onReload();
     } catch (e: unknown) {
@@ -204,7 +216,9 @@ export function UserDetailsModal({
   const titleDisplay = (target.username || target.code || target.name).toUpperCase();
 
   // Current points (wallets balance or fallback)
-  const currentPts = target.coins > 0 ? target.coins : 298160.59;
+  const currentPts = stats?.pts ?? target.coins;
+  const clientPL = stats?.clientPL ?? 0;
+  const plColor = (n: number) => (n < 0 ? "text-rose-600 font-medium" : n > 0 ? "text-emerald-600 font-medium" : "text-slate-700");
 
   return (
     <div
@@ -296,6 +310,8 @@ export function UserDetailsModal({
                     <label className="font-semibold text-slate-600 block mb-1">User Part (%)</label>
                     <input
                       type="number"
+                      min={0}
+                      max={100}
                       value={form.userPart ?? 87}
                       onChange={(e) => setForm({ ...form, userPart: Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
@@ -305,6 +321,8 @@ export function UserDetailsModal({
                     <label className="font-semibold text-slate-600 block mb-1">Our Part (%)</label>
                     <input
                       type="number"
+                      min={0}
+                      max={100}
                       value={form.ourPart ?? 0}
                       onChange={(e) => setForm({ ...form, ourPart: Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
@@ -341,26 +359,18 @@ export function UserDetailsModal({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">Available pts</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={form.availablePts ?? 111320.8}
-                      onChange={(e) => setForm({ ...form, availablePts: Number(e.target.value) })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
-                    />
+                <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Client P/L (live)</span>
+                    <span className={plColor(clientPL)}>{formatPts(clientPL, true)}</span>
                   </div>
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">Client P/L</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={form.clientPL ?? -1839.41}
-                      onChange={(e) => setForm({ ...form, clientPL: Number(e.target.value) })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
-                    />
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">User share ({form.userPart ?? 0}%)</span>
+                    <span className={plColor((-clientPL * (form.userPart ?? 0)) / 100)}>{formatPts((-clientPL * (form.userPart ?? 0)) / 100, true)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Our share ({form.ourPart ?? 0}%)</span>
+                    <span className={plColor((-clientPL * (form.ourPart ?? 0)) / 100)}>{formatPts((-clientPL * (form.ourPart ?? 0)) / 100, true)}</span>
                   </div>
                 </div>
               </div>
@@ -411,6 +421,20 @@ export function UserDetailsModal({
                     <span className="font-bold text-slate-700">Our Part:</span>
                     <span className="text-slate-700 font-normal">
                       {meta.ourPart ?? 0}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">User Share P/L:</span>
+                    <span className={plColor(stats?.userShare ?? 0)}>
+                      {formatPts(stats?.userShare ?? 0, true)}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">Our Share P/L:</span>
+                    <span className={plColor(stats?.ourShare ?? 0)}>
+                      {formatPts(stats?.ourShare ?? 0, true)}
                     </span>
                   </div>
 
@@ -473,20 +497,14 @@ export function UserDetailsModal({
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Available pts:</span>
                     <span className="text-slate-700 font-normal">
-                      {formatPts(meta.availablePts ?? 111320.8)}
+                      {formatPts(currentPts - (meta.exposure ?? 0))}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Client P/L:</span>
-                    <span
-                      className={`font-normal ${
-                        (meta.clientPL ?? -1839.41) < 0
-                          ? "text-rose-600 font-medium"
-                          : "text-emerald-600 font-medium"
-                      }`}
-                    >
-                      {formatPts(meta.clientPL ?? -1839.41, true)}
+                    <span className={plColor(clientPL)}>
+                      {formatPts(clientPL, true)}
                     </span>
                   </div>
 
