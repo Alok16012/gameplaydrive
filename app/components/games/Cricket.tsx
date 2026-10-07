@@ -98,7 +98,7 @@ export function Cricket({
   const [myBets, setMyBets] = useState<CricketBet[]>([]);
   const [oddsData, setOddsData] = useState<CricketOddsResponse | null>(null);
   const [oddsLoading, setOddsLoading] = useState(false);
-  const [activeMarketTab, setActiveMarketTab] = useState<"all" | "match_odds" | "bookmaker" | "fancy">("all");
+  const [activeMarketTab, setActiveMarketTab] = useState<"all" | "match_odds" | "bookmaker" | "fancy" | "other">("all");
 
   // Sync prop changes
   useEffect(() => {
@@ -310,10 +310,10 @@ export function Cricket({
             ? activeMatch.team2.name
             : bm.rname,
         }))
-      : liveDepth.bookMakerOdds[0].oddDatas;
+      : liveDepth.bookMakerOdds[0]?.oddDatas || [];
 
     const fancyMarketGroups = Array.isArray(oddsData?.fancyOdds) ? oddsData.fancyOdds : (liveDepth?.fancyOdds || []);
-    const otherMarkets = Array.isArray(oddsData?.otherMarketOdds) ? oddsData.otherMarketOdds : (liveDepth?.otherMarketOdds || []);
+    const otherMarkets = Array.isArray(oddsData?.otherMarketOdds) ? oddsData.otherMarketOdds : (liveDepth.otherMarketOdds || []);
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">

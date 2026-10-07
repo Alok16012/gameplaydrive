@@ -168,6 +168,7 @@ export function getMatchDepthOdds(
   matchOdds: MarketOdds[];
   bookMakerOdds: MarketOdds[];
   fancyOdds: MarketOdds[];
+  otherMarketOdds?: MarketOdds[];
 } {
   const hash = Math.abs([...match.eventId].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 11));
   const drift = match.inPlay ? (Math.sin(tickOffset * 0.8 + (hash % 10)) * 0.04) : 0;
@@ -308,6 +309,7 @@ export function getMatchDepthOdds(
     matchOdds: [{ mid: `mo.${match.eventId}`, mname: "MATCH_ODDS", status: "ACTIVE", oddDatas: runners }],
     bookMakerOdds,
     fancyOdds,
+    otherMarketOdds: [],
   };
 }
 
