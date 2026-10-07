@@ -226,10 +226,13 @@ export function Cricket({
     if (stake < betSlip.min) return showToast(`Minimum bet is ${inr(betSlip.min)}`);
     if (stake > betSlip.max) return showToast(`Maximum bet is ${inr(betSlip.max)}`);
 
-    const exposure =
-      betSlip.betType === "LAY" && betSlip.marketType === "MATCH_ODDS"
-        ? Math.round(stake * (betSlip.odds - 1))
-        : stake;
+    const exposure = (() => {
+      if (betSlip.betType === "LAY") {
+        if (betSlip.marketType === "BOOKMAKER") return Math.round(stake * (betSlip.odds / 100));
+        if (betSlip.marketType === "MATCH_ODDS") return Math.round(stake * (betSlip.odds - 1));
+      }
+      return stake;
+    })();
 
     if (total < exposure) {
       return showToast("Insufficient coins for this bet exposure!");
@@ -240,10 +243,14 @@ export function Cricket({
       return showToast("Failed to place bet. Please check coin balance.");
     }
 
-    const profit =
-      betSlip.betType === "BACK"
-        ? Math.round(stake * (betSlip.odds - 1))
-        : stake;
+    const profit = (() => {
+      if (betSlip.betType === "BACK") {
+        if (betSlip.marketType === "BOOKMAKER") return Math.round(stake * (betSlip.odds / 100));
+        if (betSlip.marketType === "MATCH_ODDS") return Math.round(stake * (betSlip.odds - 1));
+        return Math.round(stake * (betSlip.odds - 1)); // Fancy uses 2.0 odds, so this is 1x stake
+      }
+      return stake;
+    })();
 
     const newBet: CricketBet = {
       id: "bet_" + Date.now(),
@@ -305,9 +312,7 @@ export function Cricket({
         }))
       : liveDepth.bookMakerOdds[0].oddDatas;
 
-    const fancyOdds = (oddsData?.fancyOdds?.[0]?.oddDatas && oddsData.fancyOdds[0].oddDatas.length > 0)
-      ? oddsData.fancyOdds[0].oddDatas
-      : liveDepth.fancyOdds[0].oddDatas;
+    const fancyMarketGroups = oddsData?.fancyOdds || liveDepth.fancyOdds || [];
 
     return (
       <div className="min-h-screen bg-[#070b19] text-white pb-28 fadein">
@@ -524,23 +529,32 @@ export function Cricket({
                 {matchOdds.map((runner, idx) => {
                   const bPrice = Number(runner.b1 || 1.85);
                   const lPrice = Number(runner.l1 || 1.89);
+                  const isSuspended = runner.status === "SUSPENDED" || runner.b1 === "-" || runner.l1 === "-";
                   return (
                     <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5 hover:bg-white/[0.02]">
                       <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{runner.rname}</div>
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.rname, "BACK", bPrice, undefined, 100, 500000)}
-                        className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
-                      >
-                        <div className="text-xs font-black leading-tight">{bPrice.toFixed(2)}</div>
-                        <div className="text-[9px] text-slate-800 font-bold">{runner.bs1 || "1.5L"}</div>
-                      </button>
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.rname, "LAY", lPrice, undefined, 100, 500000)}
-                        className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
-                      >
-                        <div className="text-xs font-black leading-tight">{lPrice.toFixed(2)}</div>
-                        <div className="text-[9px] text-slate-800 font-bold">{runner.ls1 || "1.2L"}</div>
-                      </button>
+                      {isSuspended ? (
+                        <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
+                          Suspended
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.rname, "BACK", bPrice, undefined, 100, 500000)}
+                            className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                          >
+                            <div className="text-xs font-black leading-tight">{bPrice.toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-800 font-bold">{runner.bs1 || "1.5L"}</div>
+                          </button>
+                          <button
+                            onClick={() => openBet("MATCH_ODDS", "Match Odds", runner.rname, "LAY", lPrice, undefined, 100, 500000)}
+                            className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                          >
+                            <div className="text-xs font-black leading-tight">{lPrice.toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-800 font-bold">{runner.ls1 || "1.2L"}</div>
+                          </button>
+                        </>
+                      )}
                     </div>
                   );
                 })}
@@ -563,23 +577,32 @@ export function Cricket({
                 {bookMakerOdds.map((bm, idx) => {
                   const bRate = Number(bm.b1 || 85);
                   const lRate = Number(bm.l1 || 89);
+                  const isSuspended = bm.status === "SUSPENDED" || bm.b1 === "-" || bm.l1 === "-";
                   return (
                     <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5">
                       <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{bm.rname}</div>
-                      <button
-                        onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.rname, "BACK", (1 + bRate / 100), undefined, 100, 200000)}
-                        className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform"
-                      >
-                        <div className="text-xs font-black">{bRate}</div>
-                        <div className="text-[9px] text-slate-800 font-bold">{bm.bs1 || "100K"}</div>
-                      </button>
-                      <button
-                        onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.rname, "LAY", (1 + lRate / 100), undefined, 100, 200000)}
-                        className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform"
-                      >
-                        <div className="text-xs font-black">{lRate}</div>
-                        <div className="text-[9px] text-slate-800 font-bold">{bm.ls1 || "100K"}</div>
-                      </button>
+                      {isSuspended ? (
+                        <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
+                          Suspended
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.rname, "BACK", bRate, undefined, 100, 200000)}
+                            className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                          >
+                            <div className="text-xs font-black">{bRate}</div>
+                            <div className="text-[9px] text-slate-800 font-bold">{bm.bs1 || "100K"}</div>
+                          </button>
+                          <button
+                            onClick={() => openBet("BOOKMAKER", "Bookmaker Odds", bm.rname, "LAY", lRate, undefined, 100, 200000)}
+                            className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                          >
+                            <div className="text-xs font-black">{lRate}</div>
+                            <div className="text-[9px] text-slate-800 font-bold">{bm.ls1 || "100K"}</div>
+                          </button>
+                        </>
+                      )}
                     </div>
                   );
                 })}
@@ -588,51 +611,65 @@ export function Cricket({
           )}
 
           {/* 3. Fancy, Goals & Specials Market Table */}
-          {(activeMarketTab === "all" || activeMarketTab === "fancy") && fancyOdds.length > 0 && (
-            <div className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
-              <div className="px-3 py-2 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
-                <div className="flex items-center gap-1.5">
-                  <Flame size={14} className="text-amber-400 animate-pulse" />
-                  <span className="font-extrabold text-xs text-white">
-                    {activeMatch.sport === "soccer" ? "GOALS & SPECIAL MARKETS" : activeMatch.sport === "tennis" ? "SETS & GAMES MARKETS" : "SESSION & FANCY MARKETS"}
-                  </span>
-                </div>
-                <span className="text-[10px] text-amber-400 font-extrabold">
-                  {activeMatch.sport === "cricket" ? "Ball by Ball" : "Live Match"}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-12 px-2 py-1 bg-black/50 text-[10px] font-extrabold text-white/70 border-b border-white/5 text-center">
-                <div className="col-span-6 text-left pl-1">MARKET</div>
-                <div className="col-span-3 text-[#faa9ba] bg-pink-950/50 rounded py-0.5">NO / UNDER</div>
-                <div className="col-span-3 text-[#72bbef] bg-blue-950/50 rounded py-0.5">YES / OVER</div>
-              </div>
-
-              <div className="divide-y divide-white/5">
-                {fancyOdds.map((fancy, idx) => {
-                  const noRuns = Number(fancy.l1 || 46);
-                  const yesRuns = Number(fancy.b1 || 48);
-                  return (
-                    <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5">
-                      <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{fancy.rname}</div>
-                      <button
-                        onClick={() => openBet("FANCY", fancy.rname, `${fancy.rname} (NO: ${noRuns})`, "LAY", 2.0, noRuns, 100, 50000)}
-                        className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform"
-                      >
-                        <div className="text-xs font-black">{noRuns}</div>
-                        <div className="text-[9px] text-slate-800 font-bold">{fancy.ls1 || "100"}</div>
-                      </button>
-                      <button
-                        onClick={() => openBet("FANCY", fancy.rname, `${fancy.rname} (YES: ${yesRuns})`, "BACK", 2.0, yesRuns, 100, 50000)}
-                        className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform"
-                      >
-                        <div className="text-xs font-black">{yesRuns}</div>
-                        <div className="text-[9px] text-slate-800 font-bold">{fancy.bs1 || "100"}</div>
-                      </button>
+          {(activeMarketTab === "all" || activeMarketTab === "fancy") && fancyMarketGroups.length > 0 && (
+            <div className="space-y-3">
+              {fancyMarketGroups.map((marketGroup: any, gIdx: number) => (
+                <div key={gIdx} className="rounded-2xl bg-[#0f172a] border border-white/10 overflow-hidden shadow-xl">
+                  <div className="px-3 py-2 bg-[#1e293b] flex items-center justify-between border-b border-white/10">
+                    <div className="flex items-center gap-1.5">
+                      <Flame size={14} className="text-amber-400 animate-pulse" />
+                      <span className="font-extrabold text-xs text-white">
+                        {marketGroup.mname || "SESSION & FANCY MARKETS"}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
+                    <span className="text-[10px] text-amber-400 font-extrabold bg-amber-500/10 px-2 py-0.5 rounded-full">
+                      {marketGroup.gtype || "Live Match"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-12 px-2 py-1 bg-black/50 text-[10px] font-extrabold text-white/70 border-b border-white/5 text-center">
+                    <div className="col-span-6 text-left pl-1">MARKET</div>
+                    <div className="col-span-3 text-[#faa9ba] bg-pink-950/50 rounded py-0.5">NO / UNDER</div>
+                    <div className="col-span-3 text-[#72bbef] bg-blue-950/50 rounded py-0.5">YES / OVER</div>
+                  </div>
+
+                  <div className="divide-y divide-white/5">
+                    {marketGroup.oddDatas?.map((fancy: any, idx: number) => {
+                      const noRuns = Number(fancy.l1 || 46);
+                      const yesRuns = Number(fancy.b1 || 48);
+                      const isSuspended = fancy.status === "SUSPENDED" || fancy.b1 === "-" || fancy.l1 === "-";
+                      
+                      return (
+                        <div key={idx} className="grid grid-cols-12 items-center p-2 gap-1.5 hover:bg-white/[0.02]">
+                          <div className="col-span-6 font-bold text-xs pl-1 truncate text-white">{fancy.rname}</div>
+                          {isSuspended ? (
+                            <div className="col-span-6 py-1.5 rounded-lg bg-white/5 text-white/40 font-black text-[10px] flex items-center justify-center tracking-widest uppercase shadow-inner">
+                              Suspended
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => openBet("FANCY", fancy.rname, `${fancy.rname} (NO: ${noRuns})`, "LAY", 2.0, noRuns, 100, 50000)}
+                                className="col-span-3 py-1.5 rounded-lg bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                              >
+                                <div className="text-xs font-black">{noRuns}</div>
+                                <div className="text-[9px] text-slate-800 font-bold">{fancy.ls1 || "100"}</div>
+                              </button>
+                              <button
+                                onClick={() => openBet("FANCY", fancy.rname, `${fancy.rname} (YES: ${yesRuns})`, "BACK", 2.0, yesRuns, 100, 50000)}
+                                className="col-span-3 py-1.5 rounded-lg bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs grid place-items-center active:scale-95 transition-transform shadow-sm"
+                              >
+                                <div className="text-xs font-black">{yesRuns}</div>
+                                <div className="text-[9px] text-slate-800 font-bold">{fancy.bs1 || "100"}</div>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -839,182 +876,188 @@ export function Cricket({
         </div>
       </div>
 
-      {/* 4. EXCHANGE MATCHES TABLE (1 | X | 2 Back/Lay Grid) */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse text-xs">
+      {/* 4. EXCHANGE MATCHES TABLE (my99exch Style) */}
+      <div className="overflow-x-auto bg-white min-h-[500px]">
+        <table className="w-full text-left border-collapse text-[11px] text-slate-900 font-semibold">
           {/* Table Column Headers */}
           <thead>
-            <tr className="bg-[#0f172a] text-white/70 border-b border-white/10 text-[10px] font-extrabold">
-              <th className="py-2 px-3 font-extrabold">MATCH</th>
-              {/* 1 (Team 1) */}
-              <th colSpan={2} className="py-1 px-1 text-center bg-blue-950/40 border-l border-white/10">
-                <div className="text-[10px] text-blue-300 uppercase font-black">1</div>
-                <div className="grid grid-cols-2 text-[9px] text-white/60 font-semibold">
-                  <span className="text-[#72bbef]">Back</span>
-                  <span className="text-[#faa9ba]">Lay</span>
-                </div>
-              </th>
-              {/* X (Draw) */}
-              <th colSpan={2} className="py-1 px-1 text-center bg-slate-900/40 border-l border-white/10">
-                <div className="text-[10px] text-white/70 uppercase font-black">X</div>
-                <div className="grid grid-cols-2 text-[9px] text-white/60 font-semibold">
-                  <span className="text-[#72bbef]">Back</span>
-                  <span className="text-[#faa9ba]">Lay</span>
-                </div>
-              </th>
-              {/* 2 (Team 2) */}
-              <th colSpan={2} className="py-1 px-1 text-center bg-blue-950/40 border-l border-white/10">
-                <div className="text-[10px] text-blue-300 uppercase font-black">2</div>
-                <div className="grid grid-cols-2 text-[9px] text-white/60 font-semibold">
-                  <span className="text-[#72bbef]">Back</span>
-                  <span className="text-[#faa9ba]">Lay</span>
-                </div>
-              </th>
+            <tr className="border-b-2 border-gray-200/60 bg-white">
+              <th className="py-2 px-3 font-bold text-slate-800">Game</th>
+              <th colSpan={2} className="py-2 px-1 text-center font-bold text-slate-800 w-[110px]">1</th>
+              <th colSpan={2} className="py-2 px-1 text-center font-bold text-slate-800 w-[110px]">X</th>
+              <th colSpan={2} className="py-2 px-1 text-center font-bold text-slate-800 w-[110px]">2</th>
             </tr>
           </thead>
 
           {/* Table Body Rows */}
-          <tbody className="divide-y divide-white/5 bg-[#090e24]">
+          <tbody className="divide-y divide-gray-100 bg-white">
             {loading ? (
               <tr>
-                <td colSpan={7} className="text-center py-12 text-white/60 text-xs">
+                <td colSpan={7} className="text-center py-12 text-slate-500 text-xs font-medium">
                   <div className="flex flex-col items-center justify-center gap-2">
-                    <RefreshCw size={18} className="animate-spin text-emerald-400" />
+                    <RefreshCw size={18} className="animate-spin text-blue-500" />
                     <span>Loading live {selectedSport === "soccer" ? "football" : selectedSport} matches...</span>
                   </div>
                 </td>
               </tr>
             ) : filteredMatches.length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-center py-10 text-white/50 text-xs">
+                <td colSpan={7} className="text-center py-10 text-slate-500 text-xs font-medium">
                   No {activeTabFilter !== "all" ? activeTabFilter : ""} matches found for {selectedSport === "soccer" ? "football" : selectedSport}.
                 </td>
               </tr>
             ) : (
               filteredMatches.map((match) => {
                 const formattedDate = new Date(match.eventTime).toLocaleString("en-GB", {
+                  month: "short",
                   day: "2-digit",
-                  month: "2-digit",
+                  year: "numeric",
                   hour: "2-digit",
                   minute: "2-digit",
                 });
 
-                const depth = getMatchDepthOdds(match, tickCount);
-                const r1 = depth.matchOdds[0]?.oddDatas[0];
-                const rDraw = match.sport === "soccer" ? depth.matchOdds[0]?.oddDatas[1] : undefined;
-                const r2 = match.sport === "soccer" ? depth.matchOdds[0]?.oddDatas[2] : depth.matchOdds[0]?.oddDatas[1];
-
-                const b1Val = Number(r1?.b1 || match.back1 || 1.85);
-                const l1Val = Number(r1?.l1 || match.lay1 || 1.89);
-                const b2Val = Number(r2?.b1 || match.back2 || 2.05);
-                const l2Val = Number(r2?.l2 || match.lay2 || 2.12);
-                const drawBVal = rDraw ? Number(rDraw.b1 || 3.30) : 0;
-                const drawLVal = rDraw ? Number(rDraw.l1 || 3.45) : 0;
+                const b1Val = match.back1;
+                const l1Val = match.lay1;
+                const b2Val = match.back2;
+                const l2Val = match.lay2;
+                const drawBVal = match.drawBack;
+                const drawLVal = match.drawLay;
 
                 return (
-                  <tr key={match.eventId} className="hover:bg-white/[0.03] transition-colors">
+                  <tr key={match.eventId} className="hover:bg-slate-50 transition-colors">
                     {/* Game Column (Match Name + Icons + Time) */}
-                    <td className="py-2 px-3 align-middle max-w-[210px]">
-                      <div
-                        onClick={() => setSelectedMatchId(match.eventId)}
-                        className="cursor-pointer group"
-                      >
-                        <div className="font-extrabold text-white text-xs group-hover:text-emerald-300 transition-colors leading-tight">
-                          {match.eventName}
+                    <td className="py-2.5 px-3 align-middle max-w-[280px]">
+                      <div className="flex items-center justify-between">
+                        <div
+                          onClick={() => setSelectedMatchId(match.eventId)}
+                          className="cursor-pointer group flex items-center gap-2 flex-wrap"
+                        >
+                          <div className="font-semibold text-slate-800 text-[11px] group-hover:text-blue-600 transition-colors whitespace-nowrap overflow-hidden text-ellipsis">
+                            {match.eventName} <span className="text-slate-500 font-normal">/ {formattedDate} (IST)</span>
+                          </div>
                         </div>
-                        <div className="text-[10px] text-white/50 mt-0.5 flex items-center gap-1.5">
-                          <span>/ {formattedDate}</span>
-                        </div>
-                        {/* Feature Badges (🟢, 📺, f, BM) */}
-                        <div className="flex items-center gap-1 mt-1">
+                        {/* Feature Badges */}
+                        <div className="flex items-center gap-1.5 ml-2 shrink-0">
                           {match.inPlay || match.isLive ? (
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" title="In-Play Live" />
+                            <span className="w-2 h-2 rounded-full bg-[#22c55e]" title="In-Play Live" />
                           ) : null}
-                          <span title="Live TV Stream Available"><Tv size={11} className="text-blue-400 inline-block" /></span>
-                          <span className="px-1 py-0.2 rounded text-[8px] font-black italic bg-purple-950 text-purple-300 border border-purple-800/40">
-                            f
-                          </span>
-                          <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-amber-950 text-amber-300 border border-amber-800/40">
-                            BM
-                          </span>
-                          {match.team1.score && (
-                            <span className="text-[10px] text-emerald-400 font-bold ml-1">
-                              {match.team1.score}
-                            </span>
-                          )}
+                          <span title="Live TV Stream Available"><Tv size={12} className="text-slate-800 inline-block stroke-[2.5]" /></span>
+                          <span className="text-[10px] font-extrabold italic text-slate-900 tracking-tighter">f</span>
+                          <span className="text-[9px] font-extrabold text-slate-900 tracking-tighter">BM</span>
+                          <span className="text-slate-500 transform rotate-45 text-[14px]">📌</span>
                         </div>
                       </div>
                     </td>
 
                     {/* 1 - Back (Blue) */}
-                    <td className="py-1 px-1 text-center w-[54px] border-l border-white/5">
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team1.name, "BACK", b1Val)}
-                        className="w-full h-8 rounded bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-back"
-                      >
-                        <span className="leading-none text-[11.5px] font-black">{b1Val.toFixed(2)}</span>
-                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r1?.bs1 || "1.2L"}</span>
-                      </button>
+                    <td className="p-[1px] text-center w-[55px]">
+                      {b1Val && b1Val !== "-" ? (
+                        <button
+                          onClick={() => openBet(
+                            Number(b1Val) > 20 ? "BOOKMAKER" : "MATCH_ODDS",
+                            Number(b1Val) > 20 ? "Bookmaker Odds" : "Match Odds",
+                            match.team1.name, "BACK",
+                            Number(b1Val) > 20 ? (1 + Number(b1Val) / 100) : Number(b1Val)
+                          )}
+                          className="w-full h-8 bg-[#93c5fd] hover:bg-blue-300 text-slate-900 font-bold text-xs flex items-center justify-center active:bg-blue-400 transition-colors"
+                        >
+                          {Number(b1Val) > 20 ? Number(b1Val).toFixed(0) : Number(b1Val).toFixed(2)}
+                        </button>
+                      ) : (
+                        <div className="w-full h-8 bg-white flex items-center justify-center text-slate-300 font-bold text-sm">-</div>
+                      )}
                     </td>
                     {/* 1 - Lay (Pink) */}
-                    <td className="py-1 px-1 text-center w-[54px]">
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team1.name, "LAY", l1Val)}
-                        className="w-full h-8 rounded bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-lay"
-                      >
-                        <span className="leading-none text-[11.5px] font-black">{l1Val.toFixed(2)}</span>
-                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r1?.ls1 || "1.0L"}</span>
-                      </button>
+                    <td className="p-[1px] text-center w-[55px]">
+                      {l1Val && l1Val !== "-" ? (
+                        <button
+                          onClick={() => openBet(
+                            Number(l1Val) > 20 ? "BOOKMAKER" : "MATCH_ODDS",
+                            Number(l1Val) > 20 ? "Bookmaker Odds" : "Match Odds",
+                            match.team1.name, "LAY",
+                            Number(l1Val) > 20 ? (1 + Number(l1Val) / 100) : Number(l1Val)
+                          )}
+                          className="w-full h-8 bg-[#fca5a5] hover:bg-red-300 text-slate-900 font-bold text-xs flex items-center justify-center active:bg-red-400 transition-colors"
+                        >
+                          {Number(l1Val) > 20 ? Number(l1Val).toFixed(0) : Number(l1Val).toFixed(2)}
+                        </button>
+                      ) : (
+                        <div className="w-full h-8 bg-white flex items-center justify-center text-slate-300 font-bold text-sm">-</div>
+                      )}
                     </td>
 
                     {/* X - Back (Blue) */}
-                    <td className="py-1 px-1 text-center w-[48px] border-l border-white/5">
-                      {drawBVal > 0 ? (
+                    <td className="p-[1px] text-center w-[55px] border-l border-white">
+                      {drawBVal && drawBVal !== "-" && Number(drawBVal) > 0 ? (
                         <button
-                          onClick={() => openBet("MATCH_ODDS", "Match Odds", "The Draw", "BACK", drawBVal)}
-                          className="w-full h-8 rounded bg-[#72bbef] text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-back"
+                          onClick={() => openBet(
+                            Number(drawBVal) > 20 ? "BOOKMAKER" : "MATCH_ODDS",
+                            Number(drawBVal) > 20 ? "Bookmaker Odds" : "Match Odds",
+                            "The Draw", "BACK",
+                            Number(drawBVal) > 20 ? (1 + Number(drawBVal) / 100) : Number(drawBVal)
+                          )}
+                          className="w-full h-8 bg-[#93c5fd] hover:bg-blue-300 text-slate-900 font-bold text-xs flex items-center justify-center active:bg-blue-400 transition-colors"
                         >
-                          <span className="leading-none text-[11px] font-black">{drawBVal.toFixed(2)}</span>
-                          <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{rDraw?.bs1 || "65K"}</span>
+                          {Number(drawBVal) > 20 ? Number(drawBVal).toFixed(0) : Number(drawBVal).toFixed(2)}
                         </button>
                       ) : (
-                        <div className="w-full h-8 rounded bg-white/5 text-white/30 font-bold text-xs grid place-items-center">-</div>
+                        <div className="w-full h-8 bg-white flex items-center justify-center text-slate-300 font-bold text-sm">-</div>
                       )}
                     </td>
                     {/* X - Lay (Pink) */}
-                    <td className="py-1 px-1 text-center w-[48px]">
-                      {drawLVal > 0 ? (
+                    <td className="p-[1px] text-center w-[55px]">
+                      {drawLVal && drawLVal !== "-" && Number(drawLVal) > 0 ? (
                         <button
-                          onClick={() => openBet("MATCH_ODDS", "Match Odds", "The Draw", "LAY", drawLVal)}
-                          className="w-full h-8 rounded bg-[#faa9ba] text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-lay"
+                          onClick={() => openBet(
+                            Number(drawLVal) > 20 ? "BOOKMAKER" : "MATCH_ODDS",
+                            Number(drawLVal) > 20 ? "Bookmaker Odds" : "Match Odds",
+                            "The Draw", "LAY",
+                            Number(drawLVal) > 20 ? (1 + Number(drawLVal) / 100) : Number(drawLVal)
+                          )}
+                          className="w-full h-8 bg-[#fca5a5] hover:bg-red-300 text-slate-900 font-bold text-xs flex items-center justify-center active:bg-red-400 transition-colors"
                         >
-                          <span className="leading-none text-[11px] font-black">{drawLVal.toFixed(2)}</span>
-                          <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{rDraw?.ls1 || "80K"}</span>
+                          {Number(drawLVal) > 20 ? Number(drawLVal).toFixed(0) : Number(drawLVal).toFixed(2)}
                         </button>
                       ) : (
-                        <div className="w-full h-8 rounded bg-white/5 text-white/30 font-bold text-xs grid place-items-center">-</div>
+                        <div className="w-full h-8 bg-white flex items-center justify-center text-slate-300 font-bold text-sm">-</div>
                       )}
                     </td>
 
                     {/* 2 - Back (Blue) */}
-                    <td className="py-1 px-1 text-center w-[54px] border-l border-white/5">
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team2.name, "BACK", b2Val)}
-                        className="w-full h-8 rounded bg-[#72bbef] hover:bg-blue-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-back"
-                      >
-                        <span className="leading-none text-[11.5px] font-black">{b2Val.toFixed(2)}</span>
-                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r2?.bs1 || "90K"}</span>
-                      </button>
+                    <td className="p-[1px] text-center w-[55px] border-l border-white">
+                      {b2Val && b2Val !== "-" ? (
+                        <button
+                          onClick={() => openBet(
+                            Number(b2Val) > 20 ? "BOOKMAKER" : "MATCH_ODDS",
+                            Number(b2Val) > 20 ? "Bookmaker Odds" : "Match Odds",
+                            match.team2.name, "BACK",
+                            Number(b2Val) > 20 ? (1 + Number(b2Val) / 100) : Number(b2Val)
+                          )}
+                          className="w-full h-8 bg-[#93c5fd] hover:bg-blue-300 text-slate-900 font-bold text-xs flex items-center justify-center active:bg-blue-400 transition-colors"
+                        >
+                          {Number(b2Val) > 20 ? Number(b2Val).toFixed(0) : Number(b2Val).toFixed(2)}
+                        </button>
+                      ) : (
+                        <div className="w-full h-8 bg-white flex items-center justify-center text-slate-300 font-bold text-sm">-</div>
+                      )}
                     </td>
                     {/* 2 - Lay (Pink) */}
-                    <td className="py-1 px-1 text-center w-[54px]">
-                      <button
-                        onClick={() => openBet("MATCH_ODDS", "Match Odds", match.team2.name, "LAY", l2Val)}
-                        className="w-full h-8 rounded bg-[#faa9ba] hover:bg-pink-300 text-slate-950 font-black text-xs flex flex-col items-center justify-center shadow-sm active:scale-95 transition-transform flash-lay"
-                      >
-                        <span className="leading-none text-[11.5px] font-black">{l2Val.toFixed(2)}</span>
-                        <span className="text-[8px] text-slate-800 font-bold leading-none mt-0.5">{r2?.ls1 || "110K"}</span>
-                      </button>
+                    <td className="p-[1px] text-center w-[55px]">
+                      {l2Val && l2Val !== "-" ? (
+                        <button
+                          onClick={() => openBet(
+                            Number(l2Val) > 20 ? "BOOKMAKER" : "MATCH_ODDS",
+                            Number(l2Val) > 20 ? "Bookmaker Odds" : "Match Odds",
+                            match.team2.name, "LAY",
+                            Number(l2Val) > 20 ? (1 + Number(l2Val) / 100) : Number(l2Val)
+                          )}
+                          className="w-full h-8 bg-[#fca5a5] hover:bg-red-300 text-slate-900 font-bold text-xs flex items-center justify-center active:bg-red-400 transition-colors"
+                        >
+                          {Number(l2Val) > 20 ? Number(l2Val).toFixed(0) : Number(l2Val).toFixed(2)}
+                        </button>
+                      ) : (
+                        <div className="w-full h-8 bg-white flex items-center justify-center text-slate-300 font-bold text-sm">-</div>
+                      )}
                     </td>
                   </tr>
                 );

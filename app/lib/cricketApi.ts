@@ -18,10 +18,12 @@ export interface CricketMatch {
   sport: SportType;
   team1: { name: string; short: string; score?: string; overs?: string };
   team2: { name: string; short: string; score?: string; overs?: string };
-  back1?: number;
-  lay1?: number;
-  back2?: number;
-  lay2?: number;
+  back1?: number | string;
+  lay1?: number | string;
+  back2?: number | string;
+  lay2?: number | string;
+  drawBack?: number | string;
+  drawLay?: number | string;
   isRealApi?: boolean;
 }
 
@@ -169,7 +171,8 @@ export function getMatchDepthOdds(
   const hash = Math.abs([...match.eventId].reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 11));
   const drift = match.inPlay ? (Math.sin(tickOffset * 0.8 + (hash % 10)) * 0.04) : 0;
   
-  const b1 = Math.max(1.05, Number(((match.back1 || 1.85) + drift).toFixed(2)));
+  const safeBack1 = match.back1 === "-" ? 1.85 : Number(match.back1 || 1.85);
+  const b1 = Math.max(1.05, Number((safeBack1 + drift).toFixed(2)));
   const l1 = Number((b1 + 0.02 + ((hash + tickOffset) % 2) * 0.01).toFixed(2));
   const b2_lvl = Number((b1 - 0.02).toFixed(2));
   const b3_lvl = Number((b1 - 0.04).toFixed(2));

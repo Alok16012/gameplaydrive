@@ -139,17 +139,37 @@ export async function GET(req: NextRequest) {
       const json = await my99Res.json();
       const list = json?.data?.t1;
       if (Array.isArray(list) && list.length > 0) {
-        const filtered = list.filter((m: any) => !etid || m.etid === etid || m.etid === 4);
+        const filtered = list.filter((m: any) => !etid || m.etid === etid);
         const parsed = (filtered.length > 0 ? filtered : list).map((m: any) => {
           const parts = (m.ename || "").split(/ v | vs | VS /i);
           const t1 = parts[0]?.trim() || m.section?.[0]?.nat || "Team 1";
           const t2 = parts[1]?.trim() || m.section?.[1]?.nat || "Team 2";
           const o1 = m.section?.[0]?.odds || [];
           const o2 = m.section?.[1]?.odds || [];
-          const b1 = Number(o1.find((x: any) => x.oname === "back1")?.odds || 1.85);
-          const l1 = Number(o1.find((x: any) => x.oname === "lay1")?.odds || (b1 + 0.03));
-          const b2 = Number(o2.find((x: any) => x.oname === "back1")?.odds || 2.05);
-          const l2 = Number(o2.find((x: any) => x.oname === "lay1")?.odds || (b2 + 0.04));
+          
+          let b1: string | number = o1.find((x: any) => x.oname === "back1")?.odds ?? "-";
+          let l1: string | number = o1.find((x: any) => x.oname === "lay1")?.odds ?? "-";
+          let b2: string | number = o2.find((x: any) => x.oname === "back1")?.odds ?? "-";
+          let l2: string | number = o2.find((x: any) => x.oname === "lay1")?.odds ?? "-";
+
+          // If fallback is needed (though my99exch usually provides odds or "-")
+          if (b1 !== "-" && typeof b1 !== "number") b1 = Number(b1) || "-";
+          if (l1 !== "-" && typeof l1 !== "number") l1 = Number(l1) || "-";
+          if (b2 !== "-" && typeof b2 !== "number") b2 = Number(b2) || "-";
+          if (l2 !== "-" && typeof l2 !== "number") l2 = Number(l2) || "-";
+
+          let drawBack: string | number = "-";
+          let drawLay: string | number = "-";
+          
+          if (sportName === "soccer" && m.section?.length > 2) {
+             const drawSec = m.section.find((s: any) => String(s.nat).toLowerCase().includes("draw"));
+             if (drawSec) {
+                drawBack = drawSec.odds?.find((x: any) => x.oname === "back1")?.odds ?? "-";
+                drawLay = drawSec.odds?.find((x: any) => x.oname === "lay1")?.odds ?? "-";
+                if (drawBack !== "-" && typeof drawBack !== "number") drawBack = Number(drawBack) || "-";
+                if (drawLay !== "-" && typeof drawLay !== "number") drawLay = Number(drawLay) || "-";
+             }
+          }
 
           return {
             gameId: String(m.gmid),
@@ -165,6 +185,8 @@ export async function GET(req: NextRequest) {
             lay1: l1,
             back2: b2,
             lay2: l2,
+            drawBack: drawBack,
+            drawLay: drawLay,
             sport: sportName,
             team1: { name: t1, short: t1.slice(0, 3).toUpperCase() },
             team2: { name: t2, short: t2.slice(0, 3).toUpperCase() },
