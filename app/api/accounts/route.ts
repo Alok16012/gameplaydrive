@@ -8,6 +8,7 @@ import {
   rpc,
   selectOne,
   updateAuthUser,
+  upsertRow,
   userFromToken,
 } from "../../lib/server/supabaseAdmin";
 
@@ -40,10 +41,28 @@ export async function POST(req: Request) {
   try {
     const email = role === "player" ? playerEmail(phone) : staffEmail(username!);
     authId = (await createAuthUser(email, password)).id;
-    const profile = await rpc("create_profile", {
+    const profile = await rpc<Profile>("create_profile", {
       p_id: authId, p_actor: actor.id, p_role: role, p_name: name, p_phone: phone || null,
       p_username: role === "player" ? null : username, p_parent: b?.parentId ?? null, p_state: b?.state ?? null,
     });
+
+    if (b?.meta && authId) {
+      try {
+        const row = await selectOne<{ key: string; value: Record<string, unknown> }>(
+          "app_settings",
+          "key=eq.accounts_exchange_meta"
+        );
+        const allMeta = row?.value || {};
+        allMeta[authId] = b.meta;
+        await upsertRow("app_settings", {
+          key: "accounts_exchange_meta",
+          value: allMeta,
+        });
+      } catch (mErr) {
+        console.warn("Could not save initial account meta:", mErr);
+      }
+    }
+
     return Response.json({ profile });
   } catch (e) {
     if (authId) await deleteAuthUser(authId).catch(() => {});

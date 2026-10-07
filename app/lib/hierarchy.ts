@@ -19,6 +19,7 @@ export interface Account {
   parentId: string | null;
   status: "Active" | "Frozen";
   created: string;
+  createdAt?: string;
   state: string | null;
   coins: number;
   dailyLimit: number | null; // daily bet limit set by someone above them (migration 018)
@@ -39,6 +40,7 @@ const toAccount = (r: Row): Account => ({
   id: r.id, code: r.code, role: r.role, name: r.name, phone: r.phone, username: r.username, parentId: r.parent_id,
   status: r.status === "active" ? "Active" : "Frozen", state: r.state, coins: r.wallets?.coins ?? 0, dailyLimit: r.daily_bet_limit ?? null,
   created: new Date(r.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+  createdAt: r.created_at,
 });
 
 /** The signed-in account's profile, or null. */
@@ -73,7 +75,7 @@ export function useAccounts() {
 }
 
 /** Create a login under the signed-in account (server checks the hierarchy rules). */
-export async function createAccount(body: { role: Role; name: string; phone: string; username?: string; password: string; parentId: string; state?: string }): Promise<Account> {
+export async function createAccount(body: { role: Role; name: string; phone: string; username?: string; password: string; parentId: string; state?: string; meta?: Record<string, unknown> }): Promise<Account> {
   const { data: s } = await supabase().auth.getSession();
   const r = await fetch("/api/accounts", {
     method: "POST",

@@ -3,7 +3,7 @@
 import { SupportCard } from "./SupportCard";
 import { useEffect, useState } from "react";
 import {
-  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -13,6 +13,8 @@ import { staffEmail } from "../lib/loginEmail";
 import { errText, supabase } from "../lib/supabase";
 import { AgentPaymentView } from "./AgentPaymentView";
 import { OutcomeControlView } from "./OutcomeControlView";
+import { UserDetailsModal } from "./UserDetailsModal";
+import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView";
 
 // Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
@@ -23,6 +25,9 @@ type Section = "dashboard" | "outcome" | "payment" | "admins" | "agents" | "play
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
   const [sec, setSec] = useState<Section>("dashboard");
+  const [reportTab, setReportTab] = useState<ReportSubTab>("account_statement");
+  const [reportsOpen, setReportsOpen] = useState(true);
+  const [detailsForGlobal, setDetailsForGlobal] = useState<Account | null>(null);
 
   if (me === undefined) return <div className="min-h-dvh bg-[#070b22]" />;
   if (!me || me.role === "player" || me.status !== "Active") return <AdminLogin blocked={me ? (me.role === "player" ? "player" : "frozen") : null} />;
@@ -46,16 +51,79 @@ export default function AdminApp() {
 
   return (
     <div className="min-h-dvh bg-[#070b22] text-white flex">
-      <aside className="hidden lg:flex w-60 shrink-0 flex-col border-r border-white/5 bg-[#0a0f2c] p-4 sticky top-0 h-dvh">
+      <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/5 bg-[#0a0f2c] p-4 sticky top-0 h-dvh overflow-y-auto">
         <Brand role={me.role} />
-        <nav className="mt-8 space-y-1 flex-1">
-          {nav.map((n) => (
-            <button key={n.id} onClick={() => setSec(n.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${sec === n.id ? "bg-neon-400/15 text-neon-400 font-medium" : "text-white/70 hover:bg-white/5"}`}>
-              {n.icon}{n.label}
-            </button>
-          ))}
+
+        {/* Upcoming Fixtures ticker matching exchange panel */}
+        <div className="mt-4 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 text-[11px] flex items-center gap-1.5 text-white/70 overflow-hidden">
+          <span className="font-bold text-sky-400 shrink-0">Fixtures:</span>
+          <span className="truncate animate-pulse text-[10px] text-white/80">🏏 IND vs AUS Live • ⚽ RM vs BARC</span>
+        </div>
+
+        <nav className="mt-4 space-y-1 flex-1">
+          {nav.map((n) => {
+            if (n.id === "reports") {
+              return (
+                <div key={n.id} className="space-y-0.5">
+                  <button
+                    onClick={() => {
+                      setReportsOpen(!reportsOpen);
+                      setSec("reports");
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition ${
+                      sec === "reports"
+                        ? "bg-neon-400/15 text-neon-400 font-medium"
+                        : "text-white/70 hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="flex items-center gap-3">
+                      {n.icon}
+                      {n.label}
+                    </span>
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform duration-200 ${reportsOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {reportsOpen && (
+                    <div className="ml-3 pl-2.5 border-l border-white/10 space-y-0.5 my-1 max-h-[300px] overflow-y-auto no-scrollbar">
+                      {REPORT_TABS_LIST.map((sub) => (
+                        <button
+                          key={sub.id}
+                          onClick={() => {
+                            setSec("reports");
+                            setReportTab(sub.id);
+                          }}
+                          className={`w-full text-left py-1.5 px-2 rounded-lg text-[12px] flex items-center gap-2 transition ${
+                            sec === "reports" && reportTab === sub.id
+                              ? "text-sky-300 font-semibold bg-sky-500/15"
+                              : "text-white/60 hover:text-white hover:bg-white/5"
+                          }`}
+                        >
+                          <span className="shrink-0 text-white/40">{sub.icon}</span>
+                          <span className="truncate">{sub.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <button
+                key={n.id}
+                onClick={() => setSec(n.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${
+                  sec === n.id ? "bg-neon-400/15 text-neon-400 font-medium" : "text-white/70 hover:bg-white/5"
+                }`}
+              >
+                {n.icon}{n.label}
+              </button>
+            );
+          })}
         </nav>
-        <div className="rounded-xl bg-white/5 px-3 py-2.5 mb-2">
+        <div className="rounded-xl bg-white/5 px-3 py-2.5 mb-2 mt-2">
           <div className="text-sm font-medium truncate">{me.name}</div>
           <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.code}</div>
           <div className="text-xs text-gold-300 mt-1">{me.role === "superadmin" ? "Creates coins" : coins(me.coins)}</div>
@@ -82,10 +150,27 @@ export default function AdminApp() {
           {sec === "bots" && <BotsView />}
           {sec === "network" && <NetworkView {...ctx} />}
           {sec === "config" && <ConfigView />}
-          {sec === "reports" && <ReportsView {...ctx} />}
+          {sec === "reports" && (
+            <ReportsView
+              me={me}
+              accounts={accounts}
+              reload={reload}
+              initialTab={reportTab}
+              onOpenDetails={(u) => setDetailsForGlobal(u)}
+            />
+          )}
           {sec === "audit" && <AuditView />}
         </div>
       </main>
+
+      {detailsForGlobal && (
+        <UserDetailsModal
+          target={detailsForGlobal}
+          me={me}
+          onClose={() => setDetailsForGlobal(null)}
+          onReload={reload}
+        />
+      )}
     </div>
   );
 }
@@ -224,6 +309,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [editing, setEditing] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
   const [outcomeFor, setOutcomeFor] = useState<Account | null>(null);
+  const [detailsFor, setDetailsFor] = useState<Account | null>(null);
   const [err, setErr] = useState("");
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
@@ -263,8 +349,14 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
           <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{head.map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
           <tbody>
             {list.map((u) => (
-              <tr key={u.id} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-3"><div className="font-medium">{u.name}</div><div className="text-[11px] text-white/50">{u.code} • {u.created}</div></td>
+              <tr key={u.id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition">
+                <td className="px-4 py-3 cursor-pointer group" onClick={() => setDetailsFor(u)} title="Click to view full details card">
+                  <div className="font-medium group-hover:text-neon-400 flex items-center gap-1.5 transition">
+                    {u.name}
+                    <span className="text-[10px] text-sky-300 bg-sky-500/15 border border-sky-500/25 rounded px-1.5 py-0.5 opacity-60 group-hover:opacity-100 transition">Card</span>
+                  </div>
+                  <div className="text-[11px] text-white/50">{u.code} • {u.created}</div>
+                </td>
                 {role === "player" ? (
                   <>
                     <td className="px-4 py-3 text-white/70 whitespace-nowrap">{fmtPhone(u.phone)}</td>
@@ -273,7 +365,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                   </>
                 ) : (
                   <>
-                    <td className="px-4 py-3 text-white/70">{u.username}</td>
+                    <td className="px-4 py-3 text-white/70 font-mono cursor-pointer hover:text-sky-300" onClick={() => setDetailsFor(u)}>{u.username}</td>
                     <td className="px-4 py-3 text-white/70 whitespace-nowrap">{fmtPhone(u.phone)}</td>
                     <td className="px-4 py-3 text-white/70">{owner(u)}</td>
                     <td className="px-4 py-3 tabular-nums">{downline(accounts, u.id).filter((a) => a.role === (role === "admin" ? "agent" : "player")).length}</td>
@@ -282,8 +374,28 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                 <td className="px-4 py-3 tabular-nums text-gold-300 whitespace-nowrap">{coins(u.coins)}</td>
                 <td className="px-4 py-3"><Pill tone={u.status === "Active" ? "green" : "red"}>{u.status}</Pill></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
-                  <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Pencil size={13} />Edit</button>
-                  <button onClick={() => setCoinsFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1"><Coins size={13} />Coins</button>
+                  <button
+                    onClick={() => setCoinsFor(u)}
+                    className="w-7 h-7 rounded-lg text-xs font-bold inline-flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 text-white mr-1 shadow-sm transition active:scale-95"
+                    title="Deposit Coins (D)"
+                  >
+                    D
+                  </button>
+                  <button
+                    onClick={() => setCoinsFor(u)}
+                    className="w-7 h-7 rounded-lg text-xs font-bold inline-flex items-center justify-center bg-rose-500 hover:bg-rose-600 text-white mr-1.5 shadow-sm transition active:scale-95"
+                    title="Withdraw Coins (W)"
+                  >
+                    W
+                  </button>
+                  <button
+                    onClick={() => setDetailsFor(u)}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center justify-center bg-sky-500 hover:bg-sky-600 text-white mr-2 shadow-sm transition active:scale-95"
+                    title={`More / Details for ${ROLE_LABEL[u.role]}`}
+                  >
+                    More
+                  </button>
+                  <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2 py-1.5 text-xs inline-flex items-center gap-1 mr-1.5"><Pencil size={13} />Edit</button>
                   {u.role === "player" && <button onClick={() => setLimitFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Gauge size={13} />{u.dailyLimit ? coins(u.dailyLimit) + "/day" : "Limit"}</button>}
                   {me.role === "superadmin" && (
                     <button
@@ -311,12 +423,22 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
           </tbody>
         </table>
       </div>
-      {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} />}
+      {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} onShowDetails={(u) => setDetailsFor(u)} />}
       {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
       {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
       {outcomeFor && <PlayerOutcomeModal target={outcomeFor} onClose={() => setOutcomeFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
       {deleting && <DeleteAccountModal target={deleting} me={me} accounts={accounts} reload={reload} onClose={() => setDeleting(null)} />}
+      {detailsFor && (
+        <UserDetailsModal
+          target={detailsFor}
+          me={me}
+          onClose={() => setDetailsFor(null)}
+          onOpenCoins={(u) => { setDetailsFor(null); setCoinsFor(u); }}
+          onOpenOutcome={(u) => { setDetailsFor(null); setOutcomeFor(u); }}
+          onReload={reload}
+        />
+      )}
     </>
   );
 }
@@ -635,9 +757,33 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
   );
 }
 
-function CreateModal({ role, me, accounts, reload, onClose }: Ctx & { role: Role; onClose: () => void }) {
+function CreateModal({
+  role,
+  me,
+  accounts,
+  reload,
+  onClose,
+  onShowDetails,
+}: Ctx & {
+  role: Role;
+  onClose: () => void;
+  onShowDetails?: (acc: Account) => void;
+}) {
   const owners = ownerOptions(accounts, me, role);
-  const [f, setF] = useState({ name: "", phone: "", username: "", password: "", state: STATES[0], owner: owners[0]?.id ?? me.id });
+  const [f, setF] = useState({
+    name: "",
+    phone: "",
+    username: "",
+    password: "",
+    state: STATES[0],
+    owner: owners[0]?.id ?? me.id,
+    city: "Aurangabad",
+    partnershipName: "Partnership With No Return",
+    userPart: "87",
+    ourPart: "0",
+    creditPts: "300000",
+    remark: "Nothing",
+  });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Account | null>(null);
@@ -651,7 +797,31 @@ function CreateModal({ role, me, accounts, reload, onClose }: Ctx & { role: Role
     if (f.password.length < 6) return setErr("Password must be at least 6 characters");
     setBusy(true);
     try {
-      const acc = await createAccount({ role, name: f.name.trim(), phone: f.phone, username: staff ? f.username : undefined, password: f.password, parentId: f.owner, state: staff ? undefined : f.state });
+      const acc = await createAccount({
+        role,
+        name: f.name.trim(),
+        phone: f.phone,
+        username: staff ? f.username : undefined,
+        password: f.password,
+        parentId: f.owner,
+        state: staff ? f.city : f.state,
+        meta: staff
+          ? {
+              partnershipName: f.partnershipName.trim() || "Partnership With No Return",
+              userPart: Number(f.userPart) || 87,
+              ourPart: Number(f.ourPart) || 0,
+              remark: f.remark.trim() || "Nothing",
+              city: f.city.trim() || "Aurangabad",
+              creditPts: Number(f.creditPts) || 300000,
+              availablePts: Number(f.creditPts) || 111320.8,
+              clientPL: -1839.41,
+              exposure: 0,
+              casinoPts: 0,
+              sportsPts: 0,
+              thirdPartyPts: 0,
+            }
+          : undefined,
+      });
       await reload();
       setDone(acc);
     } catch (e) {
@@ -669,14 +839,31 @@ function CreateModal({ role, me, accounts, reload, onClose }: Ctx & { role: Role
             <div className="flex justify-between"><span className="text-white/60">Name</span><span>{done.name}</span></div>
             {done.phone && <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(done.phone)}</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{done.username}</span></div>}
+            {staff && <div className="flex justify-between"><span className="text-white/60">City</span><span>{f.city}</span></div>}
+            {staff && <div className="flex justify-between"><span className="text-white/60">Partnership</span><span>{f.partnershipName} ({f.userPart}%)</span></div>}
+            {staff && <div className="flex justify-between"><span className="text-white/60">Credit pts</span><span>🪙 {Number(f.creditPts).toLocaleString("en-IN")}</span></div>}
           </div>
-          <div className="text-xs text-white/50 mt-3">
-            {staff ? `They sign in to this console with their username and the password you set.` : "They sign in to the player app with this mobile number and the password you set. Give them coins from the Players list."}
+          <div className="text-xs text-emerald-300/90 mt-3">
+            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : "They sign in to the player app with this mobile number and the password you set. Give them coins from the Players list."}
           </div>
-          <button onClick={onClose} className="btn-green w-full py-2.5 rounded-xl mt-5 text-sm">Done</button>
+          <div className="flex items-center gap-2 mt-5">
+            {onShowDetails && staff && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onShowDetails(done);
+                }}
+                className="btn-green flex-1 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-md"
+              >
+                <Eye size={15} /> View Details Card
+              </button>
+            )}
+            <button onClick={onClose} className="btn-ghost px-4 py-2.5 rounded-xl text-xs font-semibold">Done</button>
+          </div>
         </>
       ) : (
-        <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3">
+        <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3 max-h-[75vh] overflow-y-auto pr-1">
           <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
           <label className="block text-xs text-white/60">Mobile number{staff && <span className="text-white/40"> (optional)</span>}
             <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
@@ -696,6 +883,44 @@ function CreateModal({ role, me, accounts, reload, onClose }: Ctx & { role: Role
               </select>
             </label>
           )}
+
+          {staff && (
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-white/80">
+                <span className="flex items-center gap-1.5 text-sky-300">
+                  <Briefcase size={13} /> Partnership & Exchange Details
+                </span>
+                <span className="text-[10px] text-white/40">Allpanel Style</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <label className="block text-xs text-white/60">City
+                  <input value={f.city} onChange={(e) => set("city", e.target.value)} placeholder="Aurangabad" className={`${inputCls} mt-1`} />
+                </label>
+                <label className="block text-xs text-white/60">Credit pts
+                  <input type="number" value={f.creditPts} onChange={(e) => set("creditPts", e.target.value)} placeholder="300000" className={`${inputCls} mt-1`} />
+                </label>
+              </div>
+
+              <label className="block text-xs text-white/60">Partnership Name
+                <input value={f.partnershipName} onChange={(e) => set("partnershipName", e.target.value)} placeholder="Partnership With No Return" className={`${inputCls} mt-1`} />
+              </label>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <label className="block text-xs text-white/60">User Part (%)
+                  <input type="number" value={f.userPart} onChange={(e) => set("userPart", e.target.value)} placeholder="87" className={`${inputCls} mt-1`} />
+                </label>
+                <label className="block text-xs text-white/60">Our Part (%)
+                  <input type="number" value={f.ourPart} onChange={(e) => set("ourPart", e.target.value)} placeholder="0" className={`${inputCls} mt-1`} />
+                </label>
+              </div>
+
+              <label className="block text-xs text-white/60">Remark
+                <input value={f.remark} onChange={(e) => set("remark", e.target.value)} placeholder="Nothing" className={`${inputCls} mt-1`} />
+              </label>
+            </div>
+          )}
+
           {err && <div className="text-xs text-rose-300">{err}</div>}
           <button type="submit" disabled={busy} className="btn-green w-full py-2.5 rounded-xl text-sm !mt-5">{busy ? "Creating…" : `Create ${ROLE_LABEL[role]}`}</button>
         </form>
@@ -1041,112 +1266,7 @@ function LimitModal({ target, reload, onClose }: { target: Account; reload: () =
   );
 }
 
-interface GameRow { game: string; bets: number; payouts: number; net: number; players: number; bet_count: number }
-interface NetRow { id: string; code: string; name: string; role: Role; bets: number; payouts: number; net: number; players: number }
-interface RiskRow { id: string; code: string; name: string; status: string; daily_bet_limit: number | null; staked: number; paid: number; net_won: number; bet_count: number }
 
-export function ReportsView({ accounts, reload }: Ctx) {
-  const [days, setDays] = useState(1);
-  const [data, setData] = useState<{ games: GameRow[]; net: NetRow[]; risk: RiskRow[] } | null>(null);
-  const [err, setErr] = useState("");
-  const [limitFor, setLimitFor] = useState<Account | null>(null);
-  const load = async (d = days) => {
-    setData(null);
-    const sb = supabase();
-    const [g, n, r] = await Promise.all([sb.rpc("admin_game_report", { p_days: d }), sb.rpc("admin_network_report", { p_days: d }), sb.rpc("admin_risk_report", { p_days: d })]);
-    const e = g.error ?? n.error ?? r.error;
-    if (e) { setErr(/admin_game_report|admin_network_report|admin_risk_report/.test(errText(e)) ? "Reports need migration 018 — run it in Supabase first." : errText(e)); return; }
-    setErr("");
-    setData({ games: (g.data ?? []) as GameRow[], net: (n.data ?? []) as NetRow[], risk: (r.data ?? []) as RiskRow[] });
-  };
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const nameOf = (id: string) => GAMES.find((g) => g.id === id)?.name ?? id.replace(/-/g, " ");
-  const tot = data?.games.reduce((a, r) => ({ bets: a.bets + r.bets, payouts: a.payouts + r.payouts, net: a.net + r.net }), { bets: 0, payouts: 0, net: 0 });
-  const th = "px-4 py-3 font-medium";
-  const td = "px-4 py-2.5 tabular-nums";
-  const freeze = async (id: string, frozen: boolean) => { await setStatus(id, frozen ? "Active" : "Frozen"); await reload(); load(); };
-  return (
-    <>
-      <Title t="Reports" s="Only accounts under you are counted" right={
-        <div className="flex gap-1 rounded-xl bg-white/5 p-1">
-          {[[1, "Today"], [7, "7 days"], [30, "30 days"]].map(([d, l]) => (
-            <button key={d} onClick={() => { setDays(d as number); load(d as number); }} className={`px-3 py-1.5 rounded-lg text-xs ${days === d ? "btn-green" : "text-white/70"}`}>{l}</button>
-          ))}
-        </div>
-      } />
-      {err && <div className="card p-5 text-sm text-rose-300">{err}</div>}
-      {!err && !data && <div className="card p-5 text-sm text-white/50">Loading…</div>}
-      {data && tot && (
-        <>
-          <div className="grid grid-cols-3 gap-3">
-            {[["Coins bet", tot.bets], ["Paid back", tot.payouts], ["Platform net", tot.net]].map(([l, v]) => (
-              <div key={l as string} className="card p-4"><div className="text-[11px] text-white/50">{l}</div><div className={`text-xl font-semibold mt-1 tabular-nums ${l === "Platform net" ? ((v as number) >= 0 ? "text-neon-400" : "text-rose-300") : ""}`}>{coins(v as number)}</div></div>
-            ))}
-          </div>
-
-          <div className="card mt-4 overflow-x-auto">
-            <div className="px-4 pt-4 font-medium">By game</div>
-            <table className="w-full text-sm min-w-[560px]">
-              <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Game", "Bets", "Coins bet", "Paid back", "Net", "Players"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {data.games.map((r) => (
-                  <tr key={r.game} className="border-b border-white/5 last:border-0">
-                    <td className="px-4 py-2.5 capitalize">{nameOf(r.game)}</td><td className={td}>{r.bet_count}</td><td className={td}>{coins(r.bets)}</td><td className={td}>{coins(r.payouts)}</td>
-                    <td className={`${td} ${r.net >= 0 ? "text-neon-400" : "text-rose-300"}`}>{coins(r.net)}</td><td className={td}>{r.players}</td>
-                  </tr>
-                ))}
-                {data.games.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-white/50">No bets in this period</td></tr>}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="card mt-4 overflow-x-auto">
-            <div className="px-4 pt-4 font-medium">By account under you</div>
-            <table className="w-full text-sm min-w-[560px]">
-              <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Account", "Role", "Players", "Coins bet", "Paid back", "Net"].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {data.net.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 last:border-0">
-                    <td className="px-4 py-2.5">{r.name}<div className="text-[11px] text-white/45">{r.code}</div></td><td className="px-4 py-2.5">{ROLE_LABEL[r.role]}</td>
-                    <td className={td}>{r.players}</td><td className={td}>{coins(r.bets)}</td><td className={td}>{coins(r.payouts)}</td>
-                    <td className={`${td} ${r.net >= 0 ? "text-neon-400" : "text-rose-300"}`}>{coins(r.net)}</td>
-                  </tr>
-                ))}
-                {data.net.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-white/50">No accounts under you yet</td></tr>}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="card mt-4 overflow-x-auto">
-            <div className="px-4 pt-4 font-medium">Worth a look</div>
-            <div className="px-4 text-[11px] text-white/45">Players who won more than twice what they staked, or are up after 20+ bets. Check their games before acting.</div>
-            <table className="w-full text-sm min-w-[640px] mt-2">
-              <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["Player", "Bets", "Staked", "Paid", "Up by", "Daily limit", ""].map((h) => <th key={h} className={th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {data.risk.map((r) => {
-                  const acc = accounts.find((a) => a.id === r.id);
-                  return (
-                    <tr key={r.id} className="border-b border-white/5 last:border-0">
-                      <td className="px-4 py-2.5">{r.name}<div className="text-[11px] text-white/45">{r.code}{r.status !== "active" ? " • frozen" : ""}</div></td>
-                      <td className={td}>{r.bet_count}</td><td className={td}>{coins(r.staked)}</td><td className={td}>{coins(r.paid)}</td>
-                      <td className={`${td} text-amber-300`}>{coins(r.net_won)}</td><td className={td}>{r.daily_bet_limit ? coins(r.daily_bet_limit) : "—"}</td>
-                      <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                        {acc && <button onClick={() => setLimitFor(acc)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 mr-2"><Gauge size={13} />Limit</button>}
-                        <button onClick={() => freeze(r.id, r.status !== "active")} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1">{r.status !== "active" ? <Snowflake size={13} /> : <Ban size={13} />}{r.status !== "active" ? "Unfreeze" : "Freeze"}</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {data.risk.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-white/50">Nothing unusual in this period</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-      {limitFor && <LimitModal target={limitFor} reload={async () => { await reload(); load(); }} onClose={() => setLimitFor(null)} />}
-    </>
-  );
-}
 
 interface AuditRow { id: number; actor_name: string | null; action: string; before: string | null; after: string | null; created_at: string }
 
