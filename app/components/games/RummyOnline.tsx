@@ -522,13 +522,6 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </button>
         )}
 
-        {/* Last move on the table — tap for every move and the discard pile */}
-        {inDeal && v?.log && cards === 13 && (
-          <button onClick={() => setMoves(true)} className="absolute left-[3%] bottom-[104px] z-20 w-[20%] rounded-lg bg-[#1a1e1a]/95 border border-white/10 px-2 py-1 text-left text-[10.5px] leading-tight">
-            <span className="text-white/45">Last move ›</span>
-            <span className="block line-clamp-2 text-white/90">{v.log.length ? moveTxt(v.log[v.log.length - 1], v.me) : "No moves yet"}</span>
-          </button>
-        )}
 
         {/* Opponents */}
         {v && shownOthers.map((si, k) => {
@@ -592,7 +585,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         </div>
 
         {/* My hand */}
-        <div className="absolute inset-x-0 z-20 flex justify-center" style={{ bottom: Math.round(52 * S) }}>
+        <div className="absolute inset-x-0 z-20 flex justify-center" style={{ bottom: Math.round(72 * S) }}>
           {v && mySeat && !mySeat.playing && v.status !== "waiting" && mySeat.action === "Not enough coins" ? (
             <div className="text-center bg-black/50 rounded-lg px-3 py-2">
               <div className="text-[12px] text-white/75">You need {inr(mode === "points" ? stake * maxPts : stake)} to play this table</div>
