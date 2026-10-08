@@ -10,7 +10,9 @@ export async function GET(req: NextRequest) {
   const isLive = searchParams.get("live") === "true" || searchParams.get("inPlay") === "true";
   const team1 = searchParams.get("team1") || "";
   const team2 = searchParams.get("team2") || "";
-  const cacheControl = isLive ? "public, max-age=0" : "public, max-age=2";
+  // no-store: Netlify's CDN ignores query strings, so caching here would serve one event's data for another.
+  // The Railway server already caches upstream calls.
+  const cacheControl = "no-store";
 
   if (!eventId) {
     return NextResponse.json({ success: false, message: "eventId required", data: { matchOdds: [], bookMakerOdds: [], fancyOdds: [], otherMarketOdds: [] } });

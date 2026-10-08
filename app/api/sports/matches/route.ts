@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
     if (railwayRes.ok) {
       const json = await railwayRes.json();
-      return NextResponse.json(json, { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=15" } });
+      return NextResponse.json(json, { headers: { "Cache-Control": "no-store" } });
     }
   } catch (err) {
     console.warn("Proxy to Node server failed for matches:", err);
