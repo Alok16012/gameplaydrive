@@ -305,6 +305,8 @@ const server = createServer(async (req, res) => {
                   team1: { name: t1, short: t1.slice(0, 3).toUpperCase() },
                   team2: { name: t2, short: t2.slice(0, 3).toUpperCase() },
                   section: m.section,
+                  sport: sportName,
+                  etid: m.etid,
                 };
               });
 

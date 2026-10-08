@@ -98,8 +98,17 @@ export interface CricketScorecard {
   lastWicket?: string;
 }
 
+// Upstream sport tags: "soccer"/"football" or my99exch etid (1 soccer, 2 tennis, 4 cricket)
+const ETID_SPORT: Record<number, SportType> = { 1: "soccer", 2: "tennis", 4: "cricket" };
+function tagSport(m: any): SportType | null {
+  if (m.etid != null && ETID_SPORT[Number(m.etid)]) return ETID_SPORT[Number(m.etid)];
+  if (typeof m.sport === "string") return m.sport.toLowerCase() === "football" ? "soccer" : (m.sport.toLowerCase() as SportType);
+  return null;
+}
+
 function parseMatchesList(rawList: any[], sport: SportType, isReal = false): CricketMatch[] {
-  return rawList.map((m: any) => {
+  // Drop anything tagged as a different sport, so a feed mix-up never shows cricket under football, etc.
+  return rawList.filter((m: any) => (tagSport(m) ?? sport) === sport).map((m: any) => {
     let t1 = m.team1;
     let t2 = m.team2;
     if (!t1 || !t2) {
@@ -146,7 +155,7 @@ function parseMatchesList(rawList: any[], sport: SportType, isReal = false): Cri
       hasFancy: Boolean(m.hasFancy ?? m.f ?? true),
       hasBookmaker: Boolean(m.hasBookmaker ?? m.bm ?? true),
       status: isLiveMatch ? "INPLAY" : "UPCOMING",
-      sport: (m.sport || sport) as SportType,
+      sport,
       team1: t1,
       team2: t2,
       back1: b1 > 0 ? b1 : 1.85,

@@ -189,6 +189,7 @@ export function Cricket({
 
   const filteredMatches = useMemo(() => {
     return matches.filter((m) => {
+      if (m.sport !== selectedSport) return false;
       if (activeTabFilter === "inplay" && !m.inPlay && !m.isLive) return false;
       if (activeTabFilter === "upcoming" && (m.inPlay || m.isLive)) return false;
 
@@ -203,7 +204,7 @@ export function Cricket({
       }
       return true;
     });
-  }, [matches, searchQuery, activeTabFilter]);
+  }, [matches, searchQuery, activeTabFilter, selectedSport]);
 
   // Open Bet Slip
   const openBet = (
