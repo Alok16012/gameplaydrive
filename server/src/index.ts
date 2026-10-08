@@ -265,6 +265,7 @@ const server = createServer(async (req, res) => {
           const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?etid=${etid}`, {
             headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
             cache: "no-store",
+            signal: AbortSignal.timeout(20000),
           });
           if (my99Res.ok) {
             const json = await my99Res.json();
@@ -314,7 +315,9 @@ const server = createServer(async (req, res) => {
               };
             }
           }
-        } catch {}
+        } catch (e: any) {
+          console.warn(`[matches] my99exch ${sportName} failed: ${e.message}`);
+        }
 
         // 2. Fallback to DiamondExch matches
         const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/matches`, {
@@ -327,11 +330,11 @@ const server = createServer(async (req, res) => {
           contentType: dRes.headers.get("content-type") || "application/json",
           data: text,
         };
-      });
+      }, true);
 
       res.writeHead(cachedRes.status, {
         "Content-Type": cachedRes.contentType,
-        "Cache-Control": "public, max-age=900",
+        "Cache-Control": "public, max-age=30",
         "X-Cache": cachedRes.cached ? "HIT" : "MISS",
         "X-Cache-Age-Ms": String(cachedRes.ageMs),
       });
@@ -603,7 +606,17 @@ await Promise.all([refreshConfig(), refreshBots()]);
 setInterval(refreshConfig, 30_000);
 setInterval(refreshBots, 60_000);
 
-server.listen(PORT, () => console.log(`[gamehub] game server on :${PORT}`));
+server.listen(PORT, () => {
+  console.log(`[gamehub] game server on :${PORT}`);
+  // Keep every sport's match list warm so no visitor waits on the slow upstream.
+  const warm = () => {
+    for (const s of ["cricket", "soccer", "tennis"]) {
+      fetch(`http://127.0.0.1:${PORT}/api/sports/matches?sport=${s}`).catch(() => {});
+    }
+  };
+  warm();
+  setInterval(warm, 45_000);
+});
 
 // Railway sends SIGTERM on redeploy: give back coins for hands that can't finish, then exit.
 async function shutdown() {

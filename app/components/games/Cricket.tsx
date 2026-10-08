@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ChevronRight,
@@ -120,15 +120,27 @@ export function Cricket({
   const [betSlip, setBetSlip] = useState<BetSlipState | null>(null);
   const [stake, setStake] = useState<number>(500);
 
-  // Load matches for selected sport (15 min cache)
+  // Load matches for selected sport
+  // A slow response for a previously selected sport must not overwrite the current list.
+  // An empty response (upstream timeout) is retried, and never wipes a list already on screen.
+  const currentSportRef = useRef(selectedSport);
+  currentSportRef.current = selectedSport;
   const loadMatches = async (sport = selectedSport) => {
     setLoading(true);
-    const list = await fetchCricketMatches(sport);
-    setMatches(list);
+    let list: CricketMatch[] = [];
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+      if (currentSportRef.current !== sport) return;
+      list = await fetchCricketMatches(sport);
+      if (list.length > 0) break;
+    }
+    if (currentSportRef.current !== sport) return;
+    if (list.length > 0) setMatches(list);
     setLoading(false);
   };
 
   useEffect(() => {
+    setMatches([]);
     loadMatches(selectedSport);
     setMyBets(loadStoredBets());
     const t = setInterval(() => loadMatches(selectedSport), 15000);

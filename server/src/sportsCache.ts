@@ -10,7 +10,7 @@ interface CacheEntry {
 }
 
 export const CACHE_TTLS = {
-  MATCH_LIST: 15 * 60 * 1000,          // 15 minutes
+  MATCH_LIST: 60 * 1000,               // 1 minute (served stale while refreshing, and pre-warmed)
   LIVE_MATCH_ODDS: 500,                // 500 ms
   UPCOMING_MATCH_ODDS: 2 * 1000,       // 2 seconds
   FANCY_RESULTS: 1 * 60 * 1000,        // 1 minute
@@ -23,13 +23,27 @@ const inFlight = new Map<string, Promise<{ status: number; contentType: string; 
 export async function fetchWithCache(
   key: string,
   ttlMs: number,
-  fetchFn: () => Promise<{ status: number; contentType: string; data: string }>
+  fetchFn: () => Promise<{ status: number; contentType: string; data: string }>,
+  // Expired entries are returned immediately while a background refresh runs.
+  // For slow upstreams (my99exch can take 10s+) where a slightly old list beats a timeout.
+  staleWhileRevalidate = false
 ): Promise<{ status: number; contentType: string; data: string; cached: boolean; ageMs: number }> {
   const now = Date.now();
   const cached = store.get(key);
 
   // Return fresh cache if within TTL
   if (cached && (now - cached.timestamp < cached.ttl)) {
+    return {
+      status: cached.status,
+      contentType: cached.contentType,
+      data: cached.data,
+      cached: true,
+      ageMs: now - cached.timestamp,
+    };
+  }
+
+  if (cached && staleWhileRevalidate) {
+    if (!inFlight.has(key)) refresh(key, ttlMs, fetchFn).catch(() => {});
     return {
       status: cached.status,
       contentType: cached.contentType,
@@ -51,6 +65,22 @@ export async function fetchWithCache(
     };
   }
 
+  const result = await refresh(key, ttlMs, fetchFn);
+
+  return {
+    status: result.status,
+    contentType: result.contentType,
+    data: result.data,
+    cached: false,
+    ageMs: 0,
+  };
+}
+
+function refresh(
+  key: string,
+  ttlMs: number,
+  fetchFn: () => Promise<{ status: number; contentType: string; data: string }>
+) {
   const promise = (async () => {
     try {
       const res = await fetchFn();
@@ -70,15 +100,7 @@ export async function fetchWithCache(
   })();
 
   inFlight.set(key, promise);
-  const result = await promise;
-
-  return {
-    status: result.status,
-    contentType: result.contentType,
-    data: result.data,
-    cached: false,
-    ageMs: 0,
-  };
+  return promise;
 }
 
 export function clearCache(pattern?: string) {

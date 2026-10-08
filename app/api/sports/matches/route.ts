@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   try {
     const railwayRes = await fetch(`${railwayHost}/api/sports/matches?sport=${encodeURIComponent(sportName)}`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (railwayRes.ok) {
