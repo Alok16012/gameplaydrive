@@ -135,6 +135,15 @@ async function onMessage(c: Conn, raw: string) {
 
 // ------------------------------------------------------------------ HTTP: health + lobby counts + sports proxy
 
+// ?sport= wins over the path segment: the Next proxies call /api/sports/matches and /api/cricket/odds for every sport.
+function resolveSport(pathSport: string | undefined, querySport: string | null): string {
+  const s = (querySport || pathSport || "cricket").toLowerCase();
+  return s === "football" || s === "sports" ? "soccer" : s;
+}
+
+// Event ids whose odds source has been logged once (keeps 500ms polling from flooding the logs)
+const oddsLogged = new Set<string>();
+
 const server = createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -245,30 +254,32 @@ const server = createServer(async (req, res) => {
   // 2. Proxy: Sports Matches from my99exch / DiamondExch (Cached for 15 minutes)
   const matchesMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/matches$/);
   if (matchesMatch || pathname === "/api/sports/matches") {
-    let sportName = matchesMatch ? matchesMatch[1] : (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
-    if (sportName === "football" || sportName === "sports") sportName = "soccer";
+    const sportName = resolveSport(matchesMatch?.[1], parsedUrl.searchParams.get("sport"));
     const cacheKey = `matches_${sportName}`;
     const etid = sportName === "soccer" ? 1 : sportName === "tennis" ? 2 : 4;
 
     try {
       const cachedRes = await fetchWithCache(cacheKey, CACHE_TTLS.MATCH_LIST, async () => {
-        // 1. Try my99exch highlight odds feed
+        // 1. Try my99exch highlight odds feed (returns cricket only unless etid is passed)
         try {
-          const my99Res = await fetch("https://my99exch.cx/api/front_open/highlightodds-direct/", {
+          const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?etid=${etid}`, {
             headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
             cache: "no-store",
           });
           if (my99Res.ok) {
             const json = await my99Res.json();
             const list = json?.data?.t1;
-            if (Array.isArray(list) && list.length > 0) {
-              const filtered = list.filter((m: any) => !etid || m.etid === etid || m.etid === 4);
-              const mapped = (filtered.length > 0 ? filtered : list).map((m: any) => {
-                const parts = (m.ename || "").split(/ v | vs | VS /i);
-                const t1 = parts[0]?.trim() || m.section?.[0]?.nat || "Team 1";
-                const t2 = parts[1]?.trim() || m.section?.[1]?.nat || "Team 2";
-                const o1 = m.section?.[0]?.odds || [];
-                const o2 = m.section?.[1]?.odds || [];
+            const filtered = Array.isArray(list) ? list.filter((m: any) => m.etid === etid) : [];
+            if (filtered.length > 0) {
+              const mapped = filtered.map((m: any) => {
+                // Cricket uses "A v B"; football/tennis use "A - B"
+                const parts = (m.ename || "").split(/ v | vs | - /i);
+                // soccer adds a "Draw" runner; keep only the two teams
+                const sections = (m.section || []).filter((s: any) => String(s.nat || "").trim().toLowerCase() !== "draw");
+                const t1 = parts[0]?.trim() || sections[0]?.nat?.trim() || "Team 1";
+                const t2 = parts[1]?.trim() || sections[1]?.nat?.trim() || "Team 2";
+                const o1 = sections[0]?.odds || [];
+                const o2 = sections[1]?.odds || [];
                 const b1 = o1.find((x: any) => x.oname === "back1")?.odds || 0;
                 const l1 = o1.find((x: any) => x.oname === "lay1")?.odds || 0;
                 const b2 = o2.find((x: any) => x.oname === "back1")?.odds || 0;
@@ -335,24 +346,63 @@ const server = createServer(async (req, res) => {
   const oddsMatch = pathname.match(/^\/api\/(cricket|soccer|football|tennis|sports)\/odds$/);
   if (oddsMatch || pathname === "/api/cricket/odds" || pathname === "/api/sports/odds") {
     const eventId = parsedUrl.searchParams.get("gameId") || parsedUrl.searchParams.get("eventId") || "";
-    let sportName = oddsMatch ? oddsMatch[1] : (parsedUrl.searchParams.get("sport") || "cricket").toLowerCase();
-    if (sportName === "football" || sportName === "sports") sportName = "soccer";
+    const sportName = resolveSport(oddsMatch?.[1], parsedUrl.searchParams.get("sport"));
     const isLive = parsedUrl.searchParams.get("live") === "true" || parsedUrl.searchParams.get("inPlay") === "true";
     const ttl = isLive ? CACHE_TTLS.LIVE_MATCH_ODDS : CACHE_TTLS.UPCOMING_MATCH_ODDS;
     const cacheKey = `odds_${sportName}_${eventId}`;
 
     try {
       const cachedRes = await fetchWithCache(cacheKey, ttl, async () => {
-        // 1. Try my99exch highlight odds directly with gmid
+        // 1. DiamondExch is the primary source — the only one carrying fancy / bookmaker / other markets.
+        // It must be queried by gameId (eventId-only queries return 401).
         try {
-          const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?gmid=${encodeURIComponent(eventId)}`, {
+          const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?gameId=${encodeURIComponent(eventId)}`, {
+            headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
+            cache: "no-store",
+            signal: AbortSignal.timeout(6000),
+          });
+          if (dRes.ok) {
+            const json = await dRes.json();
+            const raw = json?.data || {};
+            const pick = (k: string) => (Array.isArray(raw[k]) ? raw[k] : []);
+            const data = {
+              matchOdds: pick("matchOdds"),
+              bookMakerOdds: pick("bookMakerOdds"),
+              fancyOdds: pick("fancyOdds"),
+              otherMarketOdds: pick("otherMarketOdds"),
+              premiumFancy: pick("premiumFancy"),
+            };
+            if (data.matchOdds.length > 0 || data.fancyOdds.length > 0 || data.bookMakerOdds.length > 0) {
+              if (!oddsLogged.has(eventId)) {
+                oddsLogged.add(eventId);
+                console.log(`[odds] diamond ${sportName}/${eventId}: match=${data.matchOdds.length} bm=${data.bookMakerOdds.length} fancy=${data.fancyOdds.length} other=${data.otherMarketOdds.length}`);
+              }
+              return {
+                status: 200,
+                contentType: "application/json",
+                data: JSON.stringify({ status: 200, success: true, source: "diamondexch_live", data }),
+              };
+            }
+            console.warn(`[odds] diamond ${sportName}/${eventId}: empty markets, falling back to my99exch`);
+          } else {
+            console.warn(`[odds] diamond ${sportName}/${eventId}: HTTP ${dRes.status}, falling back to my99exch`);
+          }
+        } catch (e: any) {
+          console.warn(`[odds] diamond ${sportName}/${eventId} failed: ${e.message}, falling back to my99exch`);
+        }
+
+        // 2. Fallback: my99exch highlight odds (match odds only, no fancy)
+        try {
+          const etid = sportName === "soccer" ? 1 : sportName === "tennis" ? 2 : 4;
+          const my99Res = await fetch(`https://my99exch.cx/api/front_open/highlightodds-direct/?etid=${etid}&gmid=${encodeURIComponent(eventId)}`, {
             headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
             cache: "no-store",
           });
           if (my99Res.ok) {
             const json = await my99Res.json();
             const list = json?.data?.t1 || [];
-            const match = list.find((x: any) => String(x.gmid) === String(eventId)) || list[0];
+            // Never fall back to another match's odds
+            const match = list.find((x: any) => String(x.gmid) === String(eventId));
             if (match && Array.isArray(match.section) && match.section.length > 0) {
               const oddDatas = match.section.map((sec: any, idx: number) => {
                 const oddsArr = sec.odds || [];
@@ -432,18 +482,14 @@ const server = createServer(async (req, res) => {
               };
             }
           }
-        } catch {}
+        } catch (e: any) {
+          console.warn(`[odds] my99exch ${eventId} failed: ${e.message}`);
+        }
 
-        // 2. Fallback to DiamondExch
-        const dRes = await fetch(`https://apis.diamondexchapi.com/api/${sportName}/odds?gameId=${encodeURIComponent(eventId)}&eventId=${encodeURIComponent(eventId)}`, {
-          headers: { "Accept": "application/json", "User-Agent": "curl/7.81.0" },
-          cache: "no-store",
-        });
-        const text = await dRes.text();
         return {
-          status: dRes.status,
-          contentType: dRes.headers.get("content-type") || "application/json",
-          data: text,
+          status: 200,
+          contentType: "application/json",
+          data: JSON.stringify({ success: false, message: "No live odds available", data: { matchOdds: [], bookMakerOdds: [], fancyOdds: [], otherMarketOdds: [] } }),
         };
       });
 
