@@ -918,9 +918,6 @@ export function Cricket({
             Upcoming ({matches.filter((m) => !m.inPlay && !m.isLive).length})
           </button>
         </div>
-        <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-          <Activity size={11} /> Auto 15m
-        </div>
       </div>
 
       {/* Search Input */}
