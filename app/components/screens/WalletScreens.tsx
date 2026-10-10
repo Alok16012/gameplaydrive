@@ -83,9 +83,10 @@ export function WalletScreen({ nav }: { nav: Nav }) {
           <div className="text-[11px] text-white/60 mt-2">{player?.agent ? `Your agent: ${player.agent}` : "Coins come from your agent"}</div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mt-5">
+        <div className="grid grid-cols-3 gap-3 mt-5">
           {[
             ["Get Coins", <Plus key="a" size={20} strokeWidth={3} />, () => nav.push({ name: "addcash" }), true],
+            ["Withdraw", <ArrowDownLeft key="w" size={20} className={total > 0 ? "text-rose-400" : "text-white/40"} />, () => nav.push({ name: "addcash", withdraw: true }), false],
             ["History", <ReceiptText key="t" size={20} />, () => nav.push({ name: "txns" }), false],
           ].map(([label, icon, fn, primary]) => (
             <button key={label as string} onClick={fn as () => void} className="flex flex-col items-center gap-2 text-xs font-medium">
@@ -114,7 +115,7 @@ export function WalletScreen({ nav }: { nav: Nav }) {
 }
 
 /** "Get coins" — displays the player's specific agent UPI and QR code details. */
-export function AddCash({ nav }: { nav: Nav }) {
+export function AddCash({ nav, defaultWithdraw }: { nav: Nav; defaultWithdraw?: boolean }) {
   const { player, refresh, total, showToast } = useStore();
   const [paymentInfo, setPaymentInfo] = useState<AgentPaymentInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,7 +124,7 @@ export function AddCash({ nav }: { nav: Nav }) {
   const [refreshing, setRefreshing] = useState(false);
   const [utr, setUtr] = useState("");
   const [submittingUtr, setSubmittingUtr] = useState(false);
-  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(defaultWithdraw ?? false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [acNumber, setAcNumber] = useState("");
   const [ifsc, setIfsc] = useState("");

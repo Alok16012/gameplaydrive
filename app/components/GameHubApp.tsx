@@ -142,7 +142,7 @@ function Shell() {
       ? <LudoOnline key={route.table} nav={nav} code={route.table.slice(2)} entry={route.buyIn} />
       : <BoardGame key={route.table + route.buyIn + (route.players ?? 4)} nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} players={route.players} />; break;
     case "wallet": screen = <WalletScreen nav={nav} />; break;
-    case "addcash": screen = <AddCash nav={nav} />; break;
+    case "addcash": screen = <AddCash nav={nav} defaultWithdraw={route.withdraw} />; break;
     case "txns": screen = <Transactions nav={nav} />; break;
     case "more": screen = <More nav={nav} />; break;
     case "history": screen = <GameHistory nav={nav} />; break;
