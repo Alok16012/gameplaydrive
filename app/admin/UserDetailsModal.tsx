@@ -78,6 +78,7 @@ export function UserDetailsModal({
   const [form, setForm] = useState<UserExchangeMeta>(meta);
   const [stats, setStats] = useState<AccountStats | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [showSportsExposure, setShowSportsExposure] = useState(false);
 
   // Load saved metadata from app_settings or fallback
   useEffect(() => {
@@ -522,9 +523,12 @@ export function UserDetailsModal({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Sports pts:</span>
-                    <span className="text-slate-700 font-normal">
+                  <div 
+                    className="grid grid-cols-[140px_1fr] items-baseline cursor-pointer hover:bg-slate-50 p-1 -ml-1 rounded transition" 
+                    onClick={() => setShowSportsExposure(true)}
+                  >
+                    <span className="font-bold text-slate-700">Live Sports Exposure:</span>
+                    <span className="text-slate-700 font-normal text-blue-600 font-semibold underline decoration-blue-300 underline-offset-2">
                       {meta.sportsPts ?? 0}
                     </span>
                   </div>
@@ -600,6 +604,78 @@ export function UserDetailsModal({
               Close
             </button>
           </div>
+        </div>
+      </div>
+
+      {showSportsExposure && (
+        <LiveSportsExposureModal target={target} onClose={() => setShowSportsExposure(false)} />
+      )}
+    </div>
+  );
+}
+
+function LiveSportsExposureModal({ target, onClose }: { target: Account; onClose: () => void }) {
+  const [bets, setBets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const { data } = await supabase()
+          .from("ledger")
+          .select("*")
+          .eq("user_id", target.id)
+          .eq("kind", "bet")
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (active) setBets(data || []);
+      } catch (e) {
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    load();
+    return () => { active = false; };
+  }, [target.id]);
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-3 sm:p-4 animate-in fade-in zoom-in-95" onClick={onClose}>
+      <div className="w-full max-w-[420px] bg-[#1e2430] text-slate-200 rounded-2xl overflow-hidden shadow-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900">
+          <h3 className="font-bold tracking-wider text-sm text-white">LIVE SPORTS EXPOSURE</h3>
+          <button onClick={onClose} className="text-white/60 hover:text-white p-1 rounded-lg bg-white/5"><X size={16} /></button>
+        </div>
+        <div className="px-4 py-3 bg-slate-800/50 text-xs text-white/50 border-b border-white/5 flex justify-between items-center">
+          <span>Exposure points blocked across live sports events</span>
+        </div>
+        <div className="p-4 max-h-[60vh] overflow-y-auto space-y-2">
+          {loading ? (
+            <div className="py-8 text-center text-white/40 text-sm">Loading bets...</div>
+          ) : bets.length === 0 ? (
+            <div className="py-8 text-center text-white/40 text-sm">No active sports exposure found.</div>
+          ) : (
+            bets.map((b) => (
+              <div key={b.id} className="flex items-center gap-3 py-3 border-b border-white/5 last:border-0">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#fca5a5,#dc2626)" }}>
+                  <span className="text-[13px]">🎲</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white truncate">
+                    {b.note?.split(" [")[0] || "Live Sports Bet"}
+                  </div>
+                  <div className="text-[11px] text-white/50 truncate">
+                    {b.note?.includes("[") ? `[${b.note.split(" [")[1]}` : "Match Odds"}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-bold text-rose-400 font-mono">
+                    - {Math.abs(b.amount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

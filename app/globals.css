@@ -117,10 +117,14 @@ body {
   animation: oddsFlashLay 0.45s ease-out;
 }
 
-.felt {
-  background:
-    radial-gradient(60% 55% at 50% 45%, #1f8a55 0%, #13673f 55%, #0c4a2d 100%);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.55), 0 0 0 10px #3b2412, 0 0 0 13px #6b4424, 0 20px 40px rgba(0, 0, 0, 0.6);
+.felt, .felt-oval, .rc-felt {
+  background: radial-gradient(60% 60% at 50% 40%, #2fae7a 0%, #1d8a5d 50%, #12623f 100%);
+  box-shadow:
+    inset 0 0 50px rgba(0, 0, 0, 0.5),
+    0 0 0 9px #4a2a12,
+    0 0 0 12px #8a5a2b,
+    0 0 0 14px #2a170a,
+    0 25px 50px rgba(0, 0, 0, 0.6);
 }
 
 @keyframes float { 0%,100% { transform: translateY(0) rotate(var(--r, 0deg)); } 50% { transform: translateY(-10px) rotate(var(--r, 0deg)); } }
@@ -186,9 +190,9 @@ body {
 }
 
 /* Landscape card tables (LandscapeStage) */
-.table-room {
-  background:
-    radial-gradient(70% 60% at 50% 45%, #3b1f6b 0%, #23124a 45%, #120a2a 100%);
+/* Landscape card tables (LandscapeStage) */
+.table-room, .rc-room {
+  background: radial-gradient(80% 70% at 50% 60%, #121a13 0%, #0a0d0a 70%, #050605 100%);
 }
 .stage-rotated {
   position: absolute;
@@ -201,30 +205,11 @@ body {
   transform-origin: top left;
   transform: rotate(90deg);
 }
-.felt-oval {
+.felt-oval, .rc-felt {
   border-radius: 50%;
-  background: radial-gradient(60% 60% at 50% 40%, #2fae7a 0%, #1d8a5d 50%, #12623f 100%);
-  box-shadow:
-    inset 0 0 50px rgba(0, 0, 0, 0.5),
-    0 0 0 9px #4a2a12,
-    0 0 0 12px #8a5a2b,
-    0 0 0 14px #2a170a,
-    0 25px 50px rgba(0, 0, 0, 0.6);
 }
 
 /* Rummy table (styled after native rummy apps): near-black room, bright green oval felt with a dark rim. */
-.rc-room {
-  background: radial-gradient(80% 70% at 50% 60%, #121a13 0%, #0a0d0a 70%, #050605 100%);
-}
-.rc-felt {
-  border-radius: 50%;
-  background: radial-gradient(55% 45% at 50% 35%, #29a845 0%, #1a8a33 45%, #0f6a24 80%, #0b5a1e 100%);
-  box-shadow:
-    inset 0 0 40px rgba(0, 0, 0, 0.45),
-    0 0 0 10px #161a16,
-    0 0 0 12px #262b26,
-    0 0 40px 14px rgba(0, 0, 0, 0.7);
-}
 .rc-felt::after {
   content: "";
   position: absolute;

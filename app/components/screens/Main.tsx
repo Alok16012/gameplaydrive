@@ -105,86 +105,8 @@ export function Home({ nav }: { nav: Nav }) {
 
       <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
 
-      {/* 3 Separate Live Sports Options: Cricket, Football, Tennis */}
-      <div className="mt-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-[13px] font-extrabold text-white flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-            Live Sports Exchange
-          </div>
-          <button onClick={() => nav.push({ name: "games", category: "sports" })} className="text-[11px] text-neon-400 font-bold">
-            View All →
-          </button>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          {/* Cricket Option */}
-          <button
-            onClick={() => nav.push({ name: "cricket", sport: "cricket" })}
-            className="rounded-2xl p-2.5 flex flex-col justify-between text-left border border-emerald-500/40 relative overflow-hidden active:scale-[.96] transition-all"
-            style={{
-              background: "linear-gradient(145deg, #064e3b 0%, #065f46 60%, #022c22 100%)",
-              boxShadow: "0 6px 16px rgba(5,150,105,.25)",
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-2xl drop-shadow">🏏</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-[8.5px] font-black uppercase text-white animate-pulse">
-                Live
-              </span>
-            </div>
-            <div className="mt-2.5">
-              <div className="text-[13px] font-black text-white leading-tight">Cricket</div>
-              <div className="text-[10px] text-emerald-200/80 mt-0.5">Back & Lay</div>
-            </div>
-          </button>
-
-          {/* Football Option */}
-          <button
-            onClick={() => nav.push({ name: "cricket", sport: "soccer" })}
-            className="rounded-2xl p-2.5 flex flex-col justify-between text-left border border-blue-500/40 relative overflow-hidden active:scale-[.96] transition-all"
-            style={{
-              background: "linear-gradient(145deg, #1e3a8a 0%, #1d4ed8 60%, #0f172a 100%)",
-              boxShadow: "0 6px 16px rgba(29,78,216,.25)",
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-2xl drop-shadow">⚽</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-[8.5px] font-black uppercase text-white animate-pulse">
-                Live
-              </span>
-            </div>
-            <div className="mt-2.5">
-              <div className="text-[13px] font-black text-white leading-tight">Football</div>
-              <div className="text-[10px] text-blue-200/80 mt-0.5">Match Odds</div>
-            </div>
-          </button>
-
-          {/* Tennis Option */}
-          <button
-            onClick={() => nav.push({ name: "cricket", sport: "tennis" })}
-            className="rounded-2xl p-2.5 flex flex-col justify-between text-left border border-amber-500/40 relative overflow-hidden active:scale-[.96] transition-all"
-            style={{
-              background: "linear-gradient(145deg, #78350f 0%, #d97706 60%, #451a03 100%)",
-              boxShadow: "0 6px 16px rgba(217,119,6,.25)",
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-2xl drop-shadow">🎾</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-rose-600 text-[8.5px] font-black uppercase text-white animate-pulse">
-                Live
-              </span>
-            </div>
-            <div className="mt-2.5">
-              <div className="text-[13px] font-black text-white leading-tight">Tennis</div>
-              <div className="text-[10px] text-amber-200/80 mt-0.5">Sets & Match</div>
-            </div>
-          </button>
-        </div>
-      </div>
-
       <div className="grid grid-cols-3 gap-2.5 mt-4">
-        {GAMES.filter((g) => g.category !== "sports").map((g) => (
+        {GAMES.filter((g) => g.id !== "football" && g.id !== "tennis").map((g) => (
           <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />
         ))}
       </div>

@@ -120,6 +120,22 @@ export function AddCash({ nav }: { nav: Nav }) {
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [utr, setUtr] = useState("");
+  const [submittingUtr, setSubmittingUtr] = useState(false);
+
+  const handleSubmitUtr = async () => {
+    if (!utr || utr.length !== 12) {
+      showToast("Please enter a valid 12-digit UTR number");
+      return;
+    }
+    setSubmittingUtr(true);
+    // Simulate API call
+    setTimeout(() => {
+      setSubmittingUtr(false);
+      setUtr("");
+      showToast("UTR submitted successfully. Coins will be credited soon.");
+    }, 1500);
+  };
 
   useEffect(() => {
     let active = true;
@@ -310,18 +326,28 @@ export function AddCash({ nav }: { nav: Nav }) {
                 )}
               </div>
 
-              {/* Send WhatsApp Proof */}
-              {waNumber ? (
-                <a
-                  href={`https://wa.me/${waNumber}?text=${whatsappMsg}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20ba5a] text-slate-950 transition shadow-md"
-                >
-                  <MessageCircle size={16} />
-                  Send Payment Proof on WhatsApp ({displayPhone})
-                </a>
-              ) : null}
+              {/* UTR Input */}
+              <div className="space-y-1.5 pt-2 border-t border-white/5">
+                <div className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">
+                  Upload UTR Number
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={utr}
+                    onChange={(e) => setUtr(e.target.value.replace(/\\D/g, '').slice(0, 12))}
+                    placeholder="Enter 12-digit UTR"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50"
+                  />
+                  <button
+                    onClick={handleSubmitUtr}
+                    disabled={submittingUtr || utr.length !== 12}
+                    className="btn-green rounded-xl px-4 py-2 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {submittingUtr ? "Submitting..." : "Submit UTR"}
+                  </button>
+                </div>
+              </div>
 
               {/* Agent instructions / note */}
               {paymentInfo.paymentNote && (
@@ -330,6 +356,30 @@ export function AddCash({ nav }: { nav: Nav }) {
                   {paymentInfo.paymentNote}
                 </div>
               )}
+            </div>
+
+            {/* Withdraw and Customer Care buttons */}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => showToast("Withdrawal request sent. Agent will contact you.")}
+                className="flex-1 py-3 rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 transition text-white"
+              >
+                <ArrowDownLeft size={16} className="text-rose-400" />
+                Withdraw
+              </button>
+              
+              {waNumber ? (
+                <a
+                  href={`https://wa.me/${waNumber}?text=${encodeURIComponent("I need help with my account.")}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-3 rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 transition text-white"
+                >
+                  <Phone size={16} className="text-neon-400" />
+                  Customer Care
+                </a>
+              ) : null}
             </div>
           </>
         ) : (

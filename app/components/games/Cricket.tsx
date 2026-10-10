@@ -251,7 +251,7 @@ export function Cricket({
       return showToast("Insufficient coins for this bet exposure!");
     }
 
-    const ok = debit(exposure, `${activeMatch.sport.toUpperCase()}: ${activeMatch.eventName} • ${betSlip.runnerName}`);
+    const ok = debit(exposure, `${activeMatch.sport.toUpperCase()}: ${activeMatch.eventName} • ${betSlip.runnerName} [${betSlip.betType} @ ${betSlip.odds} | Stake: ${stake}]`);
     if (!ok) {
       return showToast("Failed to place bet. Please check coin balance.");
     }
