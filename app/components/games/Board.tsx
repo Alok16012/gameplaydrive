@@ -55,6 +55,38 @@ function cellOf(p: number, prog: number, token: number): [number, number] {
 }
 const absIdx = (p: number, prog: number) => (prog >= 0 && prog <= 50 ? (LPLAYERS[p].start + prog) % 52 : -1);
 
+/**
+ * Which token to move, the way a player picks (same as ld_best on the server): a capture, then getting a token
+ * home, then bringing a new token out on a 6, getting out of reach / onto a safe square, and only then the token
+ * that is furthest along — so a 6 doesn't just push the one token that is already out.
+ */
+function ludoPick(t: number[][], seats: number[], p: number, d: number, opts: number[]): number {
+  const rivals = seats.filter((q) => q !== p);
+  // Could an opponent land on square a with their next roll?
+  const threat = (a: number) => a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => {
+    const gap = (a - absIdx(q, op) + 52) % 52;
+    return op >= 0 && op <= 50 && gap >= 1 && gap <= 6 && op + gap <= 50;
+  }));
+  const hit = (a: number) => a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a));
+  const out = t[p].filter((x) => x >= 0 && x < 56).length;
+  let best = opts[0], bestScore = -Infinity;
+  for (const i of opts) {
+    const from = t[p][i];
+    const to = from === -1 ? 0 : from + d;
+    const a = absIdx(p, to);
+    let s = to / 10 + Math.random() * 8;
+    if (hit(a)) s += 100;
+    if (to === 56) s += 80;
+    if (from === -1) s += 60 - 10 * out;
+    if (to >= 51 && to <= 55) s += 30;
+    if (a >= 0 && SAFE.has(a)) s += 15;
+    if (from >= 0 && from <= 50 && threat(absIdx(p, from)) && !threat(a)) s += 40;
+    if (threat(a)) s -= 45;
+    if (s > bestScore) { bestScore = s; best = i; }
+  }
+  return best;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling?: boolean }) {
@@ -173,6 +205,36 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Away for three turns or more while the game was on (phone locked, app in the background — timers stop there):
+  // the game was given up, as with a table that puts out a player who misses three turns. Coming back shows
+  // "Game over" instead of the game carrying on from where it froze, however long ago that was.
+  const beat = useRef(Date.now());
+  const watching = useRef(false); // a game is on and the clock below is running
+  const [gaveUp, setGaveUp] = useState(false);
+  const awayTooLong = () => {
+    if (over.current || !watching.current || Date.now() - beat.current <= REJOIN_MS.ludo) return false;
+    over.current = true;
+    gameNo.current += 1;
+    setClock(null);
+    setAwaitMove(false);
+    setMoving(false);
+    setRolling(false);
+    dropSnap(snapKey);
+    clearActive(route);
+    setGaveUp(true);
+    return true;
+  };
+  useEffect(() => {
+    if (!started || winner !== null) return;
+    beat.current = Date.now();
+    watching.current = true;
+    const ping = () => { if (!awayTooLong()) beat.current = Date.now(); };
+    const t = setInterval(ping, 1000);
+    document.addEventListener("visibilitychange", ping);
+    return () => { watching.current = false; clearInterval(t); document.removeEventListener("visibilitychange", ping); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, winner]);
+
   const movable = (p: number, d: number) => tokRef.current[p].map((prog, i) => ((prog === -1 && d === 6) || (prog >= 0 && prog + d <= 56) ? i : -1)).filter((i) => i >= 0);
 
   /** Walk token i of player p forward d squares, one square at a time, then resolve captures.
@@ -183,7 +245,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     const from = tokRef.current[p][i];
     const steps = from === -1 ? [0] : Array.from({ length: d }, (_, k) => from + k + 1);
     for (const prog of steps) {
-      if (!alive.current || g !== gameNo.current || over.current) return "stop";
+      if (awayTooLong() || !alive.current || g !== gameNo.current || over.current) return "stop";
       const t = tokRef.current.map((r) => [...r]);
       t[p][i] = prog;
       setT(t);
@@ -255,7 +317,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     const d = 1 + Math.floor(Math.random() * 6);
     setDice(d);
     setRolling(false);
-    if (d === 6) sixes.current += 1;
+    sixes.current = d === 6 ? sixes.current + 1 : 0; // three 6s *in a row*: any other number breaks the run
     if (sixes.current === 3) {
       setMsg(`${namesRef.current[p]} rolled three 6s — turn skipped`);
       await sleep(500);
@@ -264,19 +326,13 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     return d;
   };
 
-  // Prefer a capture, then the most advanced token.
-  const pickToken = (p: number, d: number, opts: number[]) =>
-    opts.find((i) => {
-      const prog = tokRef.current[p][i] === -1 ? 0 : tokRef.current[p][i] + d;
-      const a = absIdx(p, prog);
-      return a >= 0 && !SAFE.has(a) && tokRef.current.some((row, q) => q !== p && row.some((op) => absIdx(q, op) === a));
-    }) ?? [...opts].sort((x, y) => tokRef.current[p][y] - tokRef.current[p][x])[0];
+  const pickToken = (p: number, d: number, opts: number[]) => ludoPick(tokRef.current, SEATS, p, d, opts);
 
   const botPlay = async (p: number) => {
     const g = gameNo.current;
     setMsg(`${namesRef.current[p]}'s turn`);
     await think(1500, 3200); // picks up the dice
-    if (!alive.current || over.current || g !== gameNo.current) return;
+    if (awayTooLong() || !alive.current || over.current || g !== gameNo.current) return;
     const d = await roll(p);
     if (g !== gameNo.current) return;
     if (d < 0) return nextTurn(p);
@@ -322,7 +378,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 
   // Your clock ran out: roll (if you hadn't) and make the best move for you.
   autoRef.current = async () => {
-    if (turn !== 0 || winner !== null || over.current || rolling || moving) return;
+    if (awayTooLong() || turn !== 0 || winner !== null || over.current || rolling || moving) return;
     setMsg("Time's up — auto move");
     if (awaitMove) {
       const opts = movable(0, dice);
@@ -441,6 +497,17 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
         onLeave={nav.back}
         onClose={() => {}}
       />
+
+      {gaveUp && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-6">
+          <div className="w-full max-w-[360px] rounded-3xl bg-[#0d1230] border border-white/10 p-6 text-center pop">
+            <div className="inline-grid place-items-center w-20 h-20 rounded-full bg-white/10"><span className="text-4xl">⌛</span></div>
+            <div className="text-2xl font-semibold mt-3">Game over</div>
+            <div className="text-sm text-white/60 mt-1">You were away for more than 3 turns, so this game was given up. The entry is not returned.</div>
+            <button onClick={() => { clearActive(); nav.back(); }} className="btn-green w-full py-3 rounded-2xl mt-5">Back to lobby</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

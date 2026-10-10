@@ -306,7 +306,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
                 <DiceFace v={v?.dice ?? v?.last?.dice ?? 6} rolling={rolling} size={68} />
               </button>
               <div className="text-sm font-semibold mt-2.5">
-                {done ? "Game over" : myTurn ? (v?.phase === "move" ? "Choose a glowing token" : "Your turn — tap the dice") : `${nameOf(v?.turn ?? undefined)}'s turn`}
+                {done ? "Game over" : mySeat?.left ? "You're out — you missed 3 turns" : myTurn ? (v?.phase === "move" ? "Choose a glowing token" : "Your turn — tap the dice") : `${nameOf(v?.turn ?? undefined)}'s turn`}
                 {v?.status === "playing" && <span className="text-white/50 font-normal"> • {Math.ceil(secsLeft)}s</span>}
               </div>
               <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{lastText}</div>
