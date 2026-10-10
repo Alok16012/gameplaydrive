@@ -32,7 +32,7 @@ interface Side {
 const SIDES: Record<string, Side[]> = {
   "dragon-tiger": [
     { id: "dragon", label: "Dragon", odds: "1:1", pay: 2, color: "#dc2626" },
-    { id: "tie", label: "Tie", odds: "8:1", pay: 9, color: "#16a34a" },
+    { id: "tie", label: "Tie", odds: "1:8", pay: 9, color: "#16a34a" },
     { id: "tiger", label: "Tiger", odds: "1:1", pay: 2, color: "#d97706" },
   ],
   "andar-bahar": [
