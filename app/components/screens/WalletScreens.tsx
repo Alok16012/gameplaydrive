@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Trophy,
   Wallet as WalletIcon,
+  X,
 } from "lucide-react";
 import { inr, type Txn } from "../../lib/data";
 import { useStore } from "../../lib/store";
@@ -122,19 +123,67 @@ export function AddCash({ nav }: { nav: Nav }) {
   const [refreshing, setRefreshing] = useState(false);
   const [utr, setUtr] = useState("");
   const [submittingUtr, setSubmittingUtr] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [bankDetails, setBankDetails] = useState("");
+  const [submittingWithdraw, setSubmittingWithdraw] = useState(false);
 
   const handleSubmitUtr = async () => {
     if (!utr || utr.length !== 12) {
       showToast("Please enter a valid 12-digit UTR number");
       return;
     }
+    if (!player) return;
     setSubmittingUtr(true);
-    // Simulate API call
-    setTimeout(() => {
-      setSubmittingUtr(false);
+    
+    const { error } = await supabase().from("payment_requests").insert({
+      user_id: player.id,
+      type: "deposit",
+      utr
+    });
+
+    setSubmittingUtr(false);
+    if (error) {
+      showToast("Failed to submit UTR. Please try again.");
+    } else {
       setUtr("");
       showToast("UTR submitted successfully. Coins will be credited soon.");
-    }, 1500);
+    }
+  };
+
+  const handleSubmitWithdraw = async () => {
+    const amt = parseInt(withdrawAmount, 10);
+    if (isNaN(amt) || amt <= 0) {
+      showToast("Please enter a valid amount");
+      return;
+    }
+    if (amt > total) {
+      showToast("Insufficient coin balance");
+      return;
+    }
+    if (!bankDetails.trim()) {
+      showToast("Please enter your bank account details");
+      return;
+    }
+    if (!player) return;
+    
+    setSubmittingWithdraw(true);
+    const { error } = await supabase().from("payment_requests").insert({
+      user_id: player.id,
+      type: "withdraw",
+      amount: amt,
+      bank_details: bankDetails.trim()
+    });
+
+    setSubmittingWithdraw(false);
+    if (error) {
+      showToast("Failed to submit withdrawal request.");
+    } else {
+      setShowWithdraw(false);
+      setWithdrawAmount("");
+      setBankDetails("");
+      showToast("Withdrawal request sent. Agent will review it soon.");
+    }
   };
 
   useEffect(() => {
@@ -362,7 +411,7 @@ export function AddCash({ nav }: { nav: Nav }) {
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => showToast("Withdrawal request sent. Agent will contact you.")}
+                onClick={() => setShowWithdraw(true)}
                 className="flex-1 py-3 rounded-2xl text-xs font-semibold flex items-center justify-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 transition text-white"
               >
                 <ArrowDownLeft size={16} className="text-rose-400" />
@@ -441,6 +490,59 @@ export function AddCash({ nav }: { nav: Nav }) {
           Coins are virtual. Once payment is made to your agent, coins are credited to your GameHub wallet.
         </div>
       </div>
+
+      {showWithdraw && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex flex-col justify-end fadein">
+          <div className="bg-[#12183a] rounded-t-3xl p-5 pb-10 border-t border-white/10 slide-up">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold">Withdraw Coins</h2>
+              <button onClick={() => setShowWithdraw(false)} className="p-2 bg-white/5 rounded-full text-white/60 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">Amount (Coins)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gold-400">🪙</span>
+                  <input
+                    type="number"
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(e.target.value)}
+                    placeholder="Enter amount to withdraw"
+                    className="w-full bg-black/20 border border-white/10 rounded-xl pl-9 pr-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50"
+                  />
+                </div>
+                <div className="text-[10px] text-white/40 mt-1 flex justify-between">
+                  <span>Available Balance:</span>
+                  <span className="text-gold-300">{total.toLocaleString()} Coins</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">Bank Account / UPI Details</label>
+                <textarea
+                  value={bankDetails}
+                  onChange={(e) => setBankDetails(e.target.value)}
+                  placeholder="Enter your Bank AC No. & IFSC or UPI ID..."
+                  rows={3}
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50 resize-none"
+                />
+              </div>
+
+              <button
+                onClick={handleSubmitWithdraw}
+                disabled={submittingWithdraw || !withdrawAmount || !bankDetails.trim()}
+                className="w-full btn-green py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ArrowDownLeft size={18} />
+                {submittingWithdraw ? "Submitting..." : "Send Request to Agent"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

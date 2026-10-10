@@ -105,6 +105,7 @@ export function ReportsView({
   const [ledgerData, setLedgerData] = useState<LedgerRow[]>([]);
   const [auditData, setAuditData] = useState<AuditRow[]>([]);
   const [err, setErr] = useState<string>("");
+  const [viewRow, setViewRow] = useState<LedgerRow | null>(null);
 
   const byId = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
@@ -497,8 +498,20 @@ export function ReportsView({
                         <td className="px-4 py-3 text-right font-mono font-bold text-gold-300 whitespace-nowrap">
                           🪙 {fmt(r.balance_after)}
                         </td>
-                        <td className="px-4 py-3 text-white/70 max-w-[260px] truncate">
-                          {r.note || "—"}
+                        <td className="px-4 py-3 text-white/70 min-w-[220px] max-w-[320px]">
+                          {r.note ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewRow(r)}
+                              className="flex items-start gap-2 text-left hover:text-sky-300 transition"
+                              title="View full details"
+                            >
+                              <span className="line-clamp-2 break-words">{r.note}</span>
+                              <Eye size={14} className="shrink-0 mt-0.5 text-sky-400" />
+                            </button>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                       </tr>
                     );
@@ -986,6 +999,59 @@ export function ReportsView({
           </div>
         )}
       </div>
+
+      {viewRow && (() => {
+        const u = byId.get(viewRow.user_id);
+        // Sport bet notes: "CRICKET: <event> • <runner> [BACK @ 1.95 | Stake: 100]"
+        const m = viewRow.note?.match(/^([A-Z]+):\s*(.+?)\s*•\s*(.+?)\s*\[(\w+)\s*@\s*([\d.]+)\s*\|\s*Stake:\s*([\d.]+)\]\s*$/);
+        const fields: [string, React.ReactNode][] = [
+          ["Date & Time", fmtDate(viewRow.created_at)],
+          ["User", u ? `${u.name} (${u.username ? `@${u.username}` : u.code})` : viewRow.user_id],
+          ["Type", viewRow.kind.replace("_", " ").toUpperCase()],
+          ...(m
+            ? ([
+                ["Sport", m[1]],
+                ["Event", m[2]],
+                ["Selection", m[3]],
+                ["Bet Type", m[4].toUpperCase()],
+                ["Odds", m[5]],
+                ["Stake", `🪙 ${fmt(Number(m[6]))}`],
+              ] as [string, React.ReactNode][])
+            : []),
+          ["Amount", `🪙 ${viewRow.amount > 0 ? "+" : ""}${fmt(viewRow.amount)}`],
+          ["Balance After", `🪙 ${fmt(viewRow.balance_after)}`],
+          ["Transaction ID", `#${viewRow.id}`],
+        ];
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick={() => setViewRow(null)}>
+            <div
+              className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0b102e] p-5 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-white">Transaction Details</h3>
+                <button onClick={() => setViewRow(null)} className="text-white/50 hover:text-white">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <div className="divide-y divide-white/5 text-sm">
+                {fields.map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-4 py-2">
+                    <span className="text-white/50 shrink-0">{k}</span>
+                    <span className="text-white text-right break-words min-w-0">{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div className="text-[11px] uppercase text-white/50 mb-1">Full Narration</div>
+                <div className="rounded-xl bg-white/5 border border-white/10 p-3 text-xs text-white/80 break-words whitespace-pre-wrap">
+                  {viewRow.note || "—"}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
