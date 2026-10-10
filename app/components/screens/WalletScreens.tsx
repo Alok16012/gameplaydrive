@@ -125,7 +125,11 @@ export function AddCash({ nav }: { nav: Nav }) {
   const [submittingUtr, setSubmittingUtr] = useState(false);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [bankDetails, setBankDetails] = useState("");
+  const [acNumber, setAcNumber] = useState("");
+  const [ifsc, setIfsc] = useState("");
+  const [holderName, setHolderName] = useState("");
+  const [upiId, setUpiId] = useState("");
+  const [withdrawMethod, setWithdrawMethod] = useState<"bank" | "upi">("bank");
   const [submittingWithdraw, setSubmittingWithdraw] = useState(false);
 
   const handleSubmitUtr = async () => {
@@ -161,9 +165,19 @@ export function AddCash({ nav }: { nav: Nav }) {
       showToast("Insufficient coin balance");
       return;
     }
-    if (!bankDetails.trim()) {
-      showToast("Please enter your bank account details");
-      return;
+    let finalBankDetails = "";
+    if (withdrawMethod === "bank") {
+      if (!acNumber.trim() || !ifsc.trim() || !holderName.trim()) {
+        showToast("Please fill all bank details");
+        return;
+      }
+      finalBankDetails = `A/C: ${acNumber.trim()}\nIFSC: ${ifsc.trim()}\nName: ${holderName.trim()}`;
+    } else {
+      if (!upiId.trim()) {
+        showToast("Please enter UPI ID");
+        return;
+      }
+      finalBankDetails = `UPI: ${upiId.trim()}`;
     }
     if (!player) return;
     
@@ -172,7 +186,7 @@ export function AddCash({ nav }: { nav: Nav }) {
       user_id: player.id,
       type: "withdraw",
       amount: amt,
-      bank_details: bankDetails.trim()
+      bank_details: finalBankDetails
     });
 
     setSubmittingWithdraw(false);
@@ -181,7 +195,10 @@ export function AddCash({ nav }: { nav: Nav }) {
     } else {
       setShowWithdraw(false);
       setWithdrawAmount("");
-      setBankDetails("");
+      setAcNumber("");
+      setIfsc("");
+      setHolderName("");
+      setUpiId("");
       showToast("Withdrawal request sent. Agent will review it soon.");
     }
   };
@@ -520,20 +537,48 @@ export function AddCash({ nav }: { nav: Nav }) {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">Bank Account / UPI Details</label>
-                <textarea
-                  value={bankDetails}
-                  onChange={(e) => setBankDetails(e.target.value)}
-                  placeholder="Enter your Bank AC No. & IFSC or UPI ID..."
-                  rows={3}
-                  className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50 resize-none"
-                />
+              <div className="flex bg-white/5 p-1 rounded-xl mb-4">
+                <button
+                  type="button"
+                  onClick={() => setWithdrawMethod("bank")}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold ${withdrawMethod === "bank" ? "bg-neon-400 text-black shadow-sm" : "text-white/60"}`}
+                >
+                  Bank Account
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWithdrawMethod("upi")}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold ${withdrawMethod === "upi" ? "bg-neon-400 text-black shadow-sm" : "text-white/60"}`}
+                >
+                  UPI ID
+                </button>
               </div>
+
+              {withdrawMethod === "bank" ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">Account Number</label>
+                    <input type="text" value={acNumber} onChange={e => setAcNumber(e.target.value)} placeholder="e.g. 1234567890" className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">IFSC Code</label>
+                    <input type="text" value={ifsc} onChange={e => setIfsc(e.target.value)} placeholder="e.g. HDFC0001234" className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">Account Holder Name</label>
+                    <input type="text" value={holderName} onChange={e => setHolderName(e.target.value)} placeholder="e.g. John Doe" className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50" />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">UPI ID</label>
+                  <input type="text" value={upiId} onChange={e => setUpiId(e.target.value)} placeholder="e.g. username@upi" className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50" />
+                </div>
+              )}
 
               <button
                 onClick={handleSubmitWithdraw}
-                disabled={submittingWithdraw || !withdrawAmount || !bankDetails.trim()}
+                disabled={submittingWithdraw || !withdrawAmount || (withdrawMethod === "bank" ? (!acNumber || !ifsc || !holderName) : !upiId)}
                 className="w-full btn-green py-3.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ArrowDownLeft size={18} />

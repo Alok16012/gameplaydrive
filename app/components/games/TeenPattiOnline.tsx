@@ -27,7 +27,8 @@ interface View {
   blind_limit?: number;
 }
 
-// Landscape table: the other five seats clockwise from your left around the oval, as % of the table area
+// Landscape table: the other five seats around the oval from your left, as % of the table area. Play moves
+// anti-clockwise: the next seat after yours is on your right, the one before you on your left.
 // (seat centres). You sit at the bottom centre. Coins fly between these points and the pot.
 const SEAT_XY: [number, number][] = [[7, 52], [20, 13], [50, 11], [80, 13], [93, 52]];
 const ME_XY: [number, number] = [44, 88];
@@ -78,7 +79,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
     const xy = (seat: number): [number, number] => {
       if (view.me === null) return SEAT_XY[seat % 5];
       if (seat === view.me) return ME_XY;
-      return SEAT_XY[(seat - view.me - 1 + n) % n] ?? POT_XY;
+      return SEAT_XY[(view.me - seat - 1 + n) % n] ?? POT_XY;
     };
     const prev = lastSeen.current;
     const bals = view.seats.map((s) => s.bal);
@@ -179,7 +180,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   const me = v?.me ?? null;
   const mySeat = v && me !== null ? v.seats[me] : null;
   const n = v?.seats.length ?? 6;
-  const others = v && me !== null ? Array.from({ length: n - 1 }, (_, k) => (me + 1 + k) % n) : v ? v.seats.map((_, i) => i).slice(0, 5) : [];
+  const others = v && me !== null ? Array.from({ length: n - 1 }, (_, k) => (me - 1 - k + n) % n) : v ? v.seats.map((_, i) => i).slice(0, 5) : [];
   const playing = v?.status === "playing";
   const myTurn = playing && v?.turn === me && !!mySeat?.playing && !mySeat.packed;
   // Dealer of this hand (the seat before the one who opened the betting), shown with a DEALER tag.
