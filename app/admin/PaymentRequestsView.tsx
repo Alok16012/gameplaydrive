@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Check, X, ArrowDownLeft, Plus } from "lucide-react";
-import type { Account } from "./AccountsView"; // I'll check if this exists or just use a generic type
+import type { Account } from "../lib/hierarchy";
 
 export function PaymentRequestsView({ me }: { me: any }) {
   const [requests, setRequests] = useState<any[]>([]);

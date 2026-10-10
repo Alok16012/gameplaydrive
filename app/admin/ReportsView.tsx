@@ -30,6 +30,7 @@ import {
 import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
 import { supabase, errText } from "../lib/supabase";
 import { GAMES } from "../lib/data";
+import type { SportBetRow } from "../lib/cricketApi";
 
 export type ReportSubTab =
   | "account_statement"
@@ -106,6 +107,22 @@ export function ReportsView({
   const [auditData, setAuditData] = useState<AuditRow[]>([]);
   const [err, setErr] = useState<string>("");
   const [viewRow, setViewRow] = useState<LedgerRow | null>(null);
+  const [openBets, setOpenBets] = useState<SportBetRow[]>([]);
+
+  // Open sports bets (from every match, any date) for the Current Bets report.
+  useEffect(() => {
+    if (activeTab !== "current_bets") return;
+    supabase()
+      .from("sport_bets")
+      .select("*")
+      .eq("status", "OPEN")
+      .order("created_at", { ascending: false })
+      .limit(500)
+      .then(({ data, error }) => {
+        if (error) setErr(errText(error));
+        else setOpenBets((data as SportBetRow[]).filter((b) => selectedUser === "all" || b.user_id === selectedUser));
+      });
+  }, [activeTab, selectedUser]);
 
   const byId = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
@@ -637,7 +654,7 @@ export function ReportsView({
                   Live Current In-Play Bets
                 </h3>
                 <p className="text-xs text-white/50">
-                  Live active bets placed by players across cricket, casino, and card rooms
+                  Open cricket bets from every match, waiting for a declared result
                 </p>
               </div>
               <div className="text-xs text-sky-300 font-medium">Real-time sync active</div>
@@ -658,42 +675,38 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {filteredLedger
-                    .filter((r) => r.kind === "bet")
-                    .slice(0, 15)
-                    .map((b, idx) => {
-                      const u = byId.get(b.user_id);
-                      const stake = Math.abs(b.amount);
-                      return (
-                        <tr key={b.id || idx} className="hover:bg-white/[0.02]">
-                          <td className="px-4 py-3 font-mono text-[11px] text-white/50">
-                            #BT-{b.id || 1000 + idx}
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-white">
-                            {u?.name || "Player"} ({u?.code || "—"})
-                          </td>
-                          <td className="px-4 py-3 text-sky-300 font-medium">
-                            {b.note?.split("•")[0]?.trim() || "Live Casino"}
-                          </td>
-                          <td className="px-4 py-3 text-white/80">
-                            {b.note?.split("•")[1]?.trim() || "Match Odds"}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-white/70">1.95</td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-amber-300">
-                            🪙 {fmt(stake)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400">
-                            +{fmt(stake * 0.95)}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                              Active
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  {filteredLedger.filter((r) => r.kind === "bet").length === 0 && (
+                  {openBets.map((b) => {
+                    const u = byId.get(b.user_id);
+                    return (
+                      <tr key={b.id} className="hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-mono text-[11px] text-white/50">#BT-{b.id}</td>
+                        <td className="px-4 py-3 font-semibold text-white whitespace-nowrap">
+                          {u?.name || "Player"} ({u?.code || "—"})
+                        </td>
+                        <td className="px-4 py-3 text-sky-300 font-medium min-w-[180px]">{b.event_name}</td>
+                        <td className="px-4 py-3 text-white/80 min-w-[160px]">
+                          <div>{b.market_name}</div>
+                          <div className="text-white/50">
+                            {b.runner_name} •{" "}
+                            <span className={b.bet_type === "BACK" ? "text-sky-300" : "text-pink-300"}>{b.bet_type}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-white/70">
+                          {b.market_type === "FANCY" ? b.line : Number(b.odds)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-amber-300">🪙 {fmt(Number(b.stake))}</td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
+                          +{fmt(Number(b.profit))} / <span className="text-rose-400">-{fmt(Number(b.exposure))}</span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Active
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {openBets.length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-4 py-10 text-center text-white/40">
                         No active live bets placed right now.

@@ -1,5 +1,7 @@
 // Sports Exchange API Client & Data Models (Cricket, Tennis, Football/Soccer)
 
+import { supabase } from "./supabase";
+
 export type SportType = "cricket" | "tennis" | "soccer";
 
 export interface CricketMatch {
@@ -68,7 +70,7 @@ export interface CricketBet {
   id: string;
   eventId: string;
   eventName: string;
-  marketType: "MATCH_ODDS" | "BOOKMAKER" | "FANCY";
+  marketType: "MATCH_ODDS" | "BOOKMAKER" | "FANCY" | "TIE" | "TOSS";
   marketName: string;
   runnerName: string;
   betType: "BACK" | "LAY";
@@ -80,6 +82,8 @@ export interface CricketBet {
   status: "OPEN" | "WON" | "LOST" | "VOID";
   placedAt: string;
   sport?: SportType;
+  result?: string;
+  payout?: number;
 }
 
 export interface CricketScorecard {
@@ -414,27 +418,89 @@ export async function fetchCricketScorecard(eventId: string): Promise<CricketSco
   }
 }
 
-// Local storage for bets
-const BETS_STORAGE_KEY = "khelobaazi_cricket_bets";
-
-export function loadStoredBets(): CricketBet[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(BETS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+// Bets live in the sport_bets table: placed through place_sport_bet, settled by the Super Admin's declared result.
+export interface SportBetRow {
+  id: number;
+  user_id: string;
+  sport: string;
+  event_id: string;
+  event_name: string;
+  market_type: CricketBet["marketType"];
+  market_name: string;
+  runner_name: string;
+  bet_type: "BACK" | "LAY";
+  odds: number;
+  line: number | null;
+  stake: number;
+  exposure: number;
+  profit: number;
+  status: CricketBet["status"];
+  result: string | null;
+  payout: number;
+  created_at: string;
+  settled_at: string | null;
 }
 
-export function saveStoredBet(bet: CricketBet): CricketBet[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const existing = loadStoredBets();
-    const updated = [bet, ...existing].slice(0, 50);
-    localStorage.setItem(BETS_STORAGE_KEY, JSON.stringify(updated));
-    return updated;
-  } catch {
-    return [];
-  }
+export function rowToBet(r: SportBetRow): CricketBet {
+  return {
+    id: String(r.id),
+    eventId: r.event_id,
+    eventName: r.event_name,
+    marketType: r.market_type,
+    marketName: r.market_name,
+    runnerName: r.runner_name,
+    betType: r.bet_type,
+    odds: Number(r.odds),
+    size: r.line ?? undefined,
+    stake: Number(r.stake),
+    profit: Number(r.profit),
+    exposure: Number(r.exposure),
+    status: r.status,
+    placedAt: new Date(r.created_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }),
+    sport: r.sport as SportType,
+    result: r.result ?? undefined,
+    payout: Number(r.payout),
+  };
+}
+
+export async function fetchMyBets(): Promise<CricketBet[]> {
+  const sb = supabase();
+  const { data: auth } = await sb.auth.getUser();
+  if (!auth.user) return [];
+  const { data, error } = await sb
+    .from("sport_bets")
+    .select("*")
+    .eq("user_id", auth.user.id)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  return (data as SportBetRow[]).map(rowToBet);
+}
+
+export async function placeSportBet(bet: {
+  sport: SportType;
+  eventId: string;
+  eventName: string;
+  marketType: CricketBet["marketType"];
+  marketName: string;
+  runnerName: string;
+  betType: "BACK" | "LAY";
+  odds: number;
+  line?: number;
+  stake: number;
+}): Promise<{ id: number; balance: number; exposure: number; profit: number }> {
+  const { data, error } = await supabase().rpc("place_sport_bet", {
+    p_sport: bet.sport,
+    p_event_id: bet.eventId,
+    p_event_name: bet.eventName,
+    p_market_type: bet.marketType,
+    p_market_name: bet.marketName,
+    p_runner_name: bet.runnerName,
+    p_bet_type: bet.betType,
+    p_odds: bet.odds,
+    p_line: bet.line ?? null,
+    p_stake: bet.stake,
+  });
+  if (error) throw error;
+  return data;
 }

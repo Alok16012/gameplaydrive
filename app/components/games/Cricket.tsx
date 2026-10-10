@@ -30,14 +30,15 @@ import { Header, Money } from "../ui";
 import { useStore } from "../../lib/store";
 import { inr } from "../../lib/data";
 import { sfx } from "../../lib/sound";
+import { errText } from "../../lib/supabase";
 import {
   fetchCricketMatches,
   fetchCricketOdds,
   fetchFancyResults,
   fetchMatchResults,
   getMatchDepthOdds,
-  loadStoredBets,
-  saveStoredBet,
+  fetchMyBets,
+  placeSportBet,
   type CricketBet,
   type CricketMatch,
   type CricketOddsResponse,
@@ -58,10 +59,9 @@ interface BetSlipState {
   max: number;
 }
 
+// Only cricket is offered for now; add football/tennis back here to re-enable them.
 const SPORTS_TABS: Array<{ id: SportType; label: string; icon: string }> = [
   { id: "cricket", label: "Cricket", icon: "🏏" },
-  { id: "soccer", label: "Football", icon: "⚽" },
-  { id: "tennis", label: "Tennis", icon: "🎾" },
 ];
 
 const QUICK_STAKES = [100, 500, 1000, 2000, 5000, 10000, 25000, 50000];
@@ -75,7 +75,8 @@ export function Cricket({
   matchId?: string;
   initialSport?: SportType;
 }) {
-  const { total, debit, credit, showToast } = useStore();
+  const { total, showToast, applyBalance, refresh } = useStore();
+  const [placing, setPlacing] = useState(false);
   const [selectedSport, setSelectedSport] = useState<SportType>(initialSport || "cricket");
   const [matches, setMatches] = useState<CricketMatch[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(matchId || null);
@@ -96,6 +97,9 @@ export function Cricket({
   const [mediaMode, setMediaMode] = useState<"tv" | "scorecard" | "none">("scorecard");
   const [showMyBets, setShowMyBets] = useState(false);
   const [myBets, setMyBets] = useState<CricketBet[]>([]);
+  const [showAllBets, setShowAllBets] = useState(false);
+  const [betsFilter, setBetsFilter] = useState<"OPEN" | "SETTLED">("OPEN");
+  const openBets = myBets.filter((b) => b.status === "OPEN");
   const [oddsData, setOddsData] = useState<CricketOddsResponse | null>(null);
   const [oddsLoading, setOddsLoading] = useState(false);
   const [activeMarketTab, setActiveMarketTab] = useState<"all" | "match_odds" | "bookmaker" | "fancy" | "other">("all");
@@ -142,10 +146,30 @@ export function Cricket({
   useEffect(() => {
     setMatches([]);
     loadMatches(selectedSport);
-    setMyBets(loadStoredBets());
     const t = setInterval(() => loadMatches(selectedSport), 15000);
     return () => clearInterval(t);
   }, [selectedSport]);
+
+  // Bets are settled by the admin on the server, so poll for status changes.
+  const reloadBets = () => fetchMyBets().then(setMyBets).catch(() => {});
+  useEffect(() => {
+    reloadBets();
+    const t = setInterval(reloadBets, 30000);
+    return () => clearInterval(t);
+  }, []);
+  const settledSeen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const settled = myBets.filter((b) => b.status !== "OPEN");
+    if (settledSeen.current) {
+      const fresh = settled.filter((b) => !settledSeen.current!.has(b.id));
+      if (fresh.length > 0) {
+        const won = fresh.reduce((s, b) => s + (b.payout || 0), 0);
+        showToast(won > 0 ? `${fresh.length} bet(s) settled • ${inr(won)} credited` : `${fresh.length} bet(s) settled`);
+        refresh();
+      }
+    }
+    settledSeen.current = new Set(settled.map((b) => b.id));
+  }, [myBets]);
 
   const activeMatch = useMemo(
     () => matches.find((m) => m.eventId === selectedMatchId),
@@ -234,67 +258,49 @@ export function Cricket({
   };
 
   // Place Bet
-  const handlePlaceBet = () => {
-    if (!betSlip || !activeMatch) return;
+  const handlePlaceBet = async () => {
+    if (!betSlip || !activeMatch || placing) return;
     if (stake < betSlip.min) return showToast(`Minimum bet is ${inr(betSlip.min)}`);
     if (stake > betSlip.max) return showToast(`Maximum bet is ${inr(betSlip.max)}`);
 
-    const exposure = (() => {
-      if (betSlip.betType === "LAY") {
-        if (betSlip.marketType === "BOOKMAKER") return Math.round(stake * (betSlip.odds / 100));
-        if (betSlip.marketType === "MATCH_ODDS") return Math.round(stake * (betSlip.odds - 1));
-      }
-      return stake;
-    })();
-
+    // Same maths as place_sport_bet on the server (which is what actually debits the wallet).
+    const rate = betSlip.marketType === "BOOKMAKER" ? betSlip.odds / 100 : betSlip.odds - 1;
+    const exposure = betSlip.betType === "LAY" ? Math.round(stake * rate) : stake;
     if (total < exposure) {
       return showToast("Insufficient coins for this bet exposure!");
     }
 
-    const ok = debit(exposure, `${activeMatch.sport.toUpperCase()}: ${activeMatch.eventName} • ${betSlip.runnerName} [${betSlip.betType} @ ${betSlip.odds} | Stake: ${stake}]`);
-    if (!ok) {
-      return showToast("Failed to place bet. Please check coin balance.");
+    setPlacing(true);
+    try {
+      const res = await placeSportBet({
+        sport: activeMatch.sport,
+        eventId: activeMatch.eventId,
+        eventName: activeMatch.eventName,
+        marketType: betSlip.marketType,
+        marketName: betSlip.marketName,
+        runnerName: betSlip.runnerName,
+        betType: betSlip.betType,
+        odds: betSlip.odds,
+        line: betSlip.marketType === "FANCY" ? betSlip.size : undefined,
+        stake,
+      });
+      applyBalance(res.balance);
+      await reloadBets();
+      sfx.win();
+      showToast(`Bet Placed on ${betSlip.runnerName}! ⚡`);
+      setBetSlip(null);
+    } catch (e) {
+      showToast(errText(e));
+    } finally {
+      setPlacing(false);
     }
-
-    const profit = (() => {
-      if (betSlip.betType === "BACK") {
-        if (betSlip.marketType === "BOOKMAKER") return Math.round(stake * (betSlip.odds / 100));
-        if (betSlip.marketType === "MATCH_ODDS") return Math.round(stake * (betSlip.odds - 1));
-        return Math.round(stake * (betSlip.odds - 1)); // Fancy uses 2.0 odds, so this is 1x stake
-      }
-      return stake;
-    })();
-
-    const newBet: CricketBet = {
-      id: "bet_" + Date.now(),
-      eventId: activeMatch.eventId,
-      eventName: activeMatch.eventName,
-      marketType: betSlip.marketType as any,
-      marketName: betSlip.marketName,
-      runnerName: betSlip.runnerName,
-      betType: betSlip.betType,
-      odds: betSlip.odds,
-      size: betSlip.size,
-      stake,
-      profit,
-      exposure,
-      status: "OPEN",
-      placedAt: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
-      sport: activeMatch.sport,
-    };
-
-    const updated = saveStoredBet(newBet);
-    setMyBets(updated);
-    sfx.win();
-    showToast(`Bet Placed on ${betSlip.runnerName}! ⚡`);
-    setBetSlip(null);
   };
 
   // -------------------------------------------------------------
   // RENDER: Match Detail / Live Arena View (my99exch / OExch Standard)
   // -------------------------------------------------------------
   if (selectedMatchId && activeMatch) {
-    const matchBets = myBets.filter((b) => b.eventId === selectedMatchId);
+    const matchBets = myBets.filter((b) => b.eventId === selectedMatchId && b.status === "OPEN");
     const sportApiName = activeMatch.sport === "soccer" ? "football" : activeMatch.sport;
     const tvIframeUrl = `https://apis.diamondexchapi.com/api/tv?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
     const scorecardIframeUrl = `https://apis.diamondexchapi.com/api/scorecard?eventId=${activeMatch.eventId}&sport=${sportApiName}`;
@@ -811,13 +817,14 @@ export function Cricket({
 
               <button
                 onClick={handlePlaceBet}
-                className={`w-full py-3.5 rounded-xl font-black text-sm uppercase tracking-wider text-white shadow-xl active:scale-95 transition-all ${
+                disabled={placing}
+                className={`w-full py-3.5 rounded-xl font-black text-sm uppercase tracking-wider text-white shadow-xl active:scale-95 transition-all disabled:opacity-60 ${
                   betSlip.betType === "BACK"
                     ? "bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-600/40"
                     : "bg-gradient-to-r from-pink-600 to-rose-600 shadow-pink-600/40"
                 }`}
               >
-                Place Bet ({inr(stake)})
+                {placing ? "Placing…" : `Place Bet (${inr(stake)})`}
               </button>
             </div>
           </div>
@@ -887,7 +894,102 @@ export function Cricket({
             );
           })}
         </div>
+        <button
+          onClick={() => {
+            sfx.click();
+            reloadBets();
+            setShowAllBets(!showAllBets);
+          }}
+          className={`mb-1 px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all shrink-0 ${
+            showAllBets ? "bg-blue-600 text-white" : "bg-white/5 text-white/80 border border-white/10 hover:bg-white/10"
+          }`}
+        >
+          📜 My Bets {openBets.length > 0 && `(${openBets.length})`}
+        </button>
       </div>
+
+      {/* All bets across every match */}
+      {showAllBets && (
+        <div className="px-3 py-3 bg-[#0b1029] border-b border-white/10 fadein">
+          <div className="flex items-center gap-1.5 mb-2">
+            {(["OPEN", "SETTLED"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setBetsFilter(f)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition-all ${
+                  betsFilter === f ? "bg-white/15 text-white" : "text-white/50 hover:text-white"
+                }`}
+              >
+                {f === "OPEN" ? `Current Bets (${openBets.length})` : `Settled (${myBets.length - openBets.length})`}
+              </button>
+            ))}
+            <button onClick={() => setShowAllBets(false)} className="ml-auto text-white/60 hover:text-white">
+              <X size={16} />
+            </button>
+          </div>
+          {(() => {
+            const list = myBets.filter((b) => (betsFilter === "OPEN" ? b.status === "OPEN" : b.status !== "OPEN"));
+            if (list.length === 0) {
+              return (
+                <div className="text-center py-6 text-xs text-white/50">
+                  {betsFilter === "OPEN" ? "No active bets right now." : "No settled bets yet."}
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                {list.map((b) => (
+                  <div key={b.id} className="rounded-xl p-2.5 bg-black/40 border border-white/5 space-y-1 text-xs">
+                    <button
+                      onClick={() => {
+                        setShowAllBets(false);
+                        setSelectedMatchId(b.eventId);
+                      }}
+                      className="text-[11px] font-semibold text-sky-300 text-left hover:underline"
+                    >
+                      {b.eventName}
+                    </button>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`px-1.5 rounded text-[10px] font-black ${b.betType === "BACK" ? "bg-blue-600 text-white" : "bg-pink-600 text-white"}`}>
+                        {b.betType} • {b.marketName}
+                      </span>
+                      <span
+                        className={`px-1.5 rounded text-[10px] font-black ${
+                          b.status === "WON"
+                            ? "bg-emerald-600 text-white"
+                            : b.status === "LOST"
+                            ? "bg-rose-600 text-white"
+                            : b.status === "VOID"
+                            ? "bg-white/20 text-white"
+                            : "bg-amber-500 text-black"
+                        }`}
+                      >
+                        {b.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-white">{b.runnerName}</span>
+                      <span className="text-white/50 text-[10px]">{b.placedAt}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[11px]">
+                      <span>Stake: <strong>{inr(b.stake)}</strong></span>
+                      <span>Odds: <strong>{b.odds.toFixed(2)}</strong></span>
+                      {b.status === "OPEN" ? (
+                        <span className="text-emerald-400 font-bold">Win: +{inr(b.profit)}</span>
+                      ) : (
+                        <span className={`font-bold ${b.payout ? "text-emerald-400" : "text-rose-400"}`}>
+                          Paid: {inr(b.payout || 0)}
+                        </span>
+                      )}
+                    </div>
+                    {b.result && <div className="text-[10px] text-white/50">Result: {b.result}</div>}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {/* 3. IN-PLAY VS UPCOMING FILTER TABS */}
       <div className="px-3 py-2 bg-[#0b1029] flex items-center justify-between gap-2 border-b border-white/5">

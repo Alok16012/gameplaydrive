@@ -3,7 +3,7 @@
 import { SupportCard } from "./SupportCard";
 import { useEffect, useState } from "react";
 import {
-  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, UserPlus, Users, X,
+  ArrowDownLeft, BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -14,6 +14,7 @@ import { errText, supabase } from "../lib/supabase";
 import { AgentPaymentView } from "./AgentPaymentView";
 import { PaymentRequestsView } from "./PaymentRequestsView";
 import { OutcomeControlView } from "./OutcomeControlView";
+import { CricketResultsView } from "./CricketResultsView";
 import { UserDetailsModal } from "./UserDetailsModal";
 import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView";
 
@@ -21,7 +22,7 @@ import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView"
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "outcome" | "payment" | "requests" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
+type Section = "dashboard" | "outcome" | "cricket" | "payment" | "requests" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -36,6 +37,7 @@ export default function AdminApp() {
   const all: { id: Section; label: string; icon: React.ReactNode; roles: Role[] }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "outcome", label: "Win / Loss Control", icon: <Sliders size={18} />, roles: ["superadmin"] },
+    { id: "cricket", label: "Cricket Results", icon: <Trophy size={18} />, roles: ["superadmin"] },
     { id: "requests", label: "Payment Requests", icon: <ArrowDownLeft size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
@@ -145,6 +147,7 @@ export default function AdminApp() {
         <div className="p-4 lg:p-8 max-w-6xl">
           {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
           {sec === "outcome" && <OutcomeControlView me={me} accounts={accounts} />}
+          {sec === "cricket" && <CricketResultsView me={me} accounts={accounts} />}
           {sec === "requests" && <PaymentRequestsView me={me} />}
           {sec === "payment" && <AgentPaymentView me={me} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
