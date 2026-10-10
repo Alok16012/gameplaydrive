@@ -321,7 +321,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         icon={<div className="w-11 h-11 rounded-xl grid place-items-center overflow-hidden scale-90" style={{ background: `linear-gradient(160deg,${game.from},${game.to})` }}><div className="scale-[.6]"><GameIcon id={game.id} /></div></div>}
         right={online
           ? <div className="text-[11px] text-neon-400 flex items-center gap-1"><Users size={14} />{displayOnline} online</div>
-          : <div className="text-[11px] text-white/50">Practice vs bots</div>}
+          : <div className="text-[11px] text-white/50">Practice Match</div>}
       />
       <div className="px-4">
         {activeHere && active && (
@@ -392,7 +392,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
           })}
         </div>
         <div className="mt-3 text-[11px] text-white/40 text-center">
-          {online ? "Real players at the same stake sit together. Cards are dealt by the server; bots are always labelled." : "Practice table: you play against bots on this device."}
+          {online ? "Real players at the same stake sit together. Cards are dealt by the server." : "Practice table: play for fun on this device."}
         </div>
       </div>
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] p-4 bg-gradient-to-t from-[#080c26] via-[#080c26] to-transparent">
