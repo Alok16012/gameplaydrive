@@ -162,6 +162,11 @@ export const sfx = {
     noise(0.13, { filter: "bandpass", freq: 5200, sweep: 1800, q: 0.9, vol: 0.32, attack: 0.02 });
     noise(0.04, { filter: "lowpass", freq: 900, vol: 0.18, at: 0.11 });
   }),
+  /** A fast, crisp card deal sound specifically for Rummy, Teen Patti etc. */
+  dealCard: play(() => {
+    noise(0.08, { filter: "highpass", freq: 4000, sweep: 8000, q: 1, vol: 0.25, attack: 0.01 });
+    noise(0.05, { filter: "bandpass", freq: 1500, vol: 0.15, at: 0.04 });
+  }),
   /** A card turned face up. */
   flip: play(() => {
     noise(0.07, { freq: 2600, q: 1.5, vol: 0.3, attack: 0.008 });
@@ -385,7 +390,7 @@ export function useSoundOnRise(value: number, fn: () => void) {
 
 /** n cards dealt in quick succession. */
 export function dealSound(n: number, gapMs = 140) {
-  for (let i = 0; i < n; i++) window.setTimeout(() => sfx.card(), i * gapMs);
+  for (let i = 0; i < n; i++) window.setTimeout(() => sfx.dealCard(), i * gapMs);
 }
 
 /** Win / lose cue for a settled round: `won` is the payout (null = you had no bet). */

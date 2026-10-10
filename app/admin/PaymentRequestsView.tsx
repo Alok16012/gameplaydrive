@@ -76,7 +76,7 @@ export function PaymentRequestsView({ me }: { me: any }) {
                   <td className="px-4 py-3 text-white font-semibold">
                     {r.type === 'withdraw' ? `🪙 ${r.amount}` : `UTR: ${r.utr}`}
                   </td>
-                  <td className="px-4 py-3 text-white/70 max-w-[200px] truncate" title={r.bank_details}>
+                  <td className="px-4 py-3 text-white/70 min-w-[250px] whitespace-normal break-words" title={r.bank_details}>
                     {r.bank_details || '—'}
                   </td>
                   <td className="px-4 py-3">

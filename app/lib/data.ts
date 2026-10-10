@@ -72,24 +72,24 @@ export interface Table {
 
 // Lobby tables (PRD §5.3 — stake tiers). Same list is re-used per game with a per-game multiplier.
 export const TABLES: Table[] = [
-  { id: "101", seated: 2, seats: 6, buyIn: 10, stake: "Low" },
-  { id: "203", seated: 4, seats: 6, buyIn: 25, stake: "Low" },
-  { id: "307", seated: 3, seats: 6, buyIn: 50, stake: "Mid" },
-  { id: "412", seated: 6, seats: 6, buyIn: 100, stake: "Mid" },
-  { id: "528", seated: 2, seats: 6, buyIn: 200, stake: "High" },
-  { id: "615", seated: 5, seats: 6, buyIn: 500, stake: "High" },
-  { id: "722", seated: 1, seats: 6, buyIn: 1000, stake: "High" },
+  { id: "101", seated: 2, seats: 6, buyIn: 100, stake: "Low" },
+  { id: "203", seated: 4, seats: 6, buyIn: 500, stake: "Low" },
+  { id: "307", seated: 3, seats: 6, buyIn: 1000, stake: "Mid" },
+  { id: "412", seated: 6, seats: 6, buyIn: 2500, stake: "Mid" },
+  { id: "528", seated: 2, seats: 6, buyIn: 5000, stake: "High" },
+  { id: "615", seated: 5, seats: 6, buyIn: 10000, stake: "High" },
+  { id: "722", seated: 1, seats: 6, buyIn: 25000, stake: "High" },
 ];
 
 // Rummy has its own entry ladder (50 → 5,000 coins).
 export const RUMMY_TABLES: Table[] = [
-  { id: "101", seated: 3, seats: 6, buyIn: 50, stake: "Low" },
-  { id: "203", seated: 4, seats: 6, buyIn: 100, stake: "Low" },
-  { id: "307", seated: 2, seats: 6, buyIn: 250, stake: "Mid" },
-  { id: "412", seated: 5, seats: 6, buyIn: 500, stake: "Mid" },
-  { id: "528", seated: 6, seats: 6, buyIn: 1000, stake: "Mid" },
-  { id: "615", seated: 3, seats: 6, buyIn: 2000, stake: "High" },
-  { id: "722", seated: 1, seats: 6, buyIn: 5000, stake: "High" },
+  { id: "101", seated: 3, seats: 6, buyIn: 500, stake: "Low" },
+  { id: "203", seated: 4, seats: 6, buyIn: 1000, stake: "Low" },
+  { id: "307", seated: 2, seats: 6, buyIn: 2500, stake: "Mid" },
+  { id: "412", seated: 5, seats: 6, buyIn: 5000, stake: "Mid" },
+  { id: "528", seated: 6, seats: 6, buyIn: 10000, stake: "Mid" },
+  { id: "615", seated: 3, seats: 6, buyIn: 25000, stake: "High" },
+  { id: "722", seated: 1, seats: 6, buyIn: 50000, stake: "High" },
 ];
 
 export const USER = {
