@@ -13,6 +13,8 @@ import type { Nav } from "../nav";
 // server; here a local loop simulates it: 15 s betting → deal → result → payout → next round.
 
 const BET_SECS = 15;
+// Dragon Tiger: the Tiger card opens this long after the Dragon card, for suspense.
+const DT_TIGER_DELAY_MS = 5000;
 const CHIPS: { v: number; c: string }[] = [
   { v: 10, c: "#2563eb" },
   { v: 50, c: "#16a34a" },
@@ -152,7 +154,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     if (phase === "betting") {
       const placed = betsRef.current;
       const stake = placed.reduce((a, b) => a + b.v, 0);
-      const dealMs = (r: Round) => (gameId === "andar-bahar" ? abDealMs(r) : 2500);
+      const dealMs = (r: Round) => (gameId === "andar-bahar" ? abDealMs(r) : gameId === "dragon-tiger" ? DT_TIGER_DELAY_MS + 1500 : 2500);
       payout.current = 0;
       setPhase("dealing");
       if (stake > 0) {
@@ -205,7 +207,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   useEffect(() => {
     if (!round || gameId !== "dragon-tiger") return;
     sfx.card();
-    const t = window.setTimeout(() => sfx.flip(), 400);
+    const t = window.setTimeout(() => sfx.flip(), DT_TIGER_DELAY_MS);
     return () => window.clearTimeout(t);
   }, [round, gameId]);
   useResultSound(phase === "result", won);
@@ -258,7 +260,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
               <>
                 <Slot label="🐉 Dragon" card={round?.cards.dragon as Card | undefined} win={phase === "result" && round?.winner === "dragon"} />
                 <div className="text-2xl font-extrabold text-white/60">VS</div>
-                <Slot label="🐯 Tiger" card={round?.cards.tiger as Card | undefined} win={phase === "result" && round?.winner === "tiger"} delay />
+                <Slot label="🐯 Tiger" card={round?.cards.tiger as Card | undefined} win={phase === "result" && round?.winner === "tiger"} delayMs={DT_TIGER_DELAY_MS} />
               </>
             )}
             {gameId === "andar-bahar" && <AndarBaharTable round={round} phase={phase} />}
@@ -407,13 +409,23 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   );
 }
 
-function Slot({ label, card, win, delay }: { label: string; card?: Card; win: boolean; delay?: boolean }) {
+function Slot({ label, card, win, delayMs = 0 }: { label: string; card?: Card; win: boolean; delayMs?: number }) {
+  // A delayed card sits face down until its turn, then flips open.
+  const [open, setOpen] = useState(delayMs === 0);
+  useEffect(() => {
+    if (!card || delayMs === 0) return;
+    setOpen(false);
+    const t = window.setTimeout(() => setOpen(true), delayMs);
+    return () => window.clearTimeout(t);
+  }, [card, delayMs]);
   return (
     <div className="flex flex-col items-center gap-2">
       <div className="text-xs font-semibold text-white/80">{label}</div>
       <div className={`rounded-lg ${win ? "ring-4 ring-gold-300 shadow-[0_0_30px_rgba(253,224,71,.6)]" : ""}`}>
-        {card ? (
-          <PlayingCard card={card} size="lg" className="flip" style={delay ? { animationDelay: ".4s" } : undefined} />
+        {card && open ? (
+          <PlayingCard card={card} size="lg" className="flip" />
+        ) : card ? (
+          <PlayingCard faceDown size="lg" />
         ) : (
           <div className="w-16 h-[90px] rounded-lg border-2 border-dashed border-white/25 grid place-items-center text-white/30 text-xs">?</div>
         )}

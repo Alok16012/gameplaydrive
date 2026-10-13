@@ -361,7 +361,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                     {u.name}
                     <span className="text-[10px] text-sky-300 bg-sky-500/15 border border-sky-500/25 rounded px-1.5 py-0.5 opacity-60 group-hover:opacity-100 transition">Card</span>
                   </div>
-                  <div className="text-[11px] text-white/50">{u.code} • {u.created}</div>
+                  <div className="text-[11px] text-white/50">{role === "player" && u.username ? `@${u.username} • ` : ""}{u.code} • {u.created}</div>
                 </td>
                 {role === "player" ? (
                   <>
@@ -701,11 +701,11 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
     if (!f.name.trim()) return setErr("Enter a name");
     if (f.phone && !/^\d{10}$/.test(f.phone)) return setErr("Enter a 10-digit mobile number");
     if (!staff && !f.phone) return setErr("Players need a mobile number to sign in");
-    if (staff && !/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
+    if ((staff || f.username.trim()) && !/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
     if (f.password && f.password.length < 6) return setErr("Password must be at least 6 characters");
     setBusy(true);
     try {
-      await updateAccount({ id: target.id, name: f.name.trim(), phone: f.phone, username: staff ? f.username.trim().toLowerCase() : undefined, state: staff ? undefined : f.state, password: f.password || undefined });
+      await updateAccount({ id: target.id, name: f.name.trim(), phone: f.phone, username: f.username.trim().toLowerCase(), state: staff ? undefined : f.state, password: f.password || undefined });
       await reload();
       setSaved(true);
     } catch (e) {
@@ -722,7 +722,7 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
             <div className="flex justify-between"><span className="text-white/60">ID</span><b>{target.code}</b></div>
             <div className="flex justify-between"><span className="text-white/60">Name</span><span>{f.name.trim()}</span></div>
             {f.phone && <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(f.phone)}</span></div>}
-            {staff && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{f.username.trim().toLowerCase()}</span></div>}
+            {f.username.trim() && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{f.username.trim().toLowerCase()}</span></div>}
           </div>
           {(loginChanged || f.password) && (
             <div className="text-xs text-amber-200 mt-3">
@@ -738,8 +738,11 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
             <span>{target.code} • {target.status}</span><span>Reports to {owner?.name ?? "—"}</span>
           </div>
           <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
-          <label className="block text-xs text-white/60">Mobile number{staff && <span className="text-white/40"> (optional)</span>}
-            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
+          {!staff && (
+            <label className="block text-xs text-white/60">Username <span className="text-white/40">(optional)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+          )}
+          <label className="block text-xs text-white/60">Mobile number{staff ? <span className="text-white/40"> (optional)</span> : <span className="text-rose-300"> *</span>}
+            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" required={!staff} value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
           </label>
           {staff ? (
             <label className="block text-xs text-white/60">Username<input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
@@ -785,9 +788,9 @@ function CreateModal({
     owner: owners[0]?.id ?? me.id,
     city: "Aurangabad",
     partnershipName: "Partnership With No Return",
-    userPart: "87",
+    userPart: "0",
     ourPart: "0",
-    creditPts: "300000",
+    creditPts: "0",
     remark: "Nothing",
   });
   const [err, setErr] = useState("");
@@ -799,7 +802,7 @@ function CreateModal({
   const submit = async () => {
     if (!f.name.trim()) return setErr("Enter a name");
     if (!/^\d{10}$/.test(f.phone) && (!staff || f.phone)) return setErr("Enter a 10-digit mobile number");
-    if (staff && !/^[a-z0-9._]{3,}$/i.test(f.username)) return setErr("Username: at least 3 letters, numbers, dots or underscores");
+    if ((staff || f.username.trim()) && !/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
     if (f.password.length < 6) return setErr("Password must be at least 6 characters");
     if (staff) {
       const up = Number(f.userPart), our = Number(f.ourPart);
@@ -812,7 +815,7 @@ function CreateModal({
         role,
         name: f.name.trim(),
         phone: f.phone,
-        username: staff ? f.username : undefined,
+        username: f.username.trim() || undefined,
         password: f.password,
         parentId: f.owner,
         state: staff ? f.city : f.state,
@@ -823,7 +826,7 @@ function CreateModal({
               ourPart: Number(f.ourPart) || 0,
               remark: f.remark.trim() || "Nothing",
               city: f.city.trim() || "Aurangabad",
-              creditPts: Number(f.creditPts) || 300000,
+              creditPts: Number(f.creditPts) || 0,
               exposure: 0,
               casinoPts: 0,
               sportsPts: 0,
@@ -847,7 +850,7 @@ function CreateModal({
             <div className="flex justify-between"><span className="text-white/60">ID</span><b>{done.code}</b></div>
             <div className="flex justify-between"><span className="text-white/60">Name</span><span>{done.name}</span></div>
             {done.phone && <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(done.phone)}</span></div>}
-            {staff && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{done.username}</span></div>}
+            {done.username && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{done.username}</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">City</span><span>{f.city}</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">Partnership</span><span>{f.partnershipName} ({f.userPart}%)</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">Credit pts</span><span>🪙 {Number(f.creditPts).toLocaleString("en-IN")}</span></div>}
@@ -874,8 +877,11 @@ function CreateModal({
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3 max-h-[75vh] overflow-y-auto pr-1">
           <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
-          <label className="block text-xs text-white/60">Mobile number{staff && <span className="text-white/40"> (optional)</span>}
-            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
+          {!staff && (
+            <label className="block text-xs text-white/60">Username <span className="text-white/40">(optional)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+          )}
+          <label className="block text-xs text-white/60">Mobile number{staff ? <span className="text-white/40"> (optional)</span> : <span className="text-rose-300"> *</span>}
+            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" required={!staff} value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
           </label>
           <div className="grid grid-cols-2 gap-3">
             {staff ? (
@@ -907,7 +913,7 @@ function CreateModal({
                   <input value={f.city} onChange={(e) => set("city", e.target.value)} placeholder="Aurangabad" className={`${inputCls} mt-1`} />
                 </label>
                 <label className="block text-xs text-white/60">Credit pts
-                  <input type="number" value={f.creditPts} onChange={(e) => set("creditPts", e.target.value)} placeholder="300000" className={`${inputCls} mt-1`} />
+                  <input type="number" value={f.creditPts} onChange={(e) => set("creditPts", e.target.value)} placeholder="0" className={`${inputCls} mt-1`} />
                 </label>
               </div>
 
@@ -917,7 +923,7 @@ function CreateModal({
 
               <div className="grid grid-cols-2 gap-2.5">
                 <label className="block text-xs text-white/60">User Part (%)
-                  <input type="number" value={f.userPart} onChange={(e) => set("userPart", e.target.value)} placeholder="87" className={`${inputCls} mt-1`} />
+                  <input type="number" value={f.userPart} onChange={(e) => set("userPart", e.target.value)} placeholder="0" className={`${inputCls} mt-1`} />
                 </label>
                 <label className="block text-xs text-white/60">Our Part (%)
                   <input type="number" value={f.ourPart} onChange={(e) => set("ourPart", e.target.value)} placeholder="0" className={`${inputCls} mt-1`} />
@@ -1145,6 +1151,7 @@ function BotsView() {
 type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast"; outcome_mode?: "fair" | "force_win" | "force_loss" };
 type Field = "bets" | "rake" | "turn" | "blind_limit" | "bot_speed";
 const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
+  { id: "cricket", fields: [], note: "Locking stops new bets. Bets already placed still settle" },
   { id: "teen-patti", fields: ["rake", "turn", "blind_limit"], note: "Fee is taken from each pot. Boots follow the table list" },
   { id: "rummy", fields: ["rake", "turn"], note: "13 and 21 Card. Fee on Points winnings and Pool/Deals prize pools" },
   { id: "dragon-tiger", fields: ["bets"], note: "Limits apply to the total staked per round" },
@@ -1183,11 +1190,23 @@ export function ConfigView() {
     setMsg((m) => ({ ...m, [id]: error ? (/set_game_settings/.test(errText(error)) ? "Run migration 018/020 first" : errText(error)) : "Saved — applies to new bets and tables" }));
     if (!error) load();
   };
+  // Lock / unlock saves straight away (other changes wait for Save).
+  const toggleOpen = async (id: string, on: boolean) => {
+    set(id, { enabled: on });
+    const { error } = await supabase().rpc("set_game_settings", { p_game: id, p_cfg: { enabled: on } });
+    if (error) {
+      set(id, { enabled: cfg?.[id]?.enabled });
+      const t = errText(error);
+      return setMsg((m) => ({ ...m, [id]: /unknown game/i.test(t) ? "Run migration 037 first" : /set_game_settings/.test(t) ? "Run migration 018/020 first" : t }));
+    }
+    setCfg((c) => ({ ...c, [id]: { ...c?.[id], enabled: on } }));
+    setMsg((m) => ({ ...m, [id]: on ? "Saved — unlocked, players can play" : "Saved — locked, no new bets or tables" }));
+  };
   const num = (v: string) => (v === "" ? undefined : Number(v));
 
   return (
     <>
-      <Title t="Game Config" s="Same rules for every player. Changes are written to the audit log." />
+      <Title t="Game Config" s="Lock or unlock each game with its switch. Same rules for every player. Changes are written to the audit log." />
       <SupportCard />
       <div className="grid md:grid-cols-2 gap-4">
         {CONFIG_GAMES.map(({ id, fields, note }) => {
@@ -1201,9 +1220,9 @@ export function ConfigView() {
                 <div className="w-10 h-10 rounded-lg grid place-items-center overflow-hidden" style={{ background: `linear-gradient(160deg,${g.from},${g.to})` }}><div className="scale-[.5]"><GameIcon id={g.id} /></div></div>
                 <div className="flex-1">
                   <div className="font-medium">{g.name}</div>
-                  <div className={`text-[11px] ${on ? "text-neon-400" : "text-rose-300"}`}>{on ? "Open" : "Closed — no new bets or tables"}</div>
+                  <div className={`text-[11px] ${on ? "text-neon-400" : "text-rose-300"}`}>{on ? "🔓 Unlocked — players can play" : "🔒 Locked — no new bets or tables"}</div>
                 </div>
-                <button onClick={() => set(id, { enabled: !on })} className={`w-11 h-6 rounded-full p-0.5 transition-colors ${on ? "bg-neon-500" : "bg-white/15"}`} aria-label="Open">
+                <button onClick={() => toggleOpen(id, !on)} className={`w-11 h-6 rounded-full p-0.5 transition-colors ${on ? "bg-neon-500" : "bg-white/15"}`} aria-label={on ? "Lock game" : "Unlock game"}>
                   <div className={`w-5 h-5 rounded-full bg-white transition-transform ${on ? "translate-x-5" : ""}`} />
                 </button>
               </div>

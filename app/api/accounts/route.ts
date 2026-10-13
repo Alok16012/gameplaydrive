@@ -34,7 +34,8 @@ export async function POST(req: Request) {
   if (!name) return Response.json({ error: "Enter a name" }, { status: 400 });
   if (phone && !/^\d{10}$/.test(phone)) return Response.json({ error: "Enter a 10-digit mobile number" }, { status: 400 });
   if (role === "player" && !phone) return Response.json({ error: "Players need a mobile number to sign in" }, { status: 400 });
-  if (role !== "player" && !/^[a-z0-9._]{3,}$/.test(username ?? "")) return Response.json({ error: "Username: at least 3 letters, numbers, dots or underscores" }, { status: 400 });
+  // Staff sign in with their username; a player's username is optional and only shown as their name.
+  if ((role !== "player" || username) && !/^[a-z0-9._]{3,}$/.test(username ?? "")) return Response.json({ error: "Username: at least 3 letters, numbers, dots or underscores" }, { status: 400 });
   if (password.length < 6) return Response.json({ error: "Password must be at least 6 characters" }, { status: 400 });
 
   let authId: string | null = null;
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
     authId = (await createAuthUser(email, password)).id;
     const profile = await rpc<Profile>("create_profile", {
       p_id: authId, p_actor: actor.id, p_role: role, p_name: name, p_phone: phone || null,
-      p_username: role === "player" ? null : username, p_parent: b?.parentId ?? null, p_state: b?.state ?? null,
+      p_username: username, p_parent: b?.parentId ?? null, p_state: b?.state ?? null,
     });
 
     if (b?.meta && authId) {

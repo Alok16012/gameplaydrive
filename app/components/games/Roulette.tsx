@@ -35,6 +35,16 @@ const GREEN = "#2f9d4e";
 const color = (n: number) => (n === 0 ? GREEN : REDS.has(n) ? RED : BLACK);
 const short = (v: number) => (v >= 1000 ? `${Math.round(v / 100) / 10}K` : String(v));
 const norm = (d: number) => ((d % 360) + 360) % 360;
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+const easeOutQuad = (t: number) => 1 - (1 - t) * (1 - t);
+const easeOutBack = (t: number) => 1 + 2.2 * Math.pow(t - 1, 3) + 1.2 * Math.pow(t - 1, 2);
+// Ball, in the wheel's SVG units (viewBox 224 across): rolls over the number ring (76–95), drops into the pocket
+// ring (62–76) once it has slowed down (BALL_DROP of the spin), after BALL_TURNS turns against the wheel.
+const BALL_UNITS = 10;
+const BALL_TRACK_R = 86;
+const BALL_POCKET_R = 69;
+const BALL_DROP = 0.72;
+const BALL_TURNS = 8;
 
 /** Does a bet win on number n? (Display only — the server settles every bet.) */
 function wins(side: string, n: number) {
@@ -73,9 +83,13 @@ export function Roulette({ nav }: { nav: Nav }) {
   const [crowd, setCrowd] = useState<{ side: string; v: number; dx: number; dy: number }[]>([]);
   const [hist, setHist] = useState<number[]>([]);
   const [result, setResult] = useState<{ n: number; payout: number; stake: number } | null>(null);
-  const [wheelRot, setWheelRot] = useState(0);
-  const [ballRot, setBallRot] = useState(0);
-  const [ballIn, setBallIn] = useState(false);
+  // The wheel and ball are moved frame by frame (refs, not React state) so the ball can roll over the numbers,
+  // drop into the winning pocket and then ride round with the wheel.
+  const wheelEl = useRef<HTMLDivElement>(null);
+  const ballEl = useRef<HTMLDivElement>(null);
+  const wheelAt = useRef(0);
+  const anim = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(anim.current), []);
   const [round, setRound] = useState(() => 40000 + Math.floor(Math.random() * 900));
   const betsRef = useRef(bets);
   betsRef.current = bets;
@@ -101,12 +115,26 @@ export function Roulette({ nav }: { nav: Nav }) {
   }, [phase]);
 
   const spinTo = useCallback((n: number) => {
-    const idx = ORDER.indexOf(n);
-    setBallIn(false);
-    setWheelRot((cur) => cur - norm(cur) + 360 * 4 + norm(-(idx * 360) / ORDER.length));
-    setBallRot((cur) => cur - norm(cur) - 360 * 7);
+    const pocket = ORDER.indexOf(n) * (360 / ORDER.length); // the pocket's angle on the wheel
+    const w0 = wheelAt.current;
+    const w1 = w0 - norm(w0) + 360 * 4 + norm(-pocket); // winning pocket ends at the top
+    const t0 = performance.now();
     sfx.wheel(SPIN_MS);
-    window.setTimeout(() => setBallIn(true), SPIN_MS * 0.72);
+    cancelAnimationFrame(anim.current);
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - t0) / SPIN_MS);
+      const w = w0 + (w1 - w0) * easeOutCubic(t);
+      wheelAt.current = w;
+      if (wheelEl.current) wheelEl.current.style.transform = `rotate(${w}deg)`;
+      // Ball, measured against the wheel: runs the other way over the numbers, slows down until it sits over the
+      // winning pocket, then stays in it (turning with the wheel).
+      const u = Math.min(1, t / BALL_DROP);
+      const rel = pocket + 360 * BALL_TURNS * (1 - easeOutQuad(u));
+      const r = u < 0.8 ? BALL_TRACK_R : BALL_TRACK_R + (BALL_POCKET_R - BALL_TRACK_R) * easeOutBack((u - 0.8) / 0.2);
+      if (ballEl.current) ballEl.current.style.transform = `translate(-50%, -50%) rotate(${w + rel}deg) translateY(${(-r / BALL_UNITS) * 100}%)`;
+      if (t < 1) anim.current = requestAnimationFrame(frame);
+    };
+    anim.current = requestAnimationFrame(frame);
   }, []);
 
   // Round clock: betting → spin (server settles your bets) → result → next round.
@@ -147,7 +175,6 @@ export function Roulette({ nav }: { nav: Nav }) {
       setBets([]);
       setCrowd([]);
       setResult(null);
-      setBallIn(false);
       setRound((r) => r + 1);
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
@@ -278,7 +305,7 @@ export function Roulette({ nav }: { nav: Nav }) {
               willChange: "transform",
             }}
           >
-            <Wheel rot={wheelRot} ball={ballRot} ballIn={ballIn} visible={spinning} />
+            <Wheel wheelRef={wheelEl} ballRef={ballEl} visible={spinning} />
             {shown !== null && (
               <div className="absolute top-1/2 -translate-y-1/2 left-[104%] pop">
                 <div className="w-[86px] h-[86px] rounded-xl bg-[#14532d] border-2 border-[#9fd8a9]/60 grid place-items-center shadow-2xl">
@@ -383,7 +410,7 @@ function MiniChip({ v, size, faded, ring }: { v: number; size: number; faded?: b
 /** Wooden wheel: numbers on the outer ring, pockets inside, gold turret; the ball drops into the pocket on top. */
 // The rotating parts are HTML layers turned with CSS transforms (will-change), so the browser spins them on the
 // GPU; the wheel is memoised so the round clock re-rendering the table doesn't touch it mid-spin.
-const Wheel = memo(function Wheel({ rot, ball, ballIn, visible }: { rot: number; ball: number; ballIn: boolean; visible: boolean }) {
+const Wheel = memo(function Wheel({ wheelRef, ballRef, visible }: { wheelRef: React.RefObject<HTMLDivElement | null>; ballRef: React.RefObject<HTMLDivElement | null>; visible: boolean }) {
   const seg = 360 / ORDER.length;
   const p = (r: number, a: number) => `${(r * Math.cos(a)).toFixed(2)},${(r * Math.sin(a)).toFixed(2)}`;
   const ring = (r0: number, r1: number, i: number) => {
@@ -403,10 +430,7 @@ const Wheel = memo(function Wheel({ rot, ball, ballIn, visible }: { rot: number;
         <circle r="111" fill="url(#rl-wood)" stroke="#2a1608" strokeWidth="2" />
         <circle r="97" fill="#2a1608" />
       </svg>
-      <div
-        className="absolute inset-0"
-        style={{ transform: `rotate(${rot}deg)`, transition: visible ? `transform ${SPIN_MS}ms cubic-bezier(.15,.55,.2,1)` : "none", willChange: "transform", backfaceVisibility: "hidden" }}
-      >
+      <div ref={wheelRef} className="absolute inset-0" style={{ willChange: "transform", backfaceVisibility: "hidden" }}>
         <svg viewBox="-112 -112 224 224" className="absolute inset-0 w-full h-full">
           <defs>
             <radialGradient id="rl-cone" cx=".45" cy=".4">
@@ -441,22 +465,20 @@ const Wheel = memo(function Wheel({ rot, ball, ballIn, visible }: { rot: number;
           <circle r="5" fill="#fff3c4" />
         </svg>
       </div>
-      {/* Ball */}
+      {/* Ball (placed by spinTo) */}
       {visible && (
-        <div className="absolute inset-0" style={{ transform: `rotate(${ball}deg)`, transition: `transform ${SPIN_MS}ms cubic-bezier(.2,.65,.25,1)`, willChange: "transform" }}>
-          <div
-            className="absolute left-1/2 rounded-full"
-            style={{
-              width: "5%",
-              height: "5%",
-              top: "3%",
-              transform: `translate(-50%, ${ballIn ? 274 : 0}%)`,
-              transition: "transform .9s cubic-bezier(.5,0,.4,1.4)",
-              background: "radial-gradient(circle at 35% 35%, #fff, #e5e7eb 60%, #9ca3af)",
-              boxShadow: "0 1px 3px rgba(0,0,0,.6)",
-            }}
-          />
-        </div>
+        <div
+          ref={ballRef}
+          className="absolute left-1/2 top-1/2 rounded-full"
+          style={{
+            width: `${(BALL_UNITS / 224) * 100}%`,
+            height: `${(BALL_UNITS / 224) * 100}%`,
+            transform: `translate(-50%, -50%) translateY(${(-BALL_TRACK_R / BALL_UNITS) * 100}%)`,
+            willChange: "transform",
+            background: "radial-gradient(circle at 35% 35%, #fff, #e5e7eb 60%, #9ca3af)",
+            boxShadow: "0 1px 3px rgba(0,0,0,.6)",
+          }}
+        />
       )}
     </div>
   );

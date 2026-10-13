@@ -3,7 +3,7 @@
 import { REJOIN_MS, clearActive, dropSnap, loadSnap, markActive, saveSnap, snapAge } from "../../lib/rejoin";
 import { sfx, vibrate } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
-import { Star } from "lucide-react";
+import { LogOut, Star } from "lucide-react";
 import { inr, type GameId } from "../../lib/data";
 import { pickBots, type Bot } from "../../lib/botpool";
 import { useStore } from "../../lib/store";
@@ -211,6 +211,16 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const beat = useRef(Date.now());
   const watching = useRef(false); // a game is on and the clock below is running
   const [gaveUp, setGaveUp] = useState(false);
+  // Exit: leave the game for good (the entry is lost), unlike Back, which keeps it for a quick rejoin.
+  const [askExit, setAskExit] = useState(false);
+  const exitGame = () => {
+    over.current = true;
+    gameNo.current += 1;
+    setClock(null);
+    dropSnap(snapKey);
+    clearActive(route);
+    nav.back();
+  };
   const awayTooLong = () => {
     if (over.current || !watching.current || Date.now() - beat.current <= REJOIN_MS.ludo) return false;
     over.current = true;
@@ -486,8 +496,26 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
           </button>
           <div className="text-sm font-semibold mt-2.5">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
           <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{msg}</div>
+          {started && winner === null && !gaveUp && (
+            <button onClick={() => setAskExit(true)} className="mt-4 pill px-4 py-2 text-xs font-semibold bg-white/10 text-white/80 inline-flex items-center gap-1.5">
+              <LogOut size={14} /> Exit game
+            </button>
+          )}
         </div>
       </div>
+
+      {askExit && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-6" onClick={() => setAskExit(false)}>
+          <div className="w-full max-w-[360px] rounded-3xl bg-[#0d1230] border border-white/10 p-6 text-center pop" onClick={(e) => e.stopPropagation()}>
+            <div className="text-xl font-semibold">Exit this game?</div>
+            <div className="text-sm text-white/60 mt-1">You will lose this game and the entry of {inr(buyIn)} is not returned.</div>
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button onClick={() => setAskExit(false)} className="py-3 rounded-2xl bg-white/10 font-semibold">Keep playing</button>
+              <button onClick={exitGame} className="py-3 rounded-2xl bg-rose-500 font-semibold">Exit</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ResultSheet
         open={winner !== null}

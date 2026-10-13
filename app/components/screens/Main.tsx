@@ -3,7 +3,7 @@
 import { useActiveGame } from "../../lib/rejoin";
 import { useEffect, useState } from "react";
 import { Bell, ChevronRight, Gamepad2, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
-import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
+import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, TEEN_PATTI_TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
 import { createTeenPattiPrivate, gameServerUp, getTeenPattiLobby } from "../../lib/gameServer";
@@ -149,7 +149,9 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
   const gs = useGameSettings();
   const [cat, setCat] = useState(initial);
   const [q, setQ] = useState<string | null>(null);
-  const list = GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
+  // Football and Tennis are hidden for now; only Cricket is offered under Sports.
+  const list = GAMES.filter((g) => g.id !== "football" && g.id !== "tennis")
+    .filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
   return (
     <div className="pb-28 fadein">
       <Header
@@ -235,6 +237,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Rummy gets one table per stake on the ladder (Points has 7, Pool/Deals have 8).
   const base = rummy
     ? RUMMY_STAKES[mode].map((v, i, all) => ({ id: String(101 + i * 103), seated: RUMMY_TABLES[i % RUMMY_TABLES.length].seated, seats: 6, buyIn: v, stake: rummyTier(i, all.length) }))
+    : gameId === "teen-patti"
+    ? TEEN_PATTI_TABLES
     : TABLES;
   // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
   // show 2…seats-1 already seated, drifting a little every few seconds like a real lobby. One-on-one games
