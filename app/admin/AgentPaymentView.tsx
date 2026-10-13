@@ -59,6 +59,15 @@ function parsePhone(raw: string) {
   if (!clean) return { code: "+91", num: "" };
 
   if (clean.startsWith("+")) {
+    // Check known country codes first (longest code first to avoid partial match)
+    const sorted = [...POPULAR_COUNTRIES].sort((a, b) => b.code.length - a.code.length);
+    for (const item of sorted) {
+      if (clean.startsWith(item.code)) {
+        const rest = clean.slice(item.code.length).replace(/[\s\-.]/g, "").replace(/\D/g, "");
+        if (rest) return { code: item.code, num: rest };
+      }
+    }
+    // Fallback: try regex with non-greedy approach
     const match = clean.match(/^(\+\d{1,4})[\s\-.]?(\d+)$/);
     if (match) {
       return { code: match[1], num: match[2] };

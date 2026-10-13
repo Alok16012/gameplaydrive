@@ -59,11 +59,11 @@ export function UserDetailsModal({
 }: UserDetailsModalProps) {
   const [meta, setMeta] = useState<UserExchangeMeta>({
     partnershipName: "Partnership With No Return",
-    userPart: 87,
+    userPart: 0,
     ourPart: 0,
     remark: "Nothing",
     city: target.state || "Aurangabad",
-    creditPts: 300000,
+    creditPts: 0,
     exposure: 0,
     casinoPts: 0,
     sportsPts: 0,
@@ -91,11 +91,11 @@ export function UserDetailsModal({
         if (active && json?.meta) {
           const merged: UserExchangeMeta = {
             partnershipName: json.meta.partnershipName ?? "Partnership With No Return",
-            userPart: json.meta.userPart ?? 87,
+            userPart: json.meta.userPart ?? 0,
             ourPart: json.meta.ourPart ?? 0,
             remark: json.meta.remark ?? "Nothing",
             city: json.meta.city || target.state || "Aurangabad",
-            creditPts: json.meta.creditPts ?? 300000,
+            creditPts: json.meta.creditPts ?? 0,
             exposure: json.meta.exposure ?? 0,
             casinoPts: json.meta.casinoPts ?? 0,
             sportsPts: json.meta.sportsPts ?? 0,
@@ -106,11 +106,11 @@ export function UserDetailsModal({
         } else if (active) {
           const fallback: UserExchangeMeta = {
             partnershipName: "Partnership With No Return",
-            userPart: 87,
+            userPart: 0,
             ourPart: 0,
             remark: "Nothing",
             city: target.state || "Aurangabad",
-            creditPts: 300000,
+            creditPts: 0,
             exposure: 0,
             casinoPts: 0,
             sportsPts: 0,
@@ -313,7 +313,7 @@ export function UserDetailsModal({
                       type="number"
                       min={0}
                       max={100}
-                      value={form.userPart ?? 87}
+                      value={form.userPart ?? 0}
                       onChange={(e) => setForm({ ...form, userPart: Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
                     />
@@ -353,7 +353,7 @@ export function UserDetailsModal({
                     <label className="font-semibold text-slate-600 block mb-1">Credit pts</label>
                     <input
                       type="number"
-                      value={form.creditPts ?? 300000}
+                      value={form.creditPts ?? 0}
                       onChange={(e) => setForm({ ...form, creditPts: Number(e.target.value) })}
                       className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
                     />
@@ -414,7 +414,7 @@ export function UserDetailsModal({
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">User Part:</span>
                     <span className="text-slate-700 font-normal">
-                      {meta.userPart ?? 87}
+                      {meta.userPart ?? 0}
                     </span>
                   </div>
 
@@ -484,7 +484,7 @@ export function UserDetailsModal({
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Credit pts:</span>
                     <span className="text-slate-700 font-normal">
-                      {formatPts(meta.creditPts ?? 300000)}
+                      {formatPts(meta.creditPts ?? 0)}
                     </span>
                   </div>
 

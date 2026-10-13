@@ -136,7 +136,7 @@ async function liveStats(id: string, meta: UserExchangeMeta | null): Promise<Acc
   }
 
   const wallet = await selectOne<{ coins: number }>("wallets", `select=coins&user_id=eq.${id}`);
-  const userPart = meta?.userPart ?? 87;
+  const userPart = meta?.userPart ?? 0;
   const ourPart = meta?.ourPart ?? 0;
   const round = (n: number) => Math.round(n * 100) / 100 || 0;
   return {

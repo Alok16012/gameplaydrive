@@ -254,7 +254,7 @@ export function Cricket({
       min,
       max,
     });
-    setStake(Math.min(500, total > 0 ? total : 500));
+    setStake(0);
   };
 
   // Place Bet
@@ -776,9 +776,16 @@ export function Cricket({
                   <div className="text-[10px] text-white/60 font-bold uppercase">ODDS RATE</div>
                   <div className="text-xl font-black text-white mt-0.5">{betSlip.odds.toFixed(2)}</div>
                 </div>
-                <div className="bg-black/50 rounded-xl p-2.5 border border-white/10">
+                <div className="bg-black/50 rounded-xl p-2.5 border border-white/10 relative">
                   <div className="text-[10px] text-white/60 font-bold uppercase">STAKE COINS</div>
                   <div className="text-xl font-black text-emerald-400 mt-0.5">{inr(stake)}</div>
+                  {stake > 0 && (
+                    <button
+                      onClick={() => { sfx.click(); setStake(0); }}
+                      className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-white/10 hover:bg-rose-500/30 text-white/60 hover:text-rose-300 text-[10px] font-bold flex items-center justify-center transition"
+                      title="Clear stake"
+                    >✕</button>
+                  )}
                 </div>
               </div>
 
@@ -787,12 +794,8 @@ export function Cricket({
                 {QUICK_STAKES.map((amt) => (
                   <button
                     key={amt}
-                    onClick={() => { sfx.click(); setStake(amt); }}
-                    className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
-                      stake === amt
-                        ? "bg-white text-slate-950 font-black shadow-md"
-                        : "bg-white/10 text-white/80 hover:bg-white/20"
-                    }`}
+                    onClick={() => { sfx.click(); setStake((prev) => prev + amt); }}
+                    className={`py-1.5 rounded-lg text-xs font-bold transition-all bg-white/10 text-white/80 hover:bg-white/20 active:bg-white active:text-slate-950 active:scale-95`}
                   >
                     +{amt >= 1000 ? `${amt / 1000}K` : amt}
                   </button>
