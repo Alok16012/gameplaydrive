@@ -171,6 +171,12 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
   const me = v?.me ?? null;
   const mySeat = me !== null && v ? v.seats[me] : null;
   const myTurn = !!v && v.status === "playing" && v.turn === me && me !== null;
+  // Buzz the phone when the turn passes to you (not again for the extra roll after a 6).
+  const hadTurn = useRef(false);
+  useEffect(() => {
+    if (myTurn && !hadTurn.current) vibrate([120, 80, 120]);
+    hadTurn.current = myTurn;
+  }, [myTurn]);
   const myColour = mySeat?.colour ?? 0;
   const movable = myTurn && v?.phase === "move" && v.dice && mySeat
     ? mySeat.tokens.map((p, i) => ((p === -1 && v.dice === 6) || (p >= 0 && p + v.dice! <= 56) ? i : -1)).filter((i) => i >= 0)
