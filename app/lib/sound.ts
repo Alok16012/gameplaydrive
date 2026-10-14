@@ -205,21 +205,21 @@ export const sfx = {
     tone(NOTE(88), 0.12, { vol: 0.14, type: "square" });
     tone(NOTE(95), 0.35, { vol: 0.12, type: "square", at: 0.08 });
   }),
-  /** Roulette ball running round the wheel and dropping into a pocket. */
+  /** Roulette ball rolling round the rim for `ms` (the pocket hops are played one by one with ballHit). */
   wheel: (ms: number) => play(() => {
     const s = ms / 1000;
-    noise(s * 0.85, { filter: "lowpass", freq: 700, sweep: 200, vol: 0.12, attack: 0.3 });
+    noise(s, { filter: "lowpass", freq: 700, sweep: 200, vol: 0.12, attack: 0.3 });
     let t = 0, gap = 0.035;
-    while (t < s * 0.78) {
+    while (t < s * 0.9) {
       noise(0.02, { freq: 3000, q: 8, vol: 0.12, at: t });
       t += gap;
-      gap *= 1.045;
+      gap *= 1.04;
     }
-    // bounces into the pocket
-    [0, 0.16, 0.27, 0.34, 0.39].forEach((d, i) => {
-      noise(0.03, { freq: 2600, q: 5, vol: 0.32 - i * 0.05, at: s * 0.75 + d });
-      tone(1400 - i * 80, 0.03, { type: "triangle", vol: 0.08 - i * 0.012, at: s * 0.75 + d });
-    });
+  })(),
+  /** Roulette ball clipping a pocket fret; `force` 0–1 sets how hard. */
+  ballHit: (force: number) => play(() => {
+    noise(0.03, { freq: 2600, q: 5, vol: 0.12 + 0.22 * force });
+    tone(1250 + 200 * force, 0.03, { type: "triangle", vol: 0.03 + 0.05 * force });
   })(),
   /** Stock Market: the bell when the market opens / closes. */
   bell: play(() => {

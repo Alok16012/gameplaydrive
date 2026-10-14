@@ -15,7 +15,9 @@ import type { Nav } from "../nav";
 // against its own clock. This screen only animates m(t) = e^(0.1·t) from the server's take-off time.
 
 const GROWTH = 0.1;
-const QUICK = [10, 50, 100, 500];
+const QUICK = [50, 100, 500, 1000];
+const BET_WINDOW = 7; // seconds of betting before take-off (010_aviator.sql)
+const CROWD_AMOUNTS = [20, 50, 50, 100, 100, 100, 200, 200, 500, 500, 1000, 2000, 5000];
 const multAt = (secs: number) => Math.max(1, Math.floor(Math.exp(GROWTH * Math.max(0, secs)) * 100) / 100);
 
 interface MyBet { slot: number; amount: number; auto: number | null; cash_mult: number | null; payout: number }
@@ -128,13 +130,15 @@ export function Aviator({ nav }: { nav: Nav }) {
   };
 
   // Other seats in the round: real players from the server, filled out with regulars so the list looks alive.
+  // They join one by one while bets are open, like a busy live table.
   const crowd = useMemo(() => {
     if (!v) return [];
-    return pickBots(9).map((b, i) => ({
+    return pickBots(18 + Math.floor(Math.random() * 18)).map((b) => ({
       name: b.name.slice(0, 2) + "***",
-      amount: [10, 20, 50, 100, 100, 200, 500, 1000][(i * 7 + v.id) % 8],
-      target: Math.round((1.1 + Math.pow(Math.random(), 2) * 6) * 100) / 100,
-    }));
+      amount: CROWD_AMOUNTS[Math.floor(Math.random() * CROWD_AMOUNTS.length)],
+      target: Math.round((1.05 + Math.pow(Math.random(), 2.2) * 8) * 100) / 100,
+      joinAt: Math.random() * (BET_WINDOW - 0.5),
+    })).sort((a, b) => b.amount - a.amount);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v?.id]);
 
@@ -157,7 +161,8 @@ export function Aviator({ nav }: { nav: Nav }) {
     );
   }
 
-  const others = [...(v?.bets ?? []).map((b) => ({ name: b.name, amount: b.amount, at: b.cash_mult })), ...crowd.map((c) => ({
+  const betting = !!v && !crashed && !flying;
+  const others = [...(v?.bets ?? []).map((b) => ({ name: b.name, amount: b.amount, at: b.cash_mult })), ...crowd.filter((c) => !betting || BET_WINDOW - secsToStart >= c.joinAt).map((c) => ({
     name: c.name,
     amount: c.amount,
     at: (flying || crashed) && m >= c.target && !(crashed && (v?.crash ?? 0) < c.target) ? c.target : null,
@@ -245,7 +250,6 @@ export function Aviator({ nav }: { nav: Nav }) {
             const autoHit = !!b && b.auto !== null && b.cash_mult === null && m >= b.auto && !(crashed && (v?.crash ?? 0) < b.auto);
             const set = <T,>(arr: T[], val: T) => arr.map((x, i) => (i === slot ? val : x));
             const amt = amount[slot];
-            const betting = !!v && !crashed && !flying;
             const big = "w-full h-full min-h-[86px] rounded-2xl font-semibold leading-tight border-2 active:scale-[.98] disabled:opacity-60";
             let button: React.ReactNode;
             if (b && b.cash_mult !== null) {
@@ -299,10 +303,15 @@ export function Aviator({ nav }: { nav: Nav }) {
                       />
                       <button onClick={() => setAmount(set(amount, Math.min(10000, amt + 10)))} disabled={!!b} className="w-7 h-7 rounded-full border border-white/20 grid place-items-center text-white/70 disabled:opacity-40"><Plus size={14} /></button>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5 mt-1.5">
-                      {QUICK.map((q) => (
+                    <div className="grid grid-cols-3 gap-1.5 mt-1.5">
+                      {QUICK.slice(0, 2).map((q) => (
                         <button key={q} disabled={!!b} onClick={() => setAmount(set(amount, q))} className={`rounded-full py-1 text-[13px] text-white/70 ${amt === q ? "bg-[#2c2d30]" : "bg-[#141516]"} disabled:opacity-40`}>{q}</button>
                       ))}
+                      <button disabled={!!b} onClick={() => setAmount(set(amount, Math.max(10, Math.floor(amt / 2))))} className="rounded-full py-1 text-[13px] font-semibold text-white/80 bg-[#141516] disabled:opacity-40">½</button>
+                      {QUICK.slice(2).map((q) => (
+                        <button key={q} disabled={!!b} onClick={() => setAmount(set(amount, q))} className={`rounded-full py-1 text-[13px] text-white/70 ${amt === q ? "bg-[#2c2d30]" : "bg-[#141516]"} disabled:opacity-40`}>{q}</button>
+                      ))}
+                      <button disabled={!!b} onClick={() => setAmount(set(amount, Math.min(10000, amt * 2)))} className="rounded-full py-1 text-[13px] font-bold text-[#ffbd71] bg-[#141516] disabled:opacity-40">2x</button>
                     </div>
                   </div>
                   {button}

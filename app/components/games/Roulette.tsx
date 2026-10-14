@@ -16,16 +16,18 @@ import type { Nav } from "../nav";
 // didn't bet on is spun on the device just for show.
 
 const BET_SECS = 25;
-const SPIN_MS = 5200;
+const SPIN_MS = 9000;
 const RESULT_MS = 3800;
 const MAX_STAKE = 100000;
 const CHIPS: { v: number; c: string }[] = [
-  { v: 10, c: "#16a34a" },
+  { v: 20, c: "#16a34a" },
   { v: 50, c: "#0d9488" },
   { v: 100, c: "#2563eb" },
+  { v: 200, c: "#7c3aed" },
+  { v: 500, c: "#db2777" },
   { v: 1000, c: "#ca8a04" },
-  { v: 5000, c: "#ea580c" },
-  { v: 10000, c: "#dc2626" },
+  { v: 2000, c: "#ea580c" },
+  { v: 5000, c: "#dc2626" },
 ];
 const ORDER = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
 const REDS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
@@ -36,15 +38,16 @@ const color = (n: number) => (n === 0 ? GREEN : REDS.has(n) ? RED : BLACK);
 const short = (v: number) => (v >= 1000 ? `${Math.round(v / 100) / 10}K` : String(v));
 const norm = (d: number) => ((d % 360) + 360) % 360;
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
-const easeOutQuad = (t: number) => 1 - (1 - t) * (1 - t);
-const easeOutBack = (t: number) => 1 + 2.2 * Math.pow(t - 1, 3) + 1.2 * Math.pow(t - 1, 2);
-// Ball, in the wheel's SVG units (viewBox 224 across): rolls over the number ring (76–95), drops into the pocket
-// ring (62–76) once it has slowed down (BALL_DROP of the spin), after BALL_TURNS turns against the wheel.
+// Ball, in the wheel's SVG units (viewBox 224 across), like a live wheel: it rolls round the wooden rim against the
+// wheel (BALL_ROLL_MS, BALL_TURNS turns), spirals down over the numbers (BALL_DROP_MS), then — slowed right down —
+// hops back and forth across the pockets (BALL_HOPS hops) before it settles in the winning one.
 const BALL_UNITS = 10;
-const BALL_TRACK_R = 86;
+const BALL_RIM_R = 102;
 const BALL_POCKET_R = 69;
-const BALL_DROP = 0.72;
-const BALL_TURNS = 8;
+const BALL_ROLL_MS = 4300;
+const BALL_DROP_MS = 1000;
+const BALL_TURNS = 10;
+const BALL_HOPS = 5;
 
 /** Does a bet win on number n? (Display only — the server settles every bet.) */
 function wins(side: string, n: number) {
@@ -78,7 +81,7 @@ export function Roulette({ nav }: { nav: Nav }) {
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
   const [now, setNow] = useState(() => Date.now());
-  const [chip, setChip] = useState(10);
+  const [chip, setChip] = useState(20);
   const [bets, setBets] = useState<Bet[]>([]);
   const [lastBets, setLastBets] = useState<Bet[]>([]);
   const [crowd, setCrowd] = useState<{ side: string; v: number; dx: number; dy: number }[]>([]);
@@ -118,20 +121,35 @@ export function Roulette({ nav }: { nav: Nav }) {
   const spinTo = useCallback((n: number) => {
     const pocket = ORDER.indexOf(n) * (360 / ORDER.length); // the pocket's angle on the wheel
     const w0 = wheelAt.current;
-    const w1 = w0 - norm(w0) + 360 * 4 + norm(-pocket); // winning pocket ends at the top
+    const w1 = w0 - norm(w0) + 360 * 5 + norm(-pocket); // winning pocket ends at the top
     const t0 = performance.now();
-    sfx.wheel(SPIN_MS);
+    const T1 = BALL_ROLL_MS + BALL_DROP_MS;
+    const BOUNCE_MS = SPIN_MS - T1;
+    const swing = (2.6 + Math.random() * 1.6) * (360 / ORDER.length); // how far past the pocket the ball first lands
+    let hits = 0;
+    sfx.wheel(T1);
     cancelAnimationFrame(anim.current);
     const frame = (now: number) => {
-      const t = Math.min(1, (now - t0) / SPIN_MS);
+      const ms = now - t0;
+      const t = Math.min(1, ms / SPIN_MS);
       const w = w0 + (w1 - w0) * easeOutCubic(t);
       wheelAt.current = w;
       if (wheelEl.current) wheelEl.current.style.transform = `rotate(${w}deg)`;
-      // Ball, measured against the wheel: runs the other way over the numbers, slows down until it sits over the
-      // winning pocket, then stays in it (turning with the wheel).
-      const u = Math.min(1, t / BALL_DROP);
-      const rel = pocket + 360 * BALL_TURNS * (1 - easeOutQuad(u));
-      const r = u < 0.8 ? BALL_TRACK_R : BALL_TRACK_R + (BALL_POCKET_R - BALL_TRACK_R) * easeOutBack((u - 0.8) / 0.2);
+      // Ball, measured against the wheel (it ends up riding round with it in the winning pocket).
+      let rel: number, r: number;
+      if (ms < T1) {
+        const u = ms / T1;
+        rel = pocket + swing + 360 * BALL_TURNS * (1 - (1 - u) * (1 - u) * 0.85 - (1 - u) * 0.15);
+        const d = Math.max(0, (ms - BALL_ROLL_MS) / BALL_DROP_MS); // 0 on the rim → 1 in the pockets
+        r = BALL_RIM_R + (BALL_POCKET_R - BALL_RIM_R) * d * d + 3 * Math.sin(Math.PI * 3 * d) * (1 - d);
+      } else {
+        // Slow motion: damped swings back and forth over the pockets, a hop each time it clips a fret.
+        const s = Math.min(1, (ms - T1) / BOUNCE_MS);
+        rel = pocket + swing * Math.exp(-2.6 * s) * Math.cos(2 * Math.PI * 1.75 * s);
+        r = BALL_POCKET_R + 10 * Math.exp(-3 * s) * Math.abs(Math.sin(Math.PI * BALL_HOPS * s));
+        const hit = Math.floor(s * BALL_HOPS + 1e-6);
+        if (hit >= hits && hit < BALL_HOPS) { sfx.ballHit(1 - hit / BALL_HOPS); hits = hit + 1; }
+      }
       if (ballEl.current) ballEl.current.style.transform = `translate(-50%, -50%) rotate(${w + rel}deg) translateY(${(-r / BALL_UNITS) * 100}%)`;
       if (t < 1) anim.current = requestAnimationFrame(frame);
     };
@@ -207,6 +225,16 @@ export function Roulette({ nav }: { nav: Nav }) {
     if (sum > total) return showToast("Not enough balance to rebet");
     sfx.chip();
     setBets(lastBets);
+  };
+  // Double every chip on the table (or last round's bets, if the table is empty).
+  const double = () => {
+    const base = bets.length ? bets : lastBets;
+    if (phase !== "betting" || !base.length) return;
+    const next = 2 * base.reduce((a, b) => a + b.v, 0);
+    if (next > total) return showToast("Not enough coins to double");
+    if (next > MAX_STAKE) return showToast("Max 1,00,000 coins per round");
+    sfx.chip();
+    setBets(base.map((b) => ({ ...b, v: b.v * 2 })));
   };
 
   const spinning = phase === "spinning" || phase === "result";
@@ -355,15 +383,16 @@ export function Roulette({ nav }: { nav: Nav }) {
               <div className="text-[12px] text-gold-300 font-semibold">🪙 {(total - (phase === "betting" ? pending : 0)).toLocaleString("en-IN")}</div>
             </div>
           </div>
-          <div className="flex-1 flex items-center justify-center gap-2.5 min-w-0">
+          <div className="flex-1 flex items-center justify-center gap-1.5 min-w-0">
             {CHIPS.map((c) => (
               <button key={c.v} onClick={() => setChip(c.v)} className={`transition-transform ${chip === c.v ? "-translate-y-1.5 drop-shadow-[0_0_10px_#fde047]" : ""}`} aria-label={`Chip ${c.v}`}>
-                <MiniChip v={c.v} size={44} ring={chip === c.v} />
+                <MiniChip v={c.v} size={38} ring={chip === c.v} />
               </button>
             ))}
           </div>
           <button onClick={() => setBets((b) => b.slice(0, -1))} disabled={phase !== "betting" || !bets.length} className="w-10 h-10 rounded-full bg-black/40 border border-white/20 grid place-items-center disabled:opacity-35 shrink-0" aria-label="Undo"><Undo2 size={18} /></button>
           <button onClick={rebet} disabled={phase !== "betting" || !!bets.length || !lastBets.length} className="w-10 h-10 rounded-full bg-black/40 border border-white/20 grid place-items-center disabled:opacity-35 shrink-0" aria-label="Rebet"><Repeat size={18} /></button>
+          <button onClick={double} disabled={phase !== "betting" || (!bets.length && !lastBets.length)} className="w-10 h-10 rounded-full bg-black/40 border border-white/20 grid place-items-center disabled:opacity-35 shrink-0 text-[13px] font-extrabold text-gold-300" aria-label="Double">x2</button>
         </div>
         <div className="absolute right-3 bottom-[18%] text-[10px] text-white/45 z-10">Round #{round}</div>
       </div>
@@ -508,7 +537,7 @@ const Wheel = memo(function Wheel({ wheelRef, ballRef, visible }: { wheelRef: Re
           style={{
             width: `${(BALL_UNITS / 224) * 100}%`,
             height: `${(BALL_UNITS / 224) * 100}%`,
-            transform: `translate(-50%, -50%) translateY(${(-BALL_TRACK_R / BALL_UNITS) * 100}%)`,
+            transform: `translate(-50%, -50%) translateY(${(-BALL_RIM_R / BALL_UNITS) * 100}%)`,
             willChange: "transform",
             background: "radial-gradient(circle at 35% 35%, #fff, #e5e7eb 60%, #9ca3af)",
             boxShadow: "0 1px 3px rgba(0,0,0,.6)",
