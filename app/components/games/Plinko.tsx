@@ -26,6 +26,9 @@ const MULTS: Record<Rows, Record<Risk, number[]>> = {
   },
 };
 const QUICK = [10, 50, 100, 500];
+// One ball pays at most this much, so a board's max bet is this ÷ its best multiplier (same as public.plinko_max_bet()).
+const MAX_WIN = 100000;
+const maxBetFor = (rows: Rows, risk: Risk) => Math.min(10000, Math.floor(MAX_WIN / Math.max(...MULTS[rows][risk])));
 const ROW_MS = 150;
 const MAX_BALLS = 12;
 
@@ -83,9 +86,13 @@ export function Plinko({ nav }: { nav: Nav }) {
     setBalls((bs) => bs.filter((b) => !landed.includes(b)));
   }, [now, balls]);
 
+  const maxBet = maxBetFor(rows, risk);
+  // A riskier board has a lower max bet: bring the stake down to it.
+  useEffect(() => { setAmount((a) => Math.min(a, maxBet)); }, [maxBet]);
+
   const drop = async () => {
     if (balls.length >= MAX_BALLS) return;
-    if (amount < 10 || amount > 10000) return showToast("Bet between 🪙 10 and 🪙 10,000");
+    if (amount < 10 || amount > maxBet) return showToast(`Bet between 🪙 10 and ${inr(maxBet)} on this board`);
     if (amount > total) return showToast("Not enough coins — ask your agent");
     const my = ++seq.current;
     const { data, error } = await supabase().rpc("plinko_drop", { p_amount: amount, p_rows: rows, p_risk: risk });
@@ -123,7 +130,7 @@ export function Plinko({ nav }: { nav: Nav }) {
     <div className="pb-6 fadein min-h-dvh flex flex-col">
       <Header
         title="Plinko"
-        sub={`${rows} rows • ${risk[0].toUpperCase() + risk.slice(1)} risk • Min 🪙 10 • Max 🪙 10,000`}
+        sub={`${rows} rows • ${risk[0].toUpperCase() + risk.slice(1)} risk • Min 🪙 10 • Max ${inr(maxBet)}`}
         onBack={nav.back}
         right={<div className="text-right"><div className="text-[10px] text-white/50">Balance</div><Money n={total} className="text-sm font-semibold text-neon-400" /></div>}
       />
@@ -186,16 +193,16 @@ export function Plinko({ nav }: { nav: Nav }) {
             <input
               value={amount}
               inputMode="numeric"
-              onChange={(e) => setAmount(Math.min(10000, Number(e.target.value.replace(/\D/g, "")) || 0))}
+              onChange={(e) => setAmount(Math.min(maxBet, Number(e.target.value.replace(/\D/g, "")) || 0))}
               onBlur={() => setAmount(Math.max(10, amount))}
               className="flex-1 min-w-0 bg-black/30 rounded-xl text-center text-lg font-semibold py-1.5 outline-none"
             />
-            <button onClick={() => setAmount(Math.min(10000, amount + 10))} className="w-9 h-9 rounded-full btn-ghost grid place-items-center"><Plus size={16} /></button>
-            <button onClick={() => setAmount(Math.min(10000, amount * 2))} className="w-10 h-9 rounded-full btn-ghost text-[12px] font-semibold">2×</button>
+            <button onClick={() => setAmount(Math.min(maxBet, amount + 10))} className="w-9 h-9 rounded-full btn-ghost grid place-items-center"><Plus size={16} /></button>
+            <button onClick={() => setAmount(Math.min(maxBet, amount * 2))} className="w-10 h-9 rounded-full btn-ghost text-[12px] font-semibold">2×</button>
           </div>
           <div className="grid grid-cols-4 gap-1.5 mt-2">
             {QUICK.map((q) => (
-              <button key={q} onClick={() => setAmount(q)} className={`rounded-lg py-1.5 text-[13px] ${amount === q ? "bg-white/20" : "bg-white/5"}`}>{q}</button>
+              <button key={q} onClick={() => setAmount(Math.min(q, maxBet))} className={`rounded-lg py-1.5 text-[13px] ${amount === q ? "bg-white/20" : "bg-white/5"}`}>{q}</button>
             ))}
           </div>
 
@@ -215,7 +222,7 @@ export function Plinko({ nav }: { nav: Nav }) {
           <button onClick={drop} disabled={balls.length >= MAX_BALLS} className="w-full btn-green rounded-2xl py-3.5 mt-3 font-bold text-lg disabled:opacity-50">
             DROP BALL • {inr(amount)}
           </button>
-          <div className="text-center text-[11px] text-white/40 mt-2">Best slot pays {Math.max(...mults)}x • change risk or rows once every ball has landed</div>
+          <div className="text-center text-[11px] text-white/40 mt-2">Best slot pays {Math.max(...mults)}x • Max win {inr(MAX_WIN)} • change risk or rows once every ball has landed</div>
         </div>
         <div className="text-center text-[12px] text-white/35 mt-3">The server decides every bounce. Each board returns about 99% of coins staked over time.</div>
       </div>
