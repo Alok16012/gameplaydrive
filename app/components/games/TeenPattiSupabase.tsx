@@ -219,7 +219,6 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
   const active = v ? v.seats.filter((s) => s.playing && !s.packed).length : 0;
   const chaalAmt = v ? (mySeat?.seen ? v.stake * 2 : v.stake) : 0;
   const reveal = (seat: number) => v?.status === "done" ? v.result?.reveal.find((r) => r.seat === seat) : undefined;
-  const humans = v ? v.seats.filter((s) => !s.bot && !s.left).length : 0;
   const res = v?.result ?? null;
   const iWon = !!res && !res.bot && me !== null && res.seat === me;
   const TURN_SECS = v?.turn_secs ?? 15;
@@ -246,7 +245,7 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
           <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
           <div className="leading-tight">
             <div className="text-sm font-semibold">Teen Patti</div>
-            <div className="text-[11px] text-white/60">Boot {inr(v?.boot ?? buyIn)} • {humans} real player{humans === 1 ? "" : "s"}{v?.hand_no ? ` • Hand #${v.hand_no}` : ""}</div>
+            <div className="text-[11px] text-white/60">Boot {inr(v?.boot ?? buyIn)}{v?.hand_no ? ` • Hand #${v.hand_no}` : ""}</div>
           </div>
           {v?.code && (
             <button onClick={() => { navigator.clipboard?.writeText(v.code!); showToast("Code copied"); }} className="ml-3 pill bg-white/10 px-3 py-1 text-[12px]">

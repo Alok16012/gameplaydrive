@@ -49,6 +49,7 @@ const BALL_TURNS = 8;
 /** Does a bet win on number n? (Display only — the server settles every bet.) */
 function wins(side: string, n: number) {
   if (side.startsWith("n_")) return Number(side.slice(2)) === n;
+  if (side.startsWith("s_") || side.startsWith("q_")) return side.slice(2).split("_").map(Number).includes(n); // split / corner
   if (n === 0) return false;
   switch (side) {
     case "red": return REDS.has(n);
@@ -217,7 +218,7 @@ export function Roulette({ nav }: { nav: Nav }) {
         {/* Top: back, last numbers, balance */}
         <div className="h-[13%] min-h-[44px] flex items-center gap-2 px-3 relative z-30">
           <button onClick={nav.back} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Back"><ChevronLeft size={20} /></button>
-          <button onClick={() => showToast("Bet before the timer runs out. Number 36x • Row / Dozen 3x • Red, Black, Even, Odd, 1-18, 19-36 2x")} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Rules"><Info size={18} /></button>
+          <button onClick={() => showToast("Bet before the timer runs out. Number 36x • Split (line between 2 numbers) 18x • Corner (4 numbers) 9x • Row / Dozen 3x • Red, Black, Even, Odd, 1-18, 19-36 2x")} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Rules"><Info size={18} /></button>
           <div className="flex-1 flex justify-center min-w-0">
             <div className="flex items-center gap-1 rounded-b-xl bg-[#1b2a22]/90 border border-[#c9a24a]/50 px-2 py-1 overflow-hidden max-w-full">
               <span className="w-7 h-6 rounded bg-[#14532d] grid place-items-center shrink-0"><TrendingUp size={15} className="text-gold-300" /></span>
@@ -260,6 +261,19 @@ export function Roulette({ nav }: { nav: Nav }) {
                   );
                 }),
               )}
+              {/* Split and corner bets: tap the line between two numbers, or the corner where four meet */}
+              <div className="relative pointer-events-none z-[15]" style={{ gridColumn: "2 / 14", gridRow: "1 / 4" }}>
+                {[0, 1, 2].map((r) =>
+                  Array.from({ length: 12 }, (_, c) => {
+                    const n = 3 - r + c * 3; // number in this cell (top row 3, 6, 9 …)
+                    const zones: { side: string; x: number; y: number; w: number; h: number }[] = [];
+                    if (c < 11) zones.push({ side: `s_${n}_${n + 3}`, x: c + 1, y: r + 0.5, w: 0.36, h: 0.55 }); // with the cell to the right
+                    if (r < 2) zones.push({ side: `s_${n - 1}_${n}`, x: c + 0.5, y: r + 1, w: 0.55, h: 0.36 }); // with the cell below
+                    if (c < 11 && r < 2) zones.push({ side: `q_${n - 1}_${n}_${n + 2}_${n + 3}`, x: c + 1, y: r + 1, w: 0.4, h: 0.4 }); // corner
+                    return zones.map((z) => <BetZone key={z.side} {...z} bets={bets} shown={shown} onPlace={place} />);
+                  }),
+                )}
+              </div>
               {[["c3", "1st row"], ["c2", "2nd row"], ["c1", "3rd row"]].map(([s, l], r) => (
                 <Spot bets={bets} shown={shown} onPlace={place} key={s} side={s} className={`flex-col text-[10px] leading-tight bg-[#1f6b3a] ${r === 0 ? "rounded-tr-xl" : r === 2 ? "rounded-br-xl" : ""}`} style={{ gridColumn: 14, gridRow: r + 1 }}>
                   <span>{l}</span><span>3x</span>
@@ -381,6 +395,27 @@ function Spot({ side, bets, shown, onPlace, children, className = "", style }: {
           <span className="absolute left-0 top-[3px] opacity-80"><MiniChip v={my} size={30} /></span>
           <span className="relative block"><MiniChip v={my} size={30} ring /></span>
         </span>
+      )}
+    </button>
+  );
+}
+
+/** A split / corner hot spot on a line or corner of the number grid (x, y, w, h in cells: 12 columns × 3 rows). */
+function BetZone({ side, x, y, w, h, bets, shown, onPlace }: {
+  side: string; x: number; y: number; w: number; h: number; bets: Bet[]; shown: number | null; onPlace: (side: string) => void;
+}) {
+  const my = bets.reduce((a, b) => (b.side === side ? a + b.v : a), 0);
+  const win = shown !== null && my > 0 && wins(side, shown);
+  return (
+    <button
+      data-sfx="off"
+      onClick={() => onPlace(side)}
+      aria-label={side.startsWith("q_") ? `Corner ${side.slice(2).split("_").join(", ")}` : `Split ${side.slice(2).split("_").join(" and ")}`}
+      className={`absolute pointer-events-auto grid place-items-center ${side.startsWith("q_") ? "z-[2]" : "z-[1]"}`}
+      style={{ left: `${((x - w / 2) / 12) * 100}%`, top: `${((y - h / 2) / 3) * 100}%`, width: `${(w / 12) * 100}%`, height: `${(h / 3) * 100}%` }}
+    >
+      {my > 0 && (
+        <span className={`pointer-events-none rounded-full ${win ? "shadow-[0_0_14px_4px_#fde047]" : ""}`}><MiniChip v={my} size={24} ring /></span>
       )}
     </button>
   );

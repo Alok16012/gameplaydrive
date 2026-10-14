@@ -74,11 +74,11 @@ function ludoPick(t: number[][], seats: number[], p: number, d: number, opts: nu
     const from = t[p][i];
     const to = from === -1 ? 0 : from + d;
     const a = absIdx(p, to);
-    let s = to / 10 + Math.random() * 8;
+    let s = to / 10 + Math.random() * 2; // a little variety, never enough to override a real reason
     if (hit(a)) s += 100;
     if (to === 56) s += 80;
     if (from === -1) s += 60 - 10 * out;
-    if (to >= 51 && to <= 55) s += 30;
+    if (from <= 50 && to >= 51 && to <= 55) s += 30; // into the home column (not just shuffling inside it)
     if (a >= 0 && SAFE.has(a)) s += 15;
     if (from >= 0 && from <= 50 && threat(absIdx(p, from)) && !threat(a)) s += 40;
     if (threat(a)) s -= 45;
@@ -103,12 +103,12 @@ export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; 
 // Animation pacing: tokens walk one square at a time so every move can be followed.
 const STEP_MS = 170;
 export const LUDO_TURN_SECS = 20; // each player's turn; when yours runs out the game rolls and moves for you
-const BOT_STEP_MS = 320; // bots walk their tokens a little slower, like a person tapping square by square
+const BOT_STEP_MS = STEP_MS; // computer tokens walk at the same speed as yours
 const ROLL_MS = 560;
 /** A human-looking pause: usually between a and b ms, now and then a longer think. */
 /** Bot pacing from the admin's "bot speed" setting (1 = normal); set by each table on mount. */
 let PACE = 1;
-const think = (a: number, b: number) => sleep((a + Math.random() * (b - a) + (Math.random() < 0.15 ? 700 + Math.random() * 900 : 0)) * PACE);
+const think = (a: number, b: number) => sleep((a + Math.random() * (b - a) + (Math.random() < 0.1 ? 250 + Math.random() * 350 : 0)) * PACE);
 
 function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buyIn: number; players?: 2 | 4 }) {
   // Seats in play: all four colours, or (2 players) you on red against yellow, across the board.
@@ -341,7 +341,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const botPlay = async (p: number) => {
     const g = gameNo.current;
     setMsg(`${namesRef.current[p]}'s turn`);
-    await think(1500, 3200); // picks up the dice
+    await think(550, 950); // picks up the dice
     if (awayTooLong() || !alive.current || over.current || g !== gameNo.current) return;
     const d = await roll(p);
     if (g !== gameNo.current) return;
@@ -349,11 +349,11 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     const opts = movable(p, d);
     if (!opts.length) {
       setMsg(`${namesRef.current[p]} rolled ${d} — no move`);
-      await sleep(1100);
+      await sleep(600);
       return nextTurn(p);
     }
     setMsg(`${namesRef.current[p]} rolled ${d}`);
-    await think(opts.length > 1 ? 1300 : 700, opts.length > 1 ? 3000 : 1500); // decides which token to move
+    await think(opts.length > 1 ? 350 : 200, opts.length > 1 ? 700 : 400); // decides which token to move
     const pick = pickToken(p, d, opts);
     setMsg(`${namesRef.current[p]} rolled ${d}`);
     const again = await move(p, pick, d);

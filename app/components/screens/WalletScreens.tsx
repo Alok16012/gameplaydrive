@@ -394,22 +394,22 @@ export function AddCash({ nav, defaultWithdraw }: { nav: Nav; defaultWithdraw?: 
               </div>
 
               {/* UTR Input */}
-              <div className="space-y-1.5 pt-2 border-t border-white/5">
+              <div className="space-y-2 pt-2 border-t border-white/5">
                 <div className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">
                   Upload UTR Number
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
                   <input
                     type="text"
                     value={utr}
                     onChange={(e) => setUtr(e.target.value.replace(/\\D/g, '').slice(0, 12))}
                     placeholder="Enter 12-digit UTR"
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-neon-400/50"
                   />
                   <button
                     onClick={handleSubmitUtr}
                     disabled={submittingUtr || utr.length !== 12}
-                    className="btn-green rounded-xl px-4 py-2 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    className="btn-green w-full rounded-xl px-4 py-2.5 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     {submittingUtr ? "Submitting..." : "Submit UTR"}
                   </button>
@@ -417,12 +417,11 @@ export function AddCash({ nav, defaultWithdraw }: { nav: Nav; defaultWithdraw?: 
               </div>
 
               {/* Agent instructions / note */}
-              {paymentInfo.paymentNote && (
-                <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 text-xs text-white/60 leading-relaxed">
-                  <span className="font-semibold text-white/80 block mb-0.5">Instructions:</span>
-                  {paymentInfo.paymentNote}
-                </div>
-              )}
+              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 text-xs text-white/60 leading-relaxed">
+                <span className="font-semibold text-white/80 block mb-0.5">Instructions:</span>
+                {paymentInfo.paymentNote && <p>{paymentInfo.paymentNote}</p>}
+                <p className="mt-1">For failed or pending payment, contact Customer Support.</p>
+              </div>
             </div>
 
             {/* Withdraw and Customer Care buttons */}

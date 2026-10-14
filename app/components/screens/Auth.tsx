@@ -170,20 +170,39 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
     }
   }, []);
 
+  // Sign in with a 10-digit mobile number, or with a username (anything with a letter, dot or underscore).
+  const byUsername = /[^0-9]/.test(phone);
+  const loginReady = byUsername ? /^[a-z0-9._]{3,}$/i.test(phone.trim()) : phone.length === 10;
+
   // Player login submit
   const submitLogin = async () => {
     setBusy(true);
     setErr("");
     setSuccessMsg("");
     const sb = supabase();
-    const { error } = await sb.auth.signInWithPassword({ email: playerEmail(phone), password: pw });
-    if (error) {
-      setBusy(false);
-      return setErr(
-        /invalid/i.test(error.message)
-          ? "Wrong mobile number or password. Not registered yet? Switch to Register above."
-          : error.message
-      );
+    if (byUsername) {
+      // Username: the server finds the account and signs in (the mobile number behind it stays private).
+      const r = await fetch("/api/player-login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: phone, password: pw }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.access_token) {
+        setBusy(false);
+        return setErr(j.error ?? "Wrong username or password");
+      }
+      const { error } = await sb.auth.setSession({ access_token: j.access_token, refresh_token: j.refresh_token });
+      if (error) {
+        setBusy(false);
+        return setErr(error.message);
+      }
+    } else {
+      const { error } = await sb.auth.signInWithPassword({ email: playerEmail(phone), password: pw });
+      if (error) {
+        setBusy(false);
+        return setErr(
+          /invalid/i.test(error.message)
+            ? "Wrong mobile number or password. Not registered yet? Switch to Register above."
+            : error.message
+        );
+      }
     }
     const me = await loadMe();
     setBusy(false);
@@ -325,25 +344,32 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-white">Welcome Back</h1>
             <p className="text-xs sm:text-sm text-[var(--ink-soft)] mt-1">
-              Sign in with your mobile number &amp; password to play
+              Sign in with your mobile number or username &amp; password to play
             </p>
           </div>
 
           <div className="mt-5 flex items-center gap-3 card px-4 h-14">
-            <span className="text-white/80 font-medium text-sm flex items-center gap-1.5">
-              <span>🇮🇳</span> +91
-            </span>
-            <div className="w-px h-6 bg-white/10" />
+            {!byUsername && (
+              <>
+                <span className="text-white/80 font-medium text-sm flex items-center gap-1.5">
+                  <span>🇮🇳</span> +91
+                </span>
+                <div className="w-px h-6 bg-white/10" />
+              </>
+            )}
             <input
-              inputMode="numeric"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={phone}
               onChange={(e) => {
-                setPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
+                const v = e.target.value.replace(/\s/g, "");
+                setPhone(/[^0-9]/.test(v) ? v.toLowerCase().slice(0, 32) : v.slice(0, 10));
                 setErr("");
                 setSuccessMsg("");
               }}
-              placeholder="10-digit Mobile Number"
+              placeholder="Mobile Number or Username"
               className="flex-1 bg-transparent outline-none text-base sm:text-lg tracking-wide placeholder:text-white/25"
             />
           </div>
@@ -378,7 +404,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
                 <button
                   type="button"
                   onClick={() => {
-                    setRegPhone(phone);
+                    setRegPhone(byUsername ? "" : phone);
                     setMode("register");
                     setErr("");
                   }}
@@ -411,7 +437,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
 
           <button
             type="submit"
-            disabled={phone.length !== 10 || !pw || !agree || busy}
+            disabled={!loginReady || !pw || !agree || busy}
             className="btn-gold w-full py-3.5 rounded-2xl mt-5 text-base font-bold shadow-[0_4px_20px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2 disabled:opacity-40"
           >
             {busy ? (
@@ -433,7 +459,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
             <button
               type="button"
               onClick={() => {
-                setRegPhone(phone);
+                setRegPhone(byUsername ? "" : phone);
                 setMode("register");
                 setErr("");
                 setSuccessMsg("");
