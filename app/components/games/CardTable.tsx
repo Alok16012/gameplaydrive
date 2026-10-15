@@ -169,7 +169,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   // Between games some players leave (or go broke) and new ones sit down, like a real lobby table.
   const rotateSeats = (bots: Seat[]) => {
     const out = [...bots];
-    const leaving = out.map((b, i) => (b.bal < buyIn * 4 || Math.random() < 0.12 ? i : -1)).filter((i) => i >= 0).slice(0, 2);
+    // Anyone short of 4 boots always leaves; on top of that up to two others may get up at random.
+    const broke = out.map((b, i) => (b.bal < buyIn * 4 ? i : -1)).filter((i) => i >= 0);
+    const bored = out.map((b, i) => (!broke.includes(i) && Math.random() < 0.12 ? i : -1)).filter((i) => i >= 0);
+    const leaving = [...broke, ...bored.slice(0, Math.max(0, 2 - broke.length))];
     if (!leaving.length) return out;
     const fresh = pickBots(leaving.length, out.map((b) => b.name));
     leaving.forEach((i, k) => {
@@ -190,7 +193,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     const dk = deck();
     const n = poker ? 2 : 3;
     const prev = g.current;
-    const next = fresh(prev.hand ? rotateSeats(prev.bots) : prev.bots);
+    const next = fresh(rotateSeats(prev.bots));
     next.hand = prev.hand + 1;
     next.bots = next.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined }));
     next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn };
@@ -257,7 +260,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       if (timedOut && !(poker && st.stake === 0)) {
         b.packed = true;
         b.action = "Timed out";
-      } else if (!timedOut && Math.random() < packChance) {
+      } else if (!timedOut && (Math.random() < packChance || b.bal < (poker ? st.stake : b.seen ? st.stake * 2 : st.stake))) {
+        // A player who can't cover the bet has to fold — nobody bets coins they don't have.
         b.packed = true;
         b.action = poker ? "Fold" : "Pack";
       } else {
@@ -286,7 +290,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         return showdown();
       }
       // You're out: with two players left, one of them eventually asks for a show.
-      if (st.me.packed && alive.length === 2 && st.round >= 3 && Math.random() < 0.5) {
+      if (st.me.packed && alive.length === 2 && st.round >= 3 && Math.random() < 0.5 && st.bots[alive[1]].bal >= st.stake * 2) {
         const caller = st.bots[alive[1]];
         caller.action = "Show";
         st.turn = alive[1];

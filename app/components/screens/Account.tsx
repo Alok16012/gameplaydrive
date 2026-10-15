@@ -4,7 +4,7 @@ import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { setPref, useSoundPrefs } from "../../lib/sound";
 import { useState } from "react";
 import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard } from "lucide-react";
-import { FAQS, GAMES, inr } from "../../lib/data";
+import { FAQS, GAMES, inr, type Txn } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { GameThumb } from "../GameArt";
 import { Avatar, Header, Toggle } from "../ui";
@@ -58,27 +58,60 @@ export function More({ nav }: { nav: Nav }) {
   );
 }
 
+/** Rounds from the coin ledger, oldest first: each bet and payout joins its game's current round. A new round starts at
+ *  an Entry / Boot / Buy-in, at a different hand number, or at a bet after the round already paid out. */
+function groupRounds(txns: Txn[]) {
+  type Round = { id: string; game: string; desc: string; when: string; hand?: string; staked: number; paid: number; paidOut: boolean };
+  const rounds: Round[] = [];
+  const open: Record<string, Round> = {};
+  for (const t of [...txns].reverse()) {
+    const parts = t.sub.split(" • ");
+    const game = parts[0];
+    const when = parts[parts.length - 1];
+    const desc = parts.slice(1, -1).join(" • ");
+    const hand = desc.match(/(?:Hand|Round) #\d+/)?.[0];
+    let r = open[game];
+    const start = /\b(entry|boot|buy-in)\b/i.test(desc);
+    if (!r || (t.amount < 0 && (start || r.paidOut)) || (hand && r.hand && hand !== r.hand)) {
+      r = { id: t.id, game, desc, when, hand, staked: 0, paid: 0, paidOut: false };
+      open[game] = r;
+      rounds.push(r);
+    }
+    if (!r.hand && hand) r.hand = hand;
+    if (t.amount < 0) r.staked -= t.amount;
+    else { r.paid += t.amount; r.paidOut = true; }
+    r.when = when;
+  }
+  return rounds.reverse();
+}
+
 export function GameHistory({ nav }: { nav: Nav }) {
   const { txns } = useStore();
-  // Built from the coin ledger: every stake and payout, tagged with the table it came from.
-  const rows = txns.filter((t) => t.type === "bet" || t.type === "winning" || t.type === "bonus").map((t) => ({ t, g: GAMES.find((g) => t.sub.startsWith(g.name)) }));
+  // One row per round: total staked, what it paid back and the net result.
+  const rows = groupRounds(txns.filter((t) => t.type === "bet" || t.type === "winning" || t.type === "bonus")).map((r) => ({ r, g: GAMES.find((g) => r.game.startsWith(g.name)) }));
   return (
     <div className="pb-10 fadein">
       <Header title="Game History" onBack={nav.back} />
       <div className="px-4 space-y-2.5">
-        {rows.map(({ t, g }) => (
-          <div key={t.id} className="card p-2.5 flex items-center gap-3">
-            {g ? <GameThumb game={g} className="w-14 h-14 shrink-0 [&>*]:scale-[.55]" /> : <div className="w-14 h-14 rounded-xl bg-white/5 shrink-0" />}
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium">{g?.name ?? "Game"}</div>
-              <div className="text-[11px] text-[var(--ink-soft)] truncate">{t.sub.replace(/^[^•]+• /, "")}</div>
+        {rows.map(({ r, g }) => {
+          const net = r.paid - r.staked;
+          const tag = !r.paidOut ? "Bet" : net > 0 ? "Won" : net === 0 ? "Returned" : "Lost";
+          const good = r.paidOut && net >= 0;
+          return (
+            <div key={r.id} className="card p-2.5 flex items-center gap-3">
+              {g ? <GameThumb game={g} className="w-14 h-14 shrink-0 [&>*]:scale-[.55]" /> : <div className="w-14 h-14 rounded-xl bg-white/5 shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium">{g?.name ?? r.game}</div>
+                <div className="text-[11px] text-[var(--ink-soft)] truncate">{[r.hand ?? r.desc, r.when].filter(Boolean).join(" • ")}</div>
+                <div className="text-[11px] text-white/45 truncate">Bet {inr(r.staked)}{r.paidOut ? ` • Got ${inr(r.paid)}` : ""}</div>
+              </div>
+              <div className="text-right pr-1">
+                <div className={`text-[10px] pill px-2 py-0.5 inline-block ${good ? "bg-neon-400/15 text-neon-400" : "bg-rose-500/15 text-rose-400"}`}>{tag}</div>
+                <div className={`text-sm font-semibold mt-1 ${good ? "text-neon-400" : "text-rose-400"}`}>{r.paidOut ? (net >= 0 ? "+" : "-") : "-"}{inr(Math.abs(r.paidOut ? net : r.staked))}</div>
+              </div>
             </div>
-            <div className="text-right pr-1">
-              <div className={`text-[10px] pill px-2 py-0.5 inline-block ${t.amount > 0 ? "bg-neon-400/15 text-neon-400" : "bg-rose-500/15 text-rose-400"}`}>{t.title}</div>
-              <div className={`text-sm font-semibold mt-1 ${t.amount > 0 ? "text-neon-400" : "text-rose-400"}`}>{t.amount > 0 ? "+" : "-"}{inr(t.amount)}</div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {rows.length === 0 && <div className="card py-10 text-center text-sm text-white/40">No games played yet</div>}
       </div>
     </div>
