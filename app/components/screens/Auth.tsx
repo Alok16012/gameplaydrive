@@ -148,6 +148,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
   const [regConfirmPw, setRegConfirmPw] = useState("");
   const [regState, setRegState] = useState("");
   const [regReferral, setRegReferral] = useState("");
+  const [regWebsite, setRegWebsite] = useState("");
   const [showRegPw, setShowRegPw] = useState(false);
 
   const [agree, setAgree] = useState(true);
@@ -250,6 +251,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
           password: regPw,
           state: regState || null,
           referralCode: regReferral.trim() || null,
+          website: regWebsite,
         }),
       });
 
@@ -589,6 +591,18 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
           {regConfirmPw && regPw !== regConfirmPw && (
             <p className="mt-1.5 px-1 text-xs text-rose-300">Passwords do not match</p>
           )}
+
+          {/* Bot trap: hidden from people, filled in by form-stuffing scripts */}
+          <input
+            type="text"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+            value={regWebsite}
+            onChange={(e) => setRegWebsite(e.target.value)}
+            className="absolute -left-[9999px] w-px h-px opacity-0"
+          />
 
           {/* Optional Referral Code / Agent */}
           <div className="mt-3 card px-4 h-13 sm:h-14 flex items-center gap-3">

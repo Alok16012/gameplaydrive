@@ -3,6 +3,7 @@ import {
   createAuthUser,
   deleteAuthUser,
   rpc,
+  selectAll,
   selectOne,
 } from "../../lib/server/supabaseAdmin";
 
@@ -60,9 +61,41 @@ async function getSuperAdmin(): Promise<{ id: string } | null> {
   return await selectOne<{ id: string }>("profiles", "role=eq.admin&status=eq.active").catch(() => null);
 }
 
+// Spam guard: a script created 26k fake players on 2026-10-15. Cap sign-ups per IP (per server instance)
+// and across the whole site, so a bot can't flood the players table again.
+const IP_LIMIT = 5;
+const IP_WINDOW_MS = 60 * 60 * 1000;
+const SITE_LIMIT = 20;
+const SITE_WINDOW_MS = 10 * 60 * 1000;
+const ipHits = new Map<string, number[]>();
+
+function ipAllowed(ip: string): boolean {
+  const now = Date.now();
+  const hits = (ipHits.get(ip) ?? []).filter((t) => now - t < IP_WINDOW_MS);
+  if (hits.length >= IP_LIMIT) return false;
+  hits.push(now);
+  ipHits.set(ip, hits);
+  return true;
+}
+
+async function siteAllowed(): Promise<boolean> {
+  const since = new Date(Date.now() - SITE_WINDOW_MS).toISOString();
+  const recent = await selectAll<{ id: string }>("profiles", `select=id&role=eq.player&created_at=gte.${since}&limit=${SITE_LIMIT}`).catch(() => []);
+  return recent.length < SITE_LIMIT;
+}
+
 export async function POST(req: Request) {
   try {
     const b = await req.json().catch(() => null);
+
+    // Hidden form field real users never see; bots that fill every input get turned away.
+    if (b?.website) {
+      return Response.json({ error: "Registration failed. Please try again." }, { status: 400 });
+    }
+    const ip = req.headers.get("x-nf-client-connection-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+    if (!ipAllowed(ip) || !(await siteAllowed())) {
+      return Response.json({ error: "Too many registrations right now. Please try again in a few minutes." }, { status: 429 });
+    }
     const name = String(b?.name ?? "").trim();
     const phone = String(b?.phone ?? "").replace(/\D/g, "");
     const password = String(b?.password ?? "");
