@@ -61,8 +61,16 @@ export function useAccounts() {
     const mine = await loadMe();
     setMe(mine);
     if (!mine) return setAccounts([]);
-    const { data } = await supabase().from("profiles").select("*, wallets(coins)").order("created_at");
-    setAccounts(((data ?? []) as Row[]).map(toAccount));
+    // Supabase returns at most 1000 rows per request, so page through or the newest sign-ups go missing.
+    const PAGE = 1000;
+    const rows: Row[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase().from("profiles").select("*, wallets(coins)").order("created_at").order("id").range(from, from + PAGE - 1);
+      if (error) break;
+      rows.push(...((data ?? []) as Row[]));
+      if (!data || data.length < PAGE) break;
+    }
+    setAccounts(rows.map(toAccount));
   }, []);
 
   useEffect(() => {

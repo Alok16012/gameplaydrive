@@ -232,6 +232,9 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
     if (regPw !== regConfirmPw) {
       return setErr("Passwords do not match");
     }
+    if (!agree) {
+      return setErr("Please tick the 18+ / Terms checkbox to continue");
+    }
 
     setBusy(true);
     setErr("");
@@ -583,6 +586,9 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
               className="flex-1 bg-transparent outline-none text-base placeholder:text-white/25"
             />
           </div>
+          {regConfirmPw && regPw !== regConfirmPw && (
+            <p className="mt-1.5 px-1 text-xs text-rose-300">Passwords do not match</p>
+          )}
 
           {/* Optional Referral Code / Agent */}
           <div className="mt-3 card px-4 h-13 sm:h-14 flex items-center gap-3">
@@ -631,14 +637,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
 
           <button
             type="submit"
-            disabled={
-              regName.trim().length < 2 ||
-              regPhone.length !== 10 ||
-              regPw.length < 6 ||
-              regPw !== regConfirmPw ||
-              !agree ||
-              busy
-            }
+            disabled={busy}
             className="btn-green w-full py-3.5 rounded-2xl mt-5 text-base font-bold shadow-[0_4px_20px_rgba(16,185,129,0.25)] flex items-center justify-center gap-2 disabled:opacity-40"
           >
             {busy ? (
