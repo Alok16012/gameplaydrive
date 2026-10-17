@@ -6,7 +6,7 @@
 import { compare, deck, tpHandName, tpScore, type Card } from "./cards.js";
 import type { Clock } from "./clock.js";
 import { cfg } from "./config.js";
-import { botStack, makeBot } from "./bots.js";
+import { makeBot } from "./bots.js";
 import type { Wallet } from "./wallet.js";
 
 export interface TPSeat {
@@ -132,8 +132,6 @@ export class TPTable {
       this.changed();
       return;
     }
-    // A bot running low adds chips before the hand, like a player buying back in.
-    for (const x of s) if (x.bot && x.bal < this.boot * 40) x.bal = Math.max(x.bal, botStack(this.boot));
     // Collect boots from players (confirmed with the database) — bots pay from their table balance.
     const takes = await Promise.all(s.map((x) => (x.bot ? Promise.resolve(1) : this.wallet.take(x.uid!, this.boot, `Teen Patti • Boot ${this.boot}`))));
     s.forEach((x, i) => {
