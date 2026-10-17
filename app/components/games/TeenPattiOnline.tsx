@@ -17,7 +17,7 @@ import type { Nav } from "../nav";
 // screen the instant it happens — the server pushes the new view over WebSocket, there is no polling.
 
 interface Seat { uid?: string; name: string; emoji: string; bot: boolean; bal: number; playing?: boolean; packed?: boolean; seen?: boolean; action?: string | null; left?: boolean; blinds?: number; blinds_hand?: number }
-interface Result { seat: number; name: string; bot: boolean; uid?: string; amount: number; reason: string; pot: number; reveal: { seat: number; cards: Card[]; hand: string }[] }
+interface Result { seat: number; name: string; bot: boolean; uid?: string; amount: number; reason: string; pot: number; rake: number; reveal: { seat: number; cards: Card[]; hand: string }[] }
 interface View {
   id: string; boot: number; status: "waiting" | "playing" | "done"; hand_no: number; deal_start?: number; pot: number; stake: number; round: number;
   turn: number | null; turn_ends: string | null; next_hand_at: string | null; due_at: string | null; result: Result | null;
@@ -399,7 +399,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
               ))}
             </div>
           )}
-          <div className="text-[12px] text-white/40 mt-3">Pot {inr(res.pot)} • Platform fee 5%</div>
+          <div className="text-[12px] text-white/40 mt-3">Pot {inr(res.pot)} • Platform fee {res.rake ?? 10}%</div>
         </ResultSheet>
       )}
     </LandscapeStage>

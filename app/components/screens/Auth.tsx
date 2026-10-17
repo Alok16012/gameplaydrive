@@ -112,7 +112,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
         <Logo />
         <div className="mt-7 flex flex-col items-center gap-2 max-w-[360px]">
           <div className="text-[13px] sm:text-[14px] font-medium tracking-wide text-amber-300/90 leading-snug">
-            Sports Betting • Cricket • Football • Tennis
+            Cricket Betting
           </div>
           <div className="text-[13px] sm:text-[14px] font-medium tracking-wide text-white/85 leading-snug">
             Rummy • Teen Patti • Poker • Ludo • Casino &amp; More

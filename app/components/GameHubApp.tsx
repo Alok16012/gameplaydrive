@@ -128,7 +128,7 @@ function Shell() {
     case "games": screen = <Games nav={nav} initial={route.category} />; break;
     case "lobby": screen = <Lobby nav={nav} gameId={route.game} />; break;
     case "aviator": screen = <Aviator nav={nav} />; break;
-    case "cricket": screen = <Cricket nav={nav} matchId={route.matchId} initialSport={route.sport} />; break;
+    case "cricket": screen = <Cricket nav={nav} matchId={route.matchId} />; break;
     case "roulette": screen = <Roulette nav={nav} />; break;
     case "blackjack": screen = <Blackjack nav={nav} />; break;
     case "plinko": screen = <Plinko nav={nav} />; break;

@@ -16,9 +16,7 @@ const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
 
 export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
-  if (game.kind === "cricket") nav.push({ name: "cricket", sport: "cricket" });
-  else if (game.kind === "football") nav.push({ name: "cricket", sport: "soccer" });
-  else if (game.kind === "tennis") nav.push({ name: "cricket", sport: "tennis" });
+  if (game.kind === "cricket") nav.push({ name: "cricket" });
   else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko" || game.kind === "stockmarket") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else nav.push({ name: "lobby", game: game.id });
@@ -106,7 +104,7 @@ export function Home({ nav }: { nav: Nav }) {
       <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
 
       <div className="grid grid-cols-3 gap-2.5 mt-4">
-        {GAMES.filter((g) => g.id !== "football" && g.id !== "tennis").map((g) => (
+        {GAMES.map((g) => (
           <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />
         ))}
       </div>
@@ -149,9 +147,7 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
   const gs = useGameSettings();
   const [cat, setCat] = useState(initial);
   const [q, setQ] = useState<string | null>(null);
-  // Football and Tennis are hidden for now; only Cricket is offered under Sports.
-  const list = GAMES.filter((g) => g.id !== "football" && g.id !== "tennis")
-    .filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
+  const list = GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
   return (
     <div className="pb-28 fadein">
       <Header

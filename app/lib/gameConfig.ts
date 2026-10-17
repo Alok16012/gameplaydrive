@@ -43,7 +43,6 @@ export function useGameSettings(): All {
 export const isClosed = (s: All, id: string) => {
   const k = id === "rummy21" ? "rummy" : id;
   if (s[k]?.enabled !== undefined) return s[k]?.enabled === false;
-  if (id === "football" || id === "tennis") return s["cricket"]?.enabled === false;
   return false;
 };
 export const latestSettings = () => latest;

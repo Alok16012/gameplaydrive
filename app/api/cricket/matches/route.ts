@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { GET as getSportsMatches } from "../../../api/sports/matches/route";
+import { GET as matches } from "../../sports/matches/route";
 
-export async function GET(req: NextRequest) {
-  return getSportsMatches(req);
-}
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export const GET = () => matches();

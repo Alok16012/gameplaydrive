@@ -162,11 +162,19 @@ export function Aviator({ nav }: { nav: Nav }) {
   }
 
   const betting = !!v && !crashed && !flying;
-  const others = [...(v?.bets ?? []).map((b) => ({ name: b.name, amount: b.amount, at: b.cash_mult })), ...crowd.filter((c) => !betting || BET_WINDOW - secsToStart >= c.joinAt).map((c) => ({
+  const myBetsInList = (v?.mine ?? []).filter((b) => b.amount > 0).map((b) => ({
+    name: "You",
+    amount: b.amount,
+    at: b.cash_mult,
+    me: true,
+  }));
+  const otherBets = [...(v?.bets ?? []).map((b) => ({ name: b.name, amount: b.amount, at: b.cash_mult, me: false })), ...crowd.filter((c) => !betting || BET_WINDOW - secsToStart >= c.joinAt).map((c) => ({
     name: c.name,
     amount: c.amount,
     at: (flying || crashed) && m >= c.target && !(crashed && (v?.crash ?? 0) < c.target) ? c.target : null,
+    me: false,
   }))];
+  const others = [...myBetsInList, ...otherBets];
   const totalWin = others.reduce((a, r) => a + (r.at ? Math.floor(r.amount * r.at) : 0), 0);
 
   return (
@@ -348,8 +356,8 @@ export function Aviator({ nav }: { nav: Nav }) {
           </div>
           <div className="space-y-1">
             {others.map((r, i) => (
-              <div key={i} className={`grid grid-cols-[1.3fr_1fr_.7fr_1fr] items-center rounded-full px-2 py-1.5 text-[13px] ${r.at ? "bg-[#123405] border border-[#427f00]" : "bg-[#101111]"}`}>
-                <span className="flex items-center gap-2 truncate"><span className="w-6 h-6 rounded-full shrink-0 grid place-items-center text-[11px] bg-white/10">{r.name[0]?.toUpperCase()}</span><span className="truncate text-white/80">{r.name}</span></span>
+              <div key={i} className={`grid grid-cols-[1.3fr_1fr_.7fr_1fr] items-center rounded-full px-2 py-1.5 text-[13px] ${r.me ? (r.at ? "bg-[#2d2a05] border border-[#d4a017]" : "bg-[#1e1c0a] border border-[#d4a017]/60") : r.at ? "bg-[#123405] border border-[#427f00]" : "bg-[#101111]"}`}>
+                <span className="flex items-center gap-2 truncate"><span className={`w-6 h-6 rounded-full shrink-0 grid place-items-center text-[11px] ${r.me ? "bg-[#d4a017]/30 text-[#ffd700]" : "bg-white/10"}`}>{r.me ? "⭐" : r.name[0]?.toUpperCase()}</span><span className={`truncate ${r.me ? "text-[#ffd700] font-bold" : "text-white/80"}`}>{r.name}</span></span>
                 <span className="tabular-nums">{inr(r.amount)}</span>
                 <span className={`text-center tabular-nums ${r.at ? histColor(r.at) + " font-semibold" : "text-white/30"}`}>{r.at ? `${Number(r.at).toFixed(2)}x` : ""}</span>
                 <span className="text-right tabular-nums">{r.at ? inr(Math.floor(r.amount * r.at)) : ""}</span>

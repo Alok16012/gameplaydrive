@@ -124,6 +124,34 @@ export function ReportsView({
       });
   }, [activeTab, selectedUser]);
 
+  // Sportbook report: every cricket bet, summed per match. Platform P/L counts settled bets only
+  // (coins taken at placement minus coins paid back on settlement).
+  const [bookBets, setBookBets] = useState<SportBetRow[]>([]);
+  useEffect(() => {
+    if (activeTab !== "sportbook_report") return;
+    supabase()
+      .from("sport_bets")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5000)
+      .then(({ data, error }) => {
+        if (error) setErr(errText(error));
+        else setBookBets(data as SportBetRow[]);
+      });
+  }, [activeTab]);
+  const bookRows = useMemo(() => {
+    const m = new Map<string, { match: string; vol: number; bets: number; net: number; open: number }>();
+    for (const b of bookBets) {
+      const r = m.get(b.event_id) ?? { match: b.event_name, vol: 0, bets: 0, net: 0, open: 0 };
+      r.vol += Number(b.stake);
+      r.bets += 1;
+      if (b.status === "OPEN") r.open += 1;
+      else r.net += Number(b.exposure) - Number(b.payout);
+      m.set(b.event_id, r);
+    }
+    return [...m.values()];
+  }, [bookBets]);
+
   const byId = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
   // Sync tab if initialTab changes from sidebar
@@ -850,7 +878,6 @@ export function ReportsView({
                 <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
                   <tr>
                     <th className="px-4 py-3">Event / Match</th>
-                    <th className="px-4 py-3">Sport</th>
                     <th className="px-4 py-3 text-right">Matched Volume</th>
                     <th className="px-4 py-3 text-right">Bets Count</th>
                     <th className="px-4 py-3 text-right">Platform Net P/L</th>
@@ -858,14 +885,12 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {[
-                    { match: "India vs Australia • 2nd Test", sport: "Cricket", vol: 2450000, bets: 312, net: 185000, live: true },
-                    { match: "England vs South Africa • 1st ODI", sport: "Cricket", vol: 1120000, bets: 154, net: -24000, live: true },
-                    { match: "Real Madrid vs Barcelona • El Clasico", sport: "Football", vol: 980000, bets: 89, net: 45000, live: false },
-                  ].map((m, idx) => (
+                  {bookRows.length === 0 && (
+                    <tr><td colSpan={5} className="px-4 py-6 text-center text-white/50">No cricket bets yet.</td></tr>
+                  )}
+                  {bookRows.map((m, idx) => (
                     <tr key={idx} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-3 font-semibold text-white">{m.match}</td>
-                      <td className="px-4 py-3 text-white/70">{m.sport}</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-gold-300">
                         🪙 {fmt(m.vol)}
                       </td>
@@ -881,12 +906,12 @@ export function ReportsView({
                       <td className="px-4 py-3 text-center">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            m.live
+                            m.open
                               ? "bg-emerald-500/20 text-emerald-300"
                               : "bg-white/10 text-white/60"
                           }`}
                         >
-                          {m.live ? "In Play" : "Closed"}
+                          {m.open ? `${m.open} open` : "Settled"}
                         </span>
                       </td>
                     </tr>

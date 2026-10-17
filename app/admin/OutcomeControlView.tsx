@@ -21,10 +21,8 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { GAMES as ALL_GAMES, type GameId } from "../lib/data";
+import { GAMES, type GameId } from "../lib/data";
 
-// Football and Tennis are hidden for now, so they get no outcome controls either.
-const GAMES = ALL_GAMES.filter((g) => g.id !== "football" && g.id !== "tennis");
 import { GameIcon } from "../components/GameArt";
 import { ROLE_LABEL, coins, type Account, type Role } from "../lib/hierarchy";
 import { errText, supabase } from "../lib/supabase";
