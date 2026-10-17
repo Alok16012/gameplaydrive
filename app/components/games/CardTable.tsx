@@ -3,7 +3,7 @@
 import { REJOIN_MS, clearActive, dropSnap, loadSnap, markActive, saveSnap, snapAge } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useEffect, useReducer, useRef, useState } from "react";
-import { MoreVertical } from "lucide-react";
+import { LogOut, MoreVertical } from "lucide-react";
 import { deck, gameById, inr, type Card, type GameId } from "../../lib/data";
 import { pickBots, type Bot } from "../../lib/botpool";
 import { POKER_NAMES, TP_NAMES, compare, pokerScore, teenPattiScore } from "../../lib/hands";
@@ -147,6 +147,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const [lowBal, setLowBal] = useState(false);
   const [raising, setRaising] = useState(false); // poker: raise amount picker open
   const [raiseAmt, setRaiseAmt] = useState(0);
+  const [exiting, setExiting] = useState(false); // Exit tapped mid-hand: asking to confirm the fold
   const s = g.current;
   const label = `${game.name} • Table #${table}`;
   // Sounds: a fresh deal, chips into the pot, and the flop / turn / river.
@@ -309,6 +310,16 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     bump();
   };
 
+  // Exit the table. Mid-hand your hand is folded (the boot and bets stay in the pot) and the table stops.
+  const inHand = () => g.current.phase === "playing" && !g.current.me.packed;
+  const exit = () => {
+    if (inHand() && !exiting) return setExiting(true);
+    g.current = { ...g.current, phase: "idle" }; // detach: the running bot turns see a new state and stop
+    dropSnap(snapKey);
+    clearActive(route);
+    nav.back();
+  };
+
   // Poker raise limits: at least double the current bet (or 2 × boot), at most what you hold (capped at 100 × boot).
   const minRaise = () => Math.max(s.stake * 2, buyIn * 2);
   const maxRaise = () => Math.max(minRaise(), Math.min(total, buyIn * 100));
@@ -438,12 +449,13 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const activeBots = s.bots.filter((b) => !b.packed).length;
   const stageName = ["Pre-Flop", "Flop", "Turn", "River", "Showdown"][s.stage];
 
+  // Seats in turn order: after you the turn goes right → top → left (anticlockwise on screen).
   const seatPos = [
-    "-left-2 top-[50%]",
-    "left-1 top-[6%]",
-    "left-1/2 -translate-x-1/2 -top-6",
-    "right-1 top-[6%]",
     "-right-2 top-[50%]",
+    "right-1 top-[6%]",
+    "left-1/2 -translate-x-1/2 -top-6",
+    "left-1 top-[6%]",
+    "-left-2 top-[50%]",
   ];
 
   return (
@@ -595,6 +607,18 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             <div className="text-center text-[10px] text-white/35 mt-2">If you disconnect, you have 60s to rejoin — otherwise the server auto-packs your hand.</div>
           </div>
         )}
+
+        {/* Exit */}
+        <div className={s.phase === "idle" ? "mt-auto pt-3" : "pt-2"}>
+          {exiting && inHand() ? (
+            <div className="grid grid-cols-2 gap-2.5 fadein">
+              <button onClick={() => setExiting(false)} className="btn-ghost rounded-full py-2.5 text-sm">Stay</button>
+              <button onClick={exit} className="rounded-full py-2.5 text-sm font-semibold bg-rose-600">{poker ? "Fold" : "Pack"} &amp; Exit</button>
+            </div>
+          ) : (
+            <button onClick={exit} className="btn-ghost w-full rounded-full py-2.5 text-sm flex items-center justify-center gap-2"><LogOut size={16} />Exit Table</button>
+          )}
+        </div>
       </div>
 
       {s.result && (
