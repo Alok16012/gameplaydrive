@@ -59,7 +59,7 @@ export function Plane({ width = 84, spinning = true }: { width?: number; spinnin
 }
 
 export function Aviator({ nav }: { nav: Nav }) {
-  const { total, showToast, applyBalance } = useStore();
+  const { total, showToast, applyBalance, player } = useStore();
   const [v, setV] = useState<View | null>(null);
   const [err, setErr] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -162,17 +162,21 @@ export function Aviator({ nav }: { nav: Nav }) {
   }
 
   const betting = !!v && !crashed && !flying;
-  const myBetsInList = (v?.mine ?? []).filter((b) => b.amount > 0).map((b) => ({
-    name: "You",
-    amount: b.amount,
-    at: b.cash_mult,
-    me: true,
-  }));
-  const otherBets = [...(v?.bets ?? []).map((b) => ({ name: b.name, amount: b.amount, at: b.cash_mult, me: false })), ...crowd.filter((c) => !betting || BET_WINDOW - secsToStart >= c.joinAt).map((c) => ({
+  const myBetsInList = (v?.mine ?? []).map((b) => {
+    const autoHit = b.auto !== null && b.cash_mult === null && m >= b.auto && !(crashed && (v?.crash ?? 0) < b.auto);
+    const at = b.cash_mult ?? (autoHit ? b.auto : null);
+    return {
+      name: player?.name ? `${player.name.slice(0, 2)}*** (You)` : "You",
+      amount: b.amount,
+      at,
+      me: true as const,
+    };
+  });
+  const otherBets = [...(v?.bets ?? []).map((b) => ({ name: b.name, amount: b.amount, at: b.cash_mult, me: false as const })), ...crowd.filter((c) => !betting || BET_WINDOW - secsToStart >= c.joinAt).map((c) => ({
     name: c.name,
     amount: c.amount,
     at: (flying || crashed) && m >= c.target && !(crashed && (v?.crash ?? 0) < c.target) ? c.target : null,
-    me: false,
+    me: false as const,
   }))];
   const others = [...myBetsInList, ...otherBets];
   const totalWin = others.reduce((a, r) => a + (r.at ? Math.floor(r.amount * r.at) : 0), 0);
