@@ -25,16 +25,21 @@ with spam as (
 select (created_at at time zone 'Asia/Kolkata')::date as day, count(*) as players, (array_agg(name))[1:5] as sample
 from spam group by 1 order by 1;
 
--- STEP 2: delete them (same filter).
-delete from auth.users u
-using public.profiles p
-left join public.wallets w on w.user_id = p.id
-where u.id = p.id
-  and p.role = 'player'
-  and p.created_at >= '2026-10-15 00:00+05:30'
-  and p.created_at <  '2026-10-18 00:00+05:30'
-  and p.parent_id = (select id from public.profiles where role = 'superadmin' limit 1)
-  and coalesce(w.coins, 0) = 0
-  and not exists (select 1 from public.ledger l where l.user_id = p.id)
-  and not exists (select 1 from public.payment_requests r where r.user_id = p.id)
-  and not exists (select 1 from public.profiles c where c.parent_id = p.id);
+-- STEP 2: delete them (same filter) and report how many went. Ran 2026-10-18: deleted 242.
+with spam as (
+  select p.id
+  from public.profiles p
+  left join public.wallets w on w.user_id = p.id
+  where p.role = 'player'
+    and p.created_at >= '2026-10-15 00:00+05:30'
+    and p.created_at <  '2026-10-18 00:00+05:30'
+    and p.parent_id = (select id from public.profiles where role = 'superadmin' limit 1)
+    and coalesce(w.coins, 0) = 0
+    and not exists (select 1 from public.ledger l where l.user_id = p.id)
+    and not exists (select 1 from public.payment_requests r where r.user_id = p.id)
+    and not exists (select 1 from public.profiles c where c.parent_id = p.id)
+),
+del as (
+  delete from auth.users where id in (select id from spam) returning 1
+)
+select count(*) as deleted from del;
