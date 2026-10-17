@@ -162,11 +162,12 @@ export function Aviator({ nav }: { nav: Nav }) {
   }
 
   const betting = !!v && !crashed && !flying;
+  const myDisplayName = player?.name ? `${player.name} (You)` : "You";
   const myBetsInList = (v?.mine ?? []).map((b) => {
     const autoHit = b.auto !== null && b.cash_mult === null && m >= b.auto && !(crashed && (v?.crash ?? 0) < b.auto);
     const at = b.cash_mult ?? (autoHit ? b.auto : null);
     return {
-      name: player?.name ? `${player.name.slice(0, 2)}*** (You)` : "You",
+      name: myDisplayName,
       amount: b.amount,
       at,
       me: true as const,
@@ -178,7 +179,12 @@ export function Aviator({ nav }: { nav: Nav }) {
     at: (flying || crashed) && m >= c.target && !(crashed && (v?.crash ?? 0) < c.target) ? c.target : null,
     me: false as const,
   }))];
-  const others = [...myBetsInList, ...otherBets];
+  const others = [...myBetsInList, ...otherBets].sort((a, b) => {
+    if (b.amount !== a.amount) return b.amount - a.amount;
+    if (a.me && !b.me) return -1;
+    if (!a.me && b.me) return 1;
+    return 0;
+  });
   const totalWin = others.reduce((a, r) => a + (r.at ? Math.floor(r.amount * r.at) : 0), 0);
 
   return (
@@ -359,14 +365,47 @@ export function Aviator({ nav }: { nav: Nav }) {
             <span>Player</span><span>Bet</span><span className="text-center">X</span><span className="text-right">Win</span>
           </div>
           <div className="space-y-1">
-            {others.map((r, i) => (
-              <div key={i} className={`grid grid-cols-[1.3fr_1fr_.7fr_1fr] items-center rounded-full px-2 py-1.5 text-[13px] ${r.me ? (r.at ? "bg-[#2d2a05] border border-[#d4a017]" : "bg-[#1e1c0a] border border-[#d4a017]/60") : r.at ? "bg-[#123405] border border-[#427f00]" : "bg-[#101111]"}`}>
-                <span className="flex items-center gap-2 truncate"><span className={`w-6 h-6 rounded-full shrink-0 grid place-items-center text-[11px] ${r.me ? "bg-[#d4a017]/30 text-[#ffd700]" : "bg-white/10"}`}>{r.me ? "⭐" : r.name[0]?.toUpperCase()}</span><span className={`truncate ${r.me ? "text-[#ffd700] font-bold" : "text-white/80"}`}>{r.name}</span></span>
-                <span className="tabular-nums">{inr(r.amount)}</span>
-                <span className={`text-center tabular-nums ${r.at ? histColor(r.at) + " font-semibold" : "text-white/30"}`}>{r.at ? `${Number(r.at).toFixed(2)}x` : ""}</span>
-                <span className="text-right tabular-nums">{r.at ? inr(Math.floor(r.amount * r.at)) : ""}</span>
-              </div>
-            ))}
+            {others.map((r, i) => {
+              const liveWin = r.me && flying && !r.at;
+              const displayX = r.at ? `${Number(r.at).toFixed(2)}x` : liveWin ? `${m.toFixed(2)}x` : "";
+              const displayWin = r.at ? inr(Math.floor(r.amount * r.at)) : liveWin ? inr(Math.floor(r.amount * m)) : "";
+              return (
+                <div
+                  key={i}
+                  className={`grid grid-cols-[1.3fr_1fr_.7fr_1fr] items-center rounded-full px-2 py-1.5 text-[13px] ${
+                    r.me
+                      ? r.at
+                        ? "bg-[#1d3b14] border border-[#28a909]"
+                        : liveWin
+                        ? "bg-[#2d2205] border border-[#ffbd71]"
+                        : "bg-[#1e1c0a] border border-[#d4a017]/60"
+                      : r.at
+                      ? "bg-[#123405] border border-[#427f00]"
+                      : "bg-[#101111]"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 truncate">
+                    <span
+                      className={`w-6 h-6 rounded-full shrink-0 grid place-items-center text-[11px] ${
+                        r.me ? (r.at ? "bg-[#28a909]/20 text-[#5fe03a]" : "bg-[#d4a017]/30 text-[#ffd700]") : "bg-white/10"
+                      }`}
+                    >
+                      {r.me ? "⭐" : r.name[0]?.toUpperCase()}
+                    </span>
+                    <span className={`truncate ${r.me ? (r.at ? "text-[#5fe03a] font-bold" : "text-[#ffd700] font-bold") : "text-white/80"}`}>
+                      {r.name}
+                    </span>
+                  </span>
+                  <span className="tabular-nums">{inr(r.amount)}</span>
+                  <span className={`text-center tabular-nums ${r.at ? histColor(r.at) + " font-semibold" : liveWin ? "text-[#ffbd71] font-bold" : "text-white/30"}`}>
+                    {displayX}
+                  </span>
+                  <span className={`text-right tabular-nums ${r.at ? "text-[#5fe03a] font-bold" : liveWin ? "text-[#ffbd71] font-bold" : ""}`}>
+                    {displayWin}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
         <div className="text-center text-[11px] text-white/30 mt-3">Every round is decided by the server before take-off; cash-outs are checked against its clock.</div>
