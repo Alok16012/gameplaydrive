@@ -672,7 +672,20 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const gameNo = useRef(0);
   const white = pos.turn === "w";
 
+  // Rejoin: the game is saved on this phone every second, so Back (or closing the app) and coming back carries on
+  // from the same position — entry not charged again. Your clock keeps running while you're away: the time gone
+  // comes off your clock, and if it ran out the game is lost. Exit gives the game up for good.
+  const snapKey = `chess:${table}:${buyIn}`;
+  const route: Route = { name: "board", game: "chess", table, buyIn };
+  interface ChessSnap { pos: Pos; last: Move | null; taken: { w: string[]; b: string[] }; clock: number[]; opp: Bot; botMoves: number }
+  const [askExit, setAskExit] = useState(false);
+  const over = useRef(false); // game finished or given up: stop saving it (state updates land a render later)
+
   const end = (result: "win" | "loss" | "draw", reason: string) => {
+    over.current = true;
+    gameNo.current += 1;
+    dropSnap(snapKey);
+    clearActive(route);
     setDone(result);
     setWhy(reason);
     if (result === "win") credit(Math.floor(buyIn * 2 * keep), label);
@@ -729,6 +742,50 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, started, done]);
 
+  useEffect(() => {
+    if (!started || done !== null || over.current) return;
+    saveSnap<ChessSnap>(snapKey, { pos, last, taken, clock, opp, botMoves: botMoves.current });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, done, pos, clock]);
+  useEffect(() => {
+    if (started && done === null && !over.current) markActive(route, label, Math.max(0, clock[0]) * 1000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, done, pos]);
+  const resumed = useRef(false); // once only (React may run mount effects twice in development)
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const sn = loadSnap<ChessSnap>(snapKey);
+    if (!sn) return;
+    const away = Math.floor((snapAge(snapKey) ?? 0) / 1000);
+    const mine = sn.clock[0] - away;
+    if (mine <= 0) {
+      dropSnap(snapKey);
+      clearActive(route);
+      showToast("Your clock ran out while you were away — that game was lost");
+      return;
+    }
+    over.current = false;
+    gameNo.current += 1;
+    games.current = 1;
+    botMoves.current = sn.botMoves;
+    setOpp(sn.opp);
+    setPos(sn.pos);
+    setLast(sn.last);
+    setTaken(sn.taken);
+    setClock([mine, sn.clock[1]]);
+    setStarted(true);
+    showToast("Welcome back — your game carries on");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const exitGame = () => {
+    over.current = true;
+    gameNo.current += 1;
+    dropSnap(snapKey);
+    clearActive(route);
+    nav.back();
+  };
+
   const myMoves = started && white && done === null ? legalMoves(pos) : [];
   const targets = sel ? myMoves.filter((m) => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
 
@@ -752,6 +809,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
       return showToast("Not enough coins — ask your agent");
     }
     setLowBal(false);
+    over.current = false;
     gameNo.current += 1;
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
     setPos(startPos());
@@ -763,6 +821,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     setDone(null);
     setWhy("");
     setStarted(true);
+    markActive(route, label, CHESS_SECS * 1000);
   };
 
   const firstIn = useAutoNext(!started && !lowBal, 3, start);
@@ -827,7 +886,28 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
         <div className={`text-center text-[12px] mt-3 ${check ? "text-rose-400 font-semibold" : "text-white/45"}`}>
           {done !== null ? why : check ? (white ? "Check! Protect your king" : `You gave check!`) : started ? (white ? "Your move — tap a piece to see where it can go" : `${opp.name} is thinking…`) : ""}
         </div>
+        {started && done === null && (
+          <div className="flex justify-center">
+            <button onClick={() => setAskExit(true)} className="mt-4 pill px-4 py-2 text-xs font-semibold bg-white/10 text-white/80 inline-flex items-center gap-1.5">
+              <LogOut size={14} /> Exit game
+            </button>
+          </div>
+        )}
+        {started && done === null && <div className="text-center text-[10px] text-white/35 mt-2">Tap ← to leave for a while — rejoin from Home, your clock keeps running.</div>}
       </div>
+
+      {askExit && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-6" onClick={() => setAskExit(false)}>
+          <div className="w-full max-w-[360px] rounded-3xl bg-[#0d1230] border border-white/10 p-6 text-center pop" onClick={(e) => e.stopPropagation()}>
+            <div className="text-xl font-semibold">Exit this game?</div>
+            <div className="text-sm text-white/60 mt-1">You will lose this game and the entry of {inr(buyIn)} is not returned.</div>
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button onClick={() => setAskExit(false)} className="py-3 rounded-2xl bg-white/10 font-semibold">Keep playing</button>
+              <button onClick={exitGame} className="py-3 rounded-2xl bg-rose-500 font-semibold">Exit</button>
+            </div>
+          </div>
+        </div>
+      )}
       <ResultSheet
         open={done !== null}
         won={done === "win"}
