@@ -37,15 +37,14 @@ declare
   loss_seats int[] := '{}';
   win_seats int[] := '{}';
   p_mode text;
-  c_used jsonb := '[]';
-  bot_cards jsonb := null;
-  loss_cards jsonb := null;
-  win_cards jsonb := null;
-  rem_deck jsonb := '[]';
-  seat_cards jsonb;
+  playing_seats int[] := '{}';
+  hands jsonb[] := '{}';
+  win_target_seat int := null;
+  max_loss_score int[] := array[0, 0, 0, 0];
   cand_h jsonb;
   sc_h int[];
-  loss_score int[];
+  best_hand jsonb;
+  best_sc int[];
   idx int;
   idx1 int;
   idx2 int;
@@ -118,103 +117,103 @@ begin
     s := jsonb_set(s, array[i::text], x);
   end loop;
 
-  -- Outcome Control Card Generation:
-  -- If we have force_loss players and at least one bot:
-  if array_length(loss_seats, 1) > 0 and bot_seat is not null then
-    -- 1. Pick a natural random losing hand for the force_loss player from deck d
-    -- (different random ranks and suits every round)
-    for idx in 0 .. 10 loop
-      cand_h := jsonb_build_array(d -> (idx * 3), d -> (idx * 3 + 1), d -> (idx * 3 + 2));
-      sc_h := public.tp_score(cand_h);
-      if sc_h[1] = 1 or (sc_h[1] = 2 and sc_h[2] <= 18) then
-        loss_cards := cand_h;
-        loss_score := sc_h;
-        c_used := c_used || loss_cards;
-        exit;
-      end if;
-    end loop;
-    if loss_cards is null then
-      loss_cards := jsonb_build_array(d -> 0, d -> 1, d -> 2);
-      loss_score := public.tp_score(loss_cards);
-      c_used := c_used || loss_cards;
-    end if;
-
-    -- 2. Build remaining deck excluding the player's cards
-    select jsonb_agg(c) into rem_deck from (
-      select c from jsonb_array_elements(d) c
-      where not exists (
-        select 1 from jsonb_array_elements(loss_cards) lc
-        where lc ->> 'r' = c ->> 'r' and lc ->> 's' = c ->> 's'
-      )
-    ) rem;
-
-    -- 3. Pick a natural winning hand for the house bot from rem_deck that strictly beats the player's hand!
-    -- Search combinations in rem_deck
-    for idx1 in 0 .. 30 loop
-      for idx2 in (idx1 + 1) .. 35 loop
-        for idx3 in (idx2 + 1) .. 40 loop
-          cand_h := jsonb_build_array(rem_deck -> idx1, rem_deck -> idx2, rem_deck -> idx3);
-          sc_h := public.tp_score(cand_h);
-          if sc_h > loss_score then
-            bot_cards := cand_h;
-            c_used := c_used || bot_cards;
-            exit;
-          end if;
-        end loop;
-        exit when bot_cards is not null;
-      end loop;
-      exit when bot_cards is not null;
-    end loop;
-
-    -- Fallback if not found: find Trail of Aces or Kings
-    if bot_cards is null then
-      select jsonb_agg(c) into bot_cards from (
-        select c from jsonb_array_elements(rem_deck) c where c ->> 'r' = 'A' limit 3
-      ) b;
-      if bot_cards is null or jsonb_array_length(bot_cards) < 3 then
-        select jsonb_agg(c) into bot_cards from (
-          select c from jsonb_array_elements(rem_deck) c where c ->> 'r' = 'K' limit 3
-        ) b;
-      end if;
-      c_used := c_used || bot_cards;
-    end if;
-  end if;
-
-  -- If we have force_win players:
-  if array_length(win_seats, 1) > 0 and win_cards is null then
-    select jsonb_agg(c) into win_cards from (
-      select c from jsonb_array_elements(d) c where c ->> 'r' = 'A' and not (c = any(select jsonb_array_elements(c_used))) limit 3
-    ) w;
-    if win_cards is null or jsonb_array_length(win_cards) < 3 then
-      select jsonb_agg(c) into win_cards from (
-        select c from jsonb_array_elements(d) c where c ->> 'r' = 'K' and not (c = any(select jsonb_array_elements(c_used))) limit 3
-      ) w;
-    end if;
-    c_used := c_used || win_cards;
-  end if;
-
-  -- Filter remaining deck for all other seats
-  select jsonb_agg(c) into rem_deck from (
-    select c from jsonb_array_elements(d) c
-    where not exists (select 1 from jsonb_array_elements(c_used) u where u ->> 'r' = c ->> 'r' and u ->> 's' = c ->> 's')
-  ) rem;
-
-  -- Deal hands to all playing seats
+  -- 1. Deal INITIAL UNIQUE cards to each playing seat from shuffled deck d
+  -- Every single seat receives distinct non-overlapping cards!
   k := 0;
   for i in 0 .. jsonb_array_length(s) - 1 loop
     if (s -> i ->> 'playing')::boolean then
-      if i = bot_seat and bot_cards is not null then
-        seat_cards := bot_cards;
-      elsif i = any(loss_seats) and loss_cards is not null then
-        seat_cards := loss_cards;
-      elsif i = any(win_seats) and win_cards is not null then
-        seat_cards := win_cards;
-      else
-        seat_cards := jsonb_build_array(rem_deck -> k, rem_deck -> (k + 1), rem_deck -> (k + 2));
-        k := k + 3;
-      end if;
-      insert into tp_hands (table_id, seat, cards) values (t.id, i, seat_cards);
+      playing_seats := playing_seats || i;
+      hands[i + 1] := jsonb_build_array(d -> k, d -> (k + 1), d -> (k + 2));
+      k := k + 3;
     end if;
+  end loop;
+
+  -- 2. Determine Target Winner (house bot takes priority; if no bot, the opponent not in loss_seats)
+  if bot_seat is not null then
+    win_target_seat := bot_seat;
+  elsif array_length(loss_seats, 1) > 0 then
+    for idx in 1 .. array_length(playing_seats, 1) loop
+      if not (playing_seats[idx] = any(loss_seats)) then
+        win_target_seat := playing_seats[idx];
+        exit;
+      end if;
+    end loop;
+  end if;
+
+  -- 3. If there are force_loss players and a valid target winner:
+  if array_length(loss_seats, 1) > 0 and win_target_seat is not null then
+    -- Find highest score among all force_loss seats
+    max_loss_score := array[0, 0, 0, 0];
+    for idx in 1 .. array_length(loss_seats, 1) loop
+      sc_h := public.tp_score(hands[loss_seats[idx] + 1]);
+      if sc_h > max_loss_score then
+        max_loss_score := sc_h;
+      end if;
+    end loop;
+
+    -- If target winner's hand does not strictly beat the highest loss hand,
+    -- pick a natural winning hand from UNUSED cards in d (k to 51)
+    if public.tp_score(hands[win_target_seat + 1]) <= max_loss_score then
+      best_hand := null;
+      for idx1 in k .. 49 loop
+        for idx2 in (idx1 + 1) .. 50 loop
+          for idx3 in (idx2 + 1) .. 51 loop
+            cand_h := jsonb_build_array(d -> idx1, d -> idx2, d -> idx3);
+            sc_h := public.tp_score(cand_h);
+            if sc_h > max_loss_score then
+              best_hand := cand_h;
+              exit;
+            end if;
+          end loop;
+          exit when best_hand is not null;
+        end loop;
+        exit when best_hand is not null;
+      end loop;
+
+      if best_hand is not null then
+        hands[win_target_seat + 1] := best_hand;
+      else
+        -- Fallback: swap target winner's hand with the loss seat holding the highest hand
+        for idx in 1 .. array_length(loss_seats, 1) loop
+          if public.tp_score(hands[loss_seats[idx] + 1]) = max_loss_score then
+            cand_h := hands[win_target_seat + 1];
+            hands[win_target_seat + 1] := hands[loss_seats[idx] + 1];
+            hands[loss_seats[idx] + 1] := cand_h;
+            exit;
+          end if;
+        end loop;
+      end if;
+    end if;
+  end if;
+
+  -- 4. If there are force_win players:
+  if array_length(win_seats, 1) > 0 then
+    for idx in 1 .. array_length(win_seats, 1) loop
+      i := win_seats[idx];
+      best_hand := null;
+      best_sc := public.tp_score(hands[i + 1]);
+      for idx1 in k .. 49 loop
+        for idx2 in (idx1 + 1) .. 50 loop
+          for idx3 in (idx2 + 1) .. 51 loop
+            cand_h := jsonb_build_array(d -> idx1, d -> idx2, d -> idx3);
+            sc_h := public.tp_score(cand_h);
+            if sc_h > best_sc then
+              best_sc := sc_h;
+              best_hand := cand_h;
+            end if;
+          end loop;
+        end loop;
+      end loop;
+      if best_hand is not null then
+        hands[i + 1] := best_hand;
+      end if;
+    end loop;
+  end if;
+
+  -- 5. Insert unique hands for every playing seat
+  for idx in 1 .. array_length(playing_seats, 1) loop
+    i := playing_seats[idx];
+    insert into tp_hands (table_id, seat, cards) values (t.id, i, hands[i + 1]);
   end loop;
 
   t.seats := s;
