@@ -1,31 +1,19 @@
--- 048: Teen Patti Win/Loss Outcome Control & Rigorous Force Loss Enforcement
+-- 048: Teen Patti Win/Loss Outcome Control & Rigorous Force Loss Enforcement (Dynamic Natural Hands)
 --
--- Why Ajaz Khan was winning in Teen Patti even on Force Loss:
--- 1. Teen Patti hands were dealt purely random from a shuffled deck; tp_start_hand never checked outcome_mode.
--- 2. Bots in tp_bot_move were folding (packing) as rounds progressed, leaving Ajaz Khan as the sole survivor and handing him the entire pot!
--- 3. tp_showdown and tp_finish blindly paid whoever had higher score without outcome control checks.
---
--- Fixes implemented:
--- 1. tp_start_hand:
---    • If any seated human player has outcome_mode = 'force_loss':
---      - An active house bot is dealt an unbeatable Trail of Aces (AAA) or Kings (KKK).
---      - The force_loss player is dealt a low High Card (e.g. 7-5-2).
---      - Clean deck distribution without duplicate cards.
---    • If a seated player has outcome_mode = 'force_win':
---      - The player is dealt a Trail or Pure Sequence.
--- 2. tp_bot_move:
---    • Bots holding winning hands (Rank >= 3) NEVER pack (pack_p := 0).
---    • If facing a force_loss player, bots aggressively call (chaal), raise, and demand Showdown.
---    • Force loss players can no longer win by making bots pack!
--- 3. tp_showdown:
---    • Highest cards win (which is the bot's Trail).
---    • Safety check: force_loss player cannot win showdown against active bots.
--- 4. tp_finish:
---    • Hard barrier: if a player on force_loss would ever be marked as winner, the pot is awarded to the house bot instead.
+-- Fixes:
+-- 1. Dynamic Natural Hands:
+--    • Force loss players get fresh, varied, natural hands every single round (different ranks, different suits).
+--    • No repeating "2 7 5" cards!
+--    • House bot dynamically draws a natural winning hand (Flush, Sequence, High Pair, or Trio) that strictly beats the player.
+-- 2. Bot Never Packs:
+--    • Bot holding winning hand never packs against force_loss players.
+-- 3. Showdown & Finish Guarantee:
+--    • Bot always beats the player on showdown.
+--    • Hard block in tp_finish prevents force_loss players from ever receiving winning coins.
 --
 -- Safe to run more than once. Run in the Supabase SQL Editor.
 
--- 1. tp_start_hand with outcome control
+-- 1. tp_start_hand with dynamic outcome control
 CREATE OR REPLACE FUNCTION public.tp_start_hand(t tp_tables)
  RETURNS tp_tables
  LANGUAGE plpgsql
@@ -55,6 +43,13 @@ declare
   win_cards jsonb := null;
   rem_deck jsonb := '[]';
   seat_cards jsonb;
+  cand_h jsonb;
+  sc_h int[];
+  loss_score int[];
+  idx int;
+  idx1 int;
+  idx2 int;
+  idx3 int;
 begin
   for x in select * from jsonb_array_elements(t.seats) loop
     if (x ->> 'bot')::boolean then
@@ -126,33 +121,63 @@ begin
   -- Outcome Control Card Generation:
   -- If we have force_loss players and at least one bot:
   if array_length(loss_seats, 1) > 0 and bot_seat is not null then
-    -- 1. Bot gets Trail of Aces (AAA)
-    select jsonb_agg(c) into bot_cards from (
-      select c from jsonb_array_elements(d) c where c ->> 'r' = 'A' limit 3
-    ) b;
-    if jsonb_array_length(bot_cards) < 3 then
-      select jsonb_agg(c) into bot_cards from (
-        select c from jsonb_array_elements(d) c where c ->> 'r' = 'K' limit 3
-      ) b;
+    -- 1. Pick a natural random losing hand for the force_loss player from deck d
+    -- (different random ranks and suits every round)
+    for idx in 0 .. 10 loop
+      cand_h := jsonb_build_array(d -> (idx * 3), d -> (idx * 3 + 1), d -> (idx * 3 + 2));
+      sc_h := public.tp_score(cand_h);
+      if sc_h[1] = 1 or (sc_h[1] = 2 and sc_h[2] <= 18) then
+        loss_cards := cand_h;
+        loss_score := sc_h;
+        c_used := c_used || loss_cards;
+        exit;
+      end if;
+    end loop;
+    if loss_cards is null then
+      loss_cards := jsonb_build_array(d -> 0, d -> 1, d -> 2);
+      loss_score := public.tp_score(loss_cards);
+      c_used := c_used || loss_cards;
     end if;
-    c_used := c_used || bot_cards;
 
-    -- 2. Force loss players get low High Card (e.g. 7-5-2 or 8-4-3)
-    select jsonb_agg(c) into loss_cards from (
+    -- 2. Build remaining deck excluding the player's cards
+    select jsonb_agg(c) into rem_deck from (
       select c from jsonb_array_elements(d) c
-      where (c ->> 'r' = '7' and c ->> 's' = '♠')
-         or (c ->> 'r' = '5' and c ->> 's' = '♥')
-         or (c ->> 'r' = '2' and c ->> 's' = '♦')
-      limit 3
-    ) l;
-    if jsonb_array_length(loss_cards) < 3 then
-      select jsonb_agg(c) into loss_cards from (
-        select c from jsonb_array_elements(d) c
-        where c ->> 'r' in ('2','3','4','5','6','7','8')
-        limit 3
-      ) l;
+      where not exists (
+        select 1 from jsonb_array_elements(loss_cards) lc
+        where lc ->> 'r' = c ->> 'r' and lc ->> 's' = c ->> 's'
+      )
+    ) rem;
+
+    -- 3. Pick a natural winning hand for the house bot from rem_deck that strictly beats the player's hand!
+    -- Search combinations in rem_deck
+    for idx1 in 0 .. 30 loop
+      for idx2 in (idx1 + 1) .. 35 loop
+        for idx3 in (idx2 + 1) .. 40 loop
+          cand_h := jsonb_build_array(rem_deck -> idx1, rem_deck -> idx2, rem_deck -> idx3);
+          sc_h := public.tp_score(cand_h);
+          if sc_h > loss_score then
+            bot_cards := cand_h;
+            c_used := c_used || bot_cards;
+            exit;
+          end if;
+        end loop;
+        exit when bot_cards is not null;
+      end loop;
+      exit when bot_cards is not null;
+    end loop;
+
+    -- Fallback if not found: find Trail of Aces or Kings
+    if bot_cards is null then
+      select jsonb_agg(c) into bot_cards from (
+        select c from jsonb_array_elements(rem_deck) c where c ->> 'r' = 'A' limit 3
+      ) b;
+      if bot_cards is null or jsonb_array_length(bot_cards) < 3 then
+        select jsonb_agg(c) into bot_cards from (
+          select c from jsonb_array_elements(rem_deck) c where c ->> 'r' = 'K' limit 3
+        ) b;
+      end if;
+      c_used := c_used || bot_cards;
     end if;
-    c_used := c_used || loss_cards;
   end if;
 
   -- If we have force_win players:
@@ -168,7 +193,7 @@ begin
     c_used := c_used || win_cards;
   end if;
 
-  -- Filter remaining deck
+  -- Filter remaining deck for all other seats
   select jsonb_agg(c) into rem_deck from (
     select c from jsonb_array_elements(d) c
     where not exists (select 1 from jsonb_array_elements(c_used) u where u ->> 'r' = c ->> 'r' and u ->> 's' = c ->> 's')
