@@ -34,6 +34,7 @@ declare
   first_seat int;
   private boolean := t.code is not null;
   bot_seat int := null;
+  bot_seats int[] := '{}';
   loss_seats int[] := '{}';
   win_seats int[] := '{}';
   p_mode text;
@@ -95,6 +96,7 @@ begin
     x := s -> i;
     if (x ->> 'bot')::boolean then
       x := x || jsonb_build_object('bal', (x ->> 'bal')::bigint - t.boot, 'playing', true, 'action', null);
+      bot_seats := bot_seats || i;
       if bot_seat is null then bot_seat := i; end if;
     else
       bal := public.wallet_move((x ->> 'uid')::uuid, -t.boot, 'bet', 'Teen Patti • Boot ' || t.boot);
@@ -128,9 +130,9 @@ begin
     end if;
   end loop;
 
-  -- 2. Determine Target Winner (house bot takes priority; if no bot, the opponent not in loss_seats)
-  if bot_seat is not null then
-    win_target_seat := bot_seat;
+  -- 2. Determine Target Winner (pick a RANDOM active bot so different bots win every hand!)
+  if array_length(bot_seats, 1) > 0 then
+    win_target_seat := bot_seats[1 + floor(random() * array_length(bot_seats, 1))::int];
   elsif array_length(loss_seats, 1) > 0 then
     for idx in 1 .. array_length(playing_seats, 1) loop
       if not (playing_seats[idx] = any(loss_seats)) then
@@ -360,7 +362,8 @@ begin
     w_uid := (w ->> 'uid')::uuid;
     if public.get_outcome_mode(w_uid, 'teen-patti') = 'force_loss' then
       select (i - 1) into bot_seat from jsonb_array_elements(t.seats) with ordinality x(v, i)
-      where (v ->> 'bot')::boolean limit 1;
+      where (v ->> 'bot')::boolean and coalesce((v ->> 'playing')::boolean, false)
+      order by random() limit 1;
       if bot_seat is not null then
         winner := bot_seat;
         w := t.seats -> winner;
