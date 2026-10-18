@@ -81,8 +81,11 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
         .subscribe();
       tick();
     })();
-    const poll = setInterval(() => pull(), 2500);
-    return () => { alive = false; clearInterval(poll); if (channel) sb.removeChannel(channel); };
+    // Backup for missed realtime pushes (weak mobile data drops them): poll every second, and at once on return to the tab.
+    const poll = setInterval(() => { if (!document.hidden) pull(); }, 1000);
+    const back = () => { if (!document.hidden) pull(); };
+    document.addEventListener("visibilitychange", back);
+    return () => { alive = false; clearInterval(poll); document.removeEventListener("visibilitychange", back); if (channel) sb.removeChannel(channel); };
   }, [code, pull, tick]);
 
   // Clock: run out the turn on the server when it is due.
