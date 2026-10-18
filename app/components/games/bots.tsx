@@ -103,9 +103,13 @@ export function NextGameBar({ left, total = NEXT_GAME_SECS, label = "Next game s
   );
 }
 
-/** End-of-game sheet shared by every table. No "Play Again" — the next game deals automatically after the countdown. */
-export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, onClose, children }: {
-  open: boolean; won: boolean; title: string; sub?: string; left: number; nextLabel?: string; onLeave: () => void; onClose: () => void; children?: React.ReactNode;
+/**
+ * End-of-game sheet shared by every table. Without `onAgain` the next game deals automatically after the countdown;
+ * with it the player picks Play Again or Back to Lobby, and the table sends them to the lobby when time is up.
+ */
+export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, onClose, onAgain, again, children }: {
+  open: boolean; won: boolean; title: string; sub?: string; left: number; nextLabel?: string; onLeave: () => void; onClose: () => void;
+  onAgain?: () => void; again?: boolean; children?: React.ReactNode;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -120,8 +124,15 @@ export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, o
         <div className="text-2xl font-semibold mt-3">{title}</div>
         {sub && <div className="text-sm text-[var(--ink-soft)] mt-1">{sub}</div>}
         {children}
-        <div className="mt-6"><NextGameBar left={left} label={nextLabel} /></div>
-        <button onClick={onLeave} className="btn-ghost w-full py-3 rounded-2xl mt-5 flex items-center justify-center gap-2"><LogOut size={16} />Leave Table</button>
+        <div className="mt-6"><NextGameBar left={left} label={onAgain && !again ? "Back to lobby in" : nextLabel} /></div>
+        {onAgain ? (
+          <div className="grid grid-cols-2 gap-3 mt-5">
+            <button onClick={onLeave} className="btn-ghost py-3 rounded-2xl flex items-center justify-center gap-2"><LogOut size={16} />Back to Lobby</button>
+            <button onClick={onAgain} disabled={again} className="btn-green py-3 rounded-2xl disabled:opacity-60">{again ? "Joining next ✓" : "Play Again"}</button>
+          </div>
+        ) : (
+          <button onClick={onLeave} className="btn-ghost w-full py-3 rounded-2xl mt-5 flex items-center justify-center gap-2"><LogOut size={16} />Leave Table</button>
+        )}
       </div>
     </Sheet>
   );

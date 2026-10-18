@@ -175,6 +175,16 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
     nav.back();
   };
 
+  // A hand you played ends: no automatic next hand — Play Again keeps you seated, otherwise back to the lobby
+  // just before the next deal.
+  const [again, setAgain] = useState(-1); // hand number Play Again was tapped for
+  const gone = useRef(false);
+  useEffect(() => {
+    if (gone.current || v?.status !== "done" || !v.result || v.me == null || !v.seats[v.me]?.playing || again === v.hand_no) return;
+    if (secsTo(v.next_hand_at) <= 1.5) { gone.current = true; leave(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now, v, again]);
+
   const leave = () => {
     if (tableId.current) fire(supabase().rpc("tp_leave", { p_table: tableId.current }));
     clearActive();
@@ -417,6 +427,8 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
           left={Math.ceil(secsTo(v.next_hand_at))}
           nextLabel="Next hand starts in"
           onLeave={leave}
+          onAgain={mySeat?.playing ? () => setAgain(v.hand_no) : undefined}
+          again={again === v.hand_no}
           onClose={() => setPeek(true)}
         >
           {res.reveal.length > 0 && (
