@@ -27,16 +27,19 @@ interface Seat {
   seen: boolean;
   shown?: boolean; // cards revealed to you via a side show
   action?: string;
+  bet?: number; // poker: put in this betting round
+  acted?: boolean; // poker: has acted this betting round
 }
 
 interface G {
   phase: "idle" | "playing" | "done";
-  me: { cards: Card[]; packed: boolean; seen: boolean; paid: number };
+  me: { cards: Card[]; packed: boolean; seen: boolean; paid: number; bet?: number };
   bots: Seat[];
   pot: number;
   stake: number;
   round: number;
   stage: number; // poker: 0 pre-flop, 1 flop, 2 turn, 3 river
+  raises?: number; // poker: raises by the computer players this betting round (capped, so a round always ends)
   community: Card[];
   turn: "me" | number | null;
   timerEnd: number;
@@ -196,8 +199,8 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     const prev = g.current;
     const next = fresh(rotateSeats(prev.bots));
     next.hand = prev.hand + 1;
-    next.bots = next.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined }));
-    next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn };
+    next.bots = next.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined, bet: 0, acted: false }));
+    next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn, bet: 0 };
     next.community = poker ? dk.splice(0, 5) : [];
     next.pot = buyIn * (BOTS + 1);
     next.stake = buyIn;
@@ -245,6 +248,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     for (let i = from; i < st.bots.length; i++) {
       const b = st.bots[i];
       if (b.packed || st.phase !== "playing") continue;
+      if (poker && b.acted && (b.bet ?? 0) >= st.stake) continue; // already matched the bet this round
       // Each bot gets its own 15 s clock and uses a human-like slice of it.
       const base = humanDelay();
       const timedOut = base >= TURN_SECS; // decided before pacing, so "slow" bots don't time out more often
@@ -257,21 +261,38 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       if (g.current !== st) return; // left / restarted
       // Poker: fold or stay by the strength of the hand against the bet; Teen Patti: the old random packing.
       const board = st.community.slice(0, st.stage >= 3 ? 5 : st.stage === 2 ? 4 : st.stage === 1 ? 3 : 0);
-      const packChance = poker ? pokerFoldChance(pokerStrength(b.cards, board), st.stake, buyIn, board.length === 0) : 0.08 + st.round * 0.04 + (b.seen ? 0.04 : 0);
-      if (timedOut && !(poker && st.stake === 0)) {
+      const toCall = poker ? st.stake - (b.bet ?? 0) : 0;
+      const strength = poker ? pokerStrength(b.cards, board) : 0;
+      const packChance = poker ? pokerFoldChance(strength, toCall, buyIn, board.length === 0) : 0.08 + st.round * 0.04 + (b.seen ? 0.04 : 0);
+      // Poker: strong hands raise (now and then a weak one bluffs), at most two computer raises a round.
+      const raiseChance = strength > 0.8 ? 0.55 : strength > 0.65 ? 0.3 : strength > 0.45 ? 0.1 : 0.04;
+      const raiseTo = Math.min(Math.max(st.stake * 2, buyIn * 2) * (strength > 0.8 && Math.random() < 0.4 ? 2 : 1), buyIn * 100, (b.bet ?? 0) + b.bal);
+      if (timedOut && !(poker && toCall <= 0)) {
         b.packed = true;
         b.action = "Timed out";
-      } else if (!timedOut && (Math.random() < packChance || b.bal < (poker ? st.stake : b.seen ? st.stake * 2 : st.stake))) {
+      } else if (poker && timedOut) {
+        b.action = "Check";
+      } else if (poker && (st.raises ?? 0) < 2 && raiseTo > st.stake && Math.random() < raiseChance) {
+        const amt = raiseTo - (b.bet ?? 0);
+        b.bal -= amt;
+        st.pot += amt;
+        st.stake = raiseTo;
+        b.bet = raiseTo;
+        st.raises = (st.raises ?? 0) + 1;
+        b.action = `Raise 🪙 ${raiseTo}`;
+      } else if (!timedOut && (Math.random() < packChance || b.bal < (poker ? toCall : b.seen ? st.stake * 2 : st.stake))) {
         // A player who can't cover the bet has to fold — nobody bets coins they don't have.
         b.packed = true;
         b.action = poker ? "Fold" : "Pack";
       } else {
         if (!poker && !b.seen && Math.random() < 0.35) b.seen = true;
-        const amt = poker ? st.stake : b.seen ? st.stake * 2 : st.stake;
+        const amt = poker ? toCall : b.seen ? st.stake * 2 : st.stake;
         b.bal -= amt;
         st.pot += amt;
-        b.action = poker ? (st.stake ? `Call 🪙 ${amt}` : "Check") : `${b.seen ? "Chaal" : "Blind"} 🪙 ${amt}`;
+        if (poker) b.bet = st.stake;
+        b.action = poker ? (amt ? `Call 🪙 ${amt}` : "Check") : `${b.seen ? "Chaal" : "Blind"} 🪙 ${amt}`;
       }
+      if (poker) b.acted = true;
       bump();
       await sleep(300);
       if (g.current !== st) return;
@@ -281,8 +302,22 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     if (!st.me.packed && !alive.length) return finish("me", poker ? "Everyone else folded" : "Everyone else packed");
     if (st.me.packed && alive.length === 1) return finish(alive[0], poker ? "Everyone else folded" : "Everyone else packed");
     if (poker) {
+      // Someone raised: the round goes on until everyone still in has matched the bet.
+      if (!st.me.packed && (st.me.bet ?? 0) < st.stake) {
+        st.turn = "me";
+        st.timerEnd = Date.now() + TURN_SECS * 1000;
+        return bump();
+      }
+      if (alive.some((i) => (st.bots[i].bet ?? 0) < st.stake)) return botsTurn();
       st.stage += 1;
       st.stake = 0;
+      st.raises = 0;
+      st.me.bet = 0;
+      for (const b of st.bots) {
+        b.bet = 0;
+        b.acted = false;
+        if (!b.packed) b.action = undefined;
+      }
       if (st.stage > 3) return showdown();
     } else {
       st.round += 1;
@@ -346,10 +381,12 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
       bump();
       return botsTurn();
     }
+    const stake = s.stake;
     if (kind === "raise") s.stake = poker ? Math.max(raiseTo ?? 0, minRaise()) : s.stake * 2;
     setRaising(false);
-    const amt = poker ? s.stake : s.me.seen ? s.stake * 2 : s.stake;
-    if (!pay(amt)) return;
+    const amt = poker ? s.stake - (s.me.bet ?? 0) : s.me.seen ? s.stake * 2 : s.stake;
+    if (!pay(amt)) { s.stake = stake; return; }
+    if (poker) s.me.bet = s.stake;
     if (kind === "show") return showdown();
     botsTurn();
   };
@@ -445,7 +482,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const myTurn = s.phase === "playing" && s.turn === "me" && !s.busy;
   const reveal = s.phase === "done";
   const winnerSeat = s.result && !s.result.me ? s.bots.findIndex((b) => b.name === s.result!.who) : -1;
-  const chaalAmt = poker ? s.stake : s.me.seen ? s.stake * 2 : s.stake;
+  const chaalAmt = poker ? s.stake - (s.me.bet ?? 0) : s.me.seen ? s.stake * 2 : s.stake;
   const activeBots = s.bots.filter((b) => !b.packed).length;
   const stageName = ["Pre-Flop", "Flop", "Turn", "River", "Showdown"][s.stage];
 
@@ -580,7 +617,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
             {poker ? (
               <div className="grid grid-cols-3 gap-2.5">
                 <button disabled={!myTurn} onClick={() => act("pack")} className="rounded-full py-3 text-sm font-semibold bg-[#1b2350] border border-white/10 disabled:opacity-40">Fold</button>
-                <button disabled={!myTurn} onClick={() => act("chaal")} className="rounded-full py-3 text-sm font-semibold bg-sky-500 disabled:opacity-40">{s.stake ? `Call 🪙 ${chaalAmt}` : "Check"}</button>
+                <button disabled={!myTurn} onClick={() => act("chaal")} className="rounded-full py-3 text-sm font-semibold bg-sky-500 disabled:opacity-40">{chaalAmt > 0 ? `Call 🪙 ${chaalAmt}` : "Check"}</button>
                 <button disabled={!myTurn || total < minRaise()} onClick={() => { setRaiseAmt(minRaise()); setRaising((r) => !r); }} className="btn-green rounded-full py-3 text-sm">Raise</button>
               </div>
             ) : (
