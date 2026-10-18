@@ -637,9 +637,9 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
               }`}
             >
               <div>
-                <div className="font-bold text-sm">🔴 {isStaff ? "Force Downline Loss (All Players Lose)" : "Force Player Loss (Always Loses)"}</div>
+                <div className="font-bold text-sm">🔴 {isStaff ? "Strict Downline Loss (85% Loss)" : "Strict Loss (85% Loss / 15% Win)"}</div>
                 <div className="text-xs text-white/50 mt-0.5">
-                  {isStaff ? `House wins against all players under this ${ROLE_LABEL[target.role]}` : "House wins against this player on every game"}
+                  {isStaff ? `85% loss rate across downline players under this ${ROLE_LABEL[target.role]}` : "85% rounds me client haarega, 15% me win aayega"}
                 </div>
               </div>
               {mode === "force_loss" && <span className="text-xs font-bold text-rose-400">Active</span>}
@@ -653,9 +653,9 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
               }`}
             >
               <div>
-                <div className="font-bold text-sm">⚖️ Normal / Fair (Follows Game Rules)</div>
+                <div className="font-bold text-sm">⚖️ Fair Mode (60% Loss / 30% Win)</div>
                 <div className="text-xs text-white/50 mt-0.5">
-                  {isStaff ? "Downline players follow general game/system settings" : "Player plays according to general game settings"}
+                  {isStaff ? "Downline players follow 60% loss / 30% win guard" : "60% rounds me client haarega, 30% jitega, 10% natural"}
                 </div>
               </div>
               {mode === "fair" && <span className="text-xs font-bold text-blue-300">Active</span>}
@@ -669,9 +669,9 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
               }`}
             >
               <div>
-                <div className="font-bold text-sm">🟢 {isStaff ? "Force Downline Win (All Players Win)" : "Force Player Win (Always Wins)"}</div>
+                <div className="font-bold text-sm">🟢 {isStaff ? "Strict Downline Win (50% Win)" : "Strict Win (50% Win / 50% Loss)"}</div>
                 <div className="text-xs text-white/50 mt-0.5">
-                  {isStaff ? `All players under this ${ROLE_LABEL[target.role]} receive winning bets and outcomes` : "Player receives winning bets and lucky cards"}
+                  {isStaff ? `50% win rate for players under this ${ROLE_LABEL[target.role]}` : "50% rounds me client jitega aur 50% me haarega"}
                 </div>
               </div>
               {mode === "force_win" && <span className="text-xs font-bold text-emerald-400">Active</span>}

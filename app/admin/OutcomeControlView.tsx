@@ -48,8 +48,8 @@ interface TargetAccountInfo {
 
 const GAME_CONTROL_DETAILS: Record<string, { lossNote: string; winNote: string }> = {
   aviator: {
-    lossNote: "Plane crashes instantly at 1.00x – 1.04x (all player bets lost)",
-    winNote: "Plane flies high to 15x – 45x for big player wins",
+    lossNote: "Plane crashes early at 1.00x – 1.12x (players lose bets)",
+    winNote: "Plane flies high to 2.00x – 15.00x+ (players cash out wins)",
   },
   "dragon-tiger": {
     lossNote: "Cards drawn to yield 0 payout against player's bets",
@@ -401,9 +401,9 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                   : "bg-blue-500/20 border-blue-500/40 text-blue-300"
               }`}
             >
-              {data.global_mode === "force_loss" && "🔴 100% House Win (Force Player Loss)"}
-              {data.global_mode === "force_win" && "🟢 Player Win Mode (Favor Players)"}
-              {data.global_mode === "fair" && "⚖️ Fair Play (Normal RNG)"}
+              {data.global_mode === "force_loss" && "🔴 Strict Loss (85% Loss / 15% Win)"}
+              {data.global_mode === "force_win" && "🟢 Strict Win (50% Win / 50% Loss)"}
+              {data.global_mode === "fair" && "⚖️ Fair Mode (60% Loss / 30% Win / 10% RNG)"}
             </span>
           </div>
         </div>
@@ -431,10 +431,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               )}
             </div>
             <div className="font-bold text-white text-base mt-3 group-hover:text-rose-400 transition-colors">
-              🔴 Force Player Loss (House Win)
+              🔴 Strict Loss (85% Loss / 15% Win)
             </div>
             <div className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              Sabhi games me players haarenge. Aviator 1.00x par crash hoga, Roulette/Casino me 0 payout milega. Paisa house ke paas rahega.
+              85% rounds me platform jitega (client haarega), aur 15% me client jitega taaki continuous loss suspicious na lage.
             </div>
           </button>
 
@@ -459,10 +459,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               )}
             </div>
             <div className="font-bold text-white text-base mt-3 group-hover:text-blue-400 transition-colors">
-              ⚖️ Fair Mode (Normal RNG)
+              ⚖️ Fair Mode (60% Loss / 30% Win)
             </div>
             <div className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              Standard mathematical probability and normal house edge. Koi outcome rigging nahi hogi, standard random gameplay chalega.
+              60% rounds me client haarega (platform revenue protected), 30% me client jitega, aur 10% natural random odds chalega.
             </div>
           </button>
 
@@ -487,10 +487,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               )}
             </div>
             <div className="font-bold text-white text-base mt-3 group-hover:text-emerald-400 transition-colors">
-              🟢 Force Player Win (Favor Players)
+              🟢 Strict Win (50% Win / 50% Loss)
             </div>
             <div className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              Players ko high payouts milenge. Aviator 15x–45x udhega, Dragon Tiger aur Roulette me winning bets aayengi.
+              50% rounds me client jitega aur 50% me haarega. Client ko high win-rate feel hoga bina 100% rigged lage.
             </div>
           </button>
         </div>
@@ -505,19 +505,19 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               onClick={() => handleApplyPreset("force_loss")}
               className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 font-medium"
             >
-              Set All Games to 🔴 Force Loss
+              Set All Games to 🔴 Strict Loss (85% Loss)
             </button>
             <button
               onClick={() => handleApplyPreset("fair")}
               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 font-medium"
             >
-              Reset All to ⚖️ Fair RNG
+              Reset All to ⚖️ Fair Mode (60% Loss / 30% Win)
             </button>
             <button
               onClick={() => handleApplyPreset("force_win")}
               className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 font-medium"
             >
-              Set All Games to 🟢 Force Win
+              Set All Games to 🟢 Strict Win (50% Win)
             </button>
           </div>
         </div>
