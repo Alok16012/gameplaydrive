@@ -176,7 +176,7 @@ export class TPTable {
     this.turnEnds = now + secs * 1000;
     const x = this.seats[seat];
     // Blind limit: after N blind chaals this hand, the player must play Seen — their cards open now.
-    if (!x.seen && x.blinds >= (c.blind_limit ?? 4)) { x.seen = true; x.action = "Blind limit • Seen"; }
+    if (!x.seen && x.blinds >= (c.blind_limit ?? 3)) { x.seen = true; x.action = "Blind limit • Seen"; }
     if (x.bot) {
       // Thinks like a person: a few quick calls, mostly a few seconds, sometimes a long think.
       const r = Math.random();
@@ -388,7 +388,7 @@ export class TPTable {
       pending: this.pending ? { from: this.pending.from, to: this.pending.to, ends: iso(this.pending.ends) } : null,
       queued: this.queue.some((q) => q.uid === uid),
       me: me >= 0 ? me : null, my_cards: mine, my_hand: mine ? tpHandName(mine) : null, sideshow,
-      due_at: null, turn_secs: c.turn ?? 15, blind_limit: c.blind_limit ?? 4, server_now: new Date(this.clock.now()).toISOString(),
+      due_at: null, turn_secs: c.turn ?? 15, blind_limit: c.blind_limit ?? 3, server_now: new Date(this.clock.now()).toISOString(),
     };
   }
 

@@ -201,7 +201,7 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
   })();
   const canSideShow = myTurn && !pending && !!mySeat?.seen && active >= 3 && prevActive !== null && !!v?.seats[prevActive]?.seen;
 
-  const blindLimit = v?.blind_limit ?? 4;
+  const blindLimit = v?.blind_limit ?? 3;
   const myBlinds = mySeat?.blinds_hand === v?.hand_no ? mySeat?.blinds ?? 0 : 0; // blind chaals so far this hand
   const statusLine = !v || v.status === "waiting"
     ? (v?.code ? "Waiting for friends — a private table needs 2 players" : v?.queued || !v ? "Finding a table…" : "Waiting for players…")

@@ -1235,7 +1235,7 @@ export function ConfigView() {
                     </>}
                     {fields.includes("rake") && <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} placeholder={id === "teen-patti" || id === "poker" ? "5" : id === "stock-market" ? "1" : "10"} value={d.rake ?? ""} onChange={(e) => set(id, { rake: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("turn") && <label className="text-xs text-white/60">Turn time (seconds)<input type="number" min={10} max={90} placeholder={id === "rummy" ? "30" : "15"} value={d.turn ?? ""} onChange={(e) => set(id, { turn: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
-                    {fields.includes("blind_limit") && <label className="text-xs text-white/60">Blind chaals per player<input type="number" min={1} max={10} placeholder="4" value={d.blind_limit ?? ""} onChange={(e) => set(id, { blind_limit: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
+                    {fields.includes("blind_limit") && <label className="text-xs text-white/60">Blind chaals per player<input type="number" min={1} max={10} placeholder="3" value={d.blind_limit ?? ""} onChange={(e) => set(id, { blind_limit: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("bot_speed") && (
                       <label className="text-xs text-white/60">Bot speed
                         <select value={d.bot_speed ?? "normal"} onChange={(e) => set(id, { bot_speed: e.target.value as GameCfg["bot_speed"] })} className={`${inputCls} mt-1`}>

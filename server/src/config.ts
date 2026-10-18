@@ -3,7 +3,7 @@ import { getSetting } from "./supa.js";
 
 export interface GameCfg { enabled: boolean; rake: number; turn: number; blind_limit?: number }
 const DEFAULTS: Record<string, GameCfg> = {
-  "teen-patti": { enabled: true, rake: 5, turn: 15, blind_limit: 4 },
+  "teen-patti": { enabled: true, rake: 5, turn: 15, blind_limit: 3 },
   rummy: { enabled: true, rake: 10, turn: 30 },
 };
 let cache: Record<string, GameCfg> = { ...DEFAULTS };

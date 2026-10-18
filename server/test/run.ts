@@ -8,7 +8,7 @@ let fails = 0;
 const check = (ok: boolean, msg: string) => { if (!ok) { fails++; console.log("FAIL:", msg); } };
 
 async function teenPatti() {
-  setConfig("teen-patti", { rake: 5, turn: 15, blind_limit: 4, enabled: true });
+  setConfig("teen-patti", { rake: 5, turn: 15, blind_limit: 3, enabled: true });
   const clock = new FakeClock();
   const wallet = new MemoryWallet();
   const A = "user-a", B = "user-b";
@@ -57,7 +57,7 @@ async function teenPatti() {
     check(wallet.balance(uid) === 200000 + sum, `ledger matches balance for ${uid}`);
   }
   check(hands >= 400, `hands completed: ${hands}`);
-  check(maxBlinds <= 4, `blind limit respected (max ${maxBlinds})`);
+  check(maxBlinds <= 3, `blind limit respected (max ${maxBlinds})`);
   check(leaks === 0, `no card leaks (${leaks})`);
   check(errors === 0, `no unexpected action errors (${errors})`);
   console.log(`teen patti: ${hands} hands, ${showdowns} shows, ${potLimitShows} at pot limit, ${sideshows} side shows asked, ${packs} packs, max pot ${maxPot}, max blinds ${maxBlinds}, ${views} view updates`);
