@@ -74,11 +74,10 @@ export default function AdminApp() {
                       setReportsOpen(!reportsOpen);
                       setSec("reports");
                     }}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition ${
-                      sec === "reports"
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition ${sec === "reports"
                         ? "bg-neon-400/15 text-neon-400 font-medium"
                         : "text-white/70 hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     <span className="flex items-center gap-3">
                       {n.icon}
@@ -99,11 +98,10 @@ export default function AdminApp() {
                             setSec("reports");
                             setReportTab(sub.id);
                           }}
-                          className={`w-full text-left py-1.5 px-2 rounded-lg text-[12px] flex items-center gap-2 transition ${
-                            sec === "reports" && reportTab === sub.id
+                          className={`w-full text-left py-1.5 px-2 rounded-lg text-[12px] flex items-center gap-2 transition ${sec === "reports" && reportTab === sub.id
                               ? "text-sky-300 font-semibold bg-sky-500/15"
                               : "text-white/60 hover:text-white hover:bg-white/5"
-                          }`}
+                            }`}
                         >
                           <span className="shrink-0 text-white/40">{sub.icon}</span>
                           <span className="truncate">{sub.label}</span>
@@ -118,9 +116,8 @@ export default function AdminApp() {
               <button
                 key={n.id}
                 onClick={() => setSec(n.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${
-                  sec === n.id ? "bg-neon-400/15 text-neon-400 font-medium" : "text-white/70 hover:bg-white/5"
-                }`}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${sec === n.id ? "bg-neon-400/15 text-neon-400 font-medium" : "text-white/70 hover:bg-white/5"
+                  }`}
               >
                 {n.icon}{n.label}
               </button>
@@ -582,7 +579,7 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
             setMode(json.outcome_control.players[target.id]);
           }
         })
-        .catch(() => {})
+        .catch(() => { })
         .finally(() => setLoading(false));
     });
   }, [target.id, roleKey]);
@@ -594,8 +591,8 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
       const { data } = await supabase().auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error("Please sign in again");
-      const body = newMode === "fair" 
-        ? { clear_account_id: target.id, target_role: roleKey } 
+      const body = newMode === "fair"
+        ? { clear_account_id: target.id, target_role: roleKey }
         : { account_id: target.id, account_mode: newMode, target_role: roleKey };
       const res = await fetch("/api/outcome-control", {
         method: "POST",
@@ -632,14 +629,13 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
             <button
               onClick={() => save("force_loss")}
               disabled={saving}
-              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${
-                mode === "force_loss" ? "bg-rose-500/20 border-rose-500 text-rose-300" : "bg-white/5 border-white/10 hover:bg-rose-500/10 text-white/80"
-              }`}
+              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${mode === "force_loss" ? "bg-rose-500/20 border-rose-500 text-rose-300" : "bg-white/5 border-white/10 hover:bg-rose-500/10 text-white/80"
+                }`}
             >
               <div>
-                <div className="font-bold text-sm">🔴 {isStaff ? "Strict Downline Loss (85% Loss)" : "Strict Loss (85% Loss / 15% Win)"}</div>
+                <div className="font-bold text-sm">🔴 {isStaff ? "Force Downline Loss (All Players Lose)" : "Force Player Loss (Always Loses)"}</div>
                 <div className="text-xs text-white/50 mt-0.5">
-                  {isStaff ? `85% loss rate across downline players under this ${ROLE_LABEL[target.role]}` : "85% rounds me client haarega, 15% me win aayega"}
+                  {isStaff ? `House wins against all players under this ${ROLE_LABEL[target.role]}` : "House wins against this player on every game"}
                 </div>
               </div>
               {mode === "force_loss" && <span className="text-xs font-bold text-rose-400">Active</span>}
@@ -648,14 +644,13 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
             <button
               onClick={() => save("fair")}
               disabled={saving}
-              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${
-                mode === "fair" ? "bg-blue-500/20 border-blue-400 text-blue-300" : "bg-white/5 border-white/10 hover:bg-blue-500/10 text-white/80"
-              }`}
+              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${mode === "fair" ? "bg-blue-500/20 border-blue-400 text-blue-300" : "bg-white/5 border-white/10 hover:bg-blue-500/10 text-white/80"
+                }`}
             >
               <div>
-                <div className="font-bold text-sm">⚖️ Fair Mode (60% Loss / 30% Win)</div>
+                <div className="font-bold text-sm">⚖️ Normal / Fair (Follows Game Rules)</div>
                 <div className="text-xs text-white/50 mt-0.5">
-                  {isStaff ? "Downline players follow 60% loss / 30% win guard" : "60% rounds me client haarega, 30% jitega, 10% natural"}
+                  {isStaff ? "Downline players follow general game/system settings" : "Player plays according to general game settings"}
                 </div>
               </div>
               {mode === "fair" && <span className="text-xs font-bold text-blue-300">Active</span>}
@@ -664,14 +659,13 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
             <button
               onClick={() => save("force_win")}
               disabled={saving}
-              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${
-                mode === "force_win" ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-white/5 border-white/10 hover:bg-emerald-500/10 text-white/80"
-              }`}
+              className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition-colors ${mode === "force_win" ? "bg-emerald-500/20 border-emerald-500 text-emerald-300" : "bg-white/5 border-white/10 hover:bg-emerald-500/10 text-white/80"
+                }`}
             >
               <div>
-                <div className="font-bold text-sm">🟢 {isStaff ? "Strict Downline Win (50% Win)" : "Strict Win (50% Win / 50% Loss)"}</div>
+                <div className="font-bold text-sm">🟢 {isStaff ? "Force Downline Win (All Players Win)" : "Force Player Win (Always Wins)"}</div>
                 <div className="text-xs text-white/50 mt-0.5">
-                  {isStaff ? `50% win rate for players under this ${ROLE_LABEL[target.role]}` : "50% rounds me client jitega aur 50% me haarega"}
+                  {isStaff ? `All players under this ${ROLE_LABEL[target.role]} receive winning bets and outcomes` : "Player receives winning bets and lucky cards"}
                 </div>
               </div>
               {mode === "force_win" && <span className="text-xs font-bold text-emerald-400">Active</span>}
@@ -821,17 +815,17 @@ function CreateModal({
         state: staff ? f.city : f.state,
         meta: staff
           ? {
-              partnershipName: f.partnershipName.trim() || "Partnership With No Return",
-              userPart: Number(f.userPart),
-              ourPart: Number(f.ourPart) || 0,
-              remark: f.remark.trim() || "Nothing",
-              city: f.city.trim() || "Aurangabad",
-              creditPts: Number(f.creditPts) || 0,
-              exposure: 0,
-              casinoPts: 0,
-              sportsPts: 0,
-              thirdPartyPts: 0,
-            }
+            partnershipName: f.partnershipName.trim() || "Partnership With No Return",
+            userPart: Number(f.userPart),
+            ourPart: Number(f.ourPart) || 0,
+            remark: f.remark.trim() || "Nothing",
+            city: f.city.trim() || "Aurangabad",
+            creditPts: Number(f.creditPts) || 0,
+            exposure: 0,
+            casinoPts: 0,
+            sportsPts: 0,
+            thirdPartyPts: 0,
+          }
           : undefined,
       });
       await reload();

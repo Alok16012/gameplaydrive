@@ -48,8 +48,8 @@ interface TargetAccountInfo {
 
 const GAME_CONTROL_DETAILS: Record<string, { lossNote: string; winNote: string }> = {
   aviator: {
-    lossNote: "Plane crashes early at 1.00x – 1.12x (players lose bets)",
-    winNote: "Plane flies high to 2.00x – 15.00x+ (players cash out wins)",
+    lossNote: "Plane crashes instantly at 1.00x – 1.04x (all player bets lost)",
+    winNote: "Plane flies high to 15x – 45x for big player wins",
   },
   "dragon-tiger": {
     lossNote: "Cards drawn to yield 0 payout against player's bets",
@@ -196,8 +196,8 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           payload.global_mode === "force_loss"
             ? "🔴 Global Command: 100% House Win (All Players Lose) is now ACTIVE!"
             : payload.global_mode === "force_win"
-            ? "🟢 Global Command: Player Win Mode is now ACTIVE!"
-            : "⚖️ Global Command: Fair RNG Mode restored!",
+              ? "🟢 Global Command: Player Win Mode is now ACTIVE!"
+              : "⚖️ Global Command: Fair RNG Mode restored!",
           "success"
         );
       } else if (payload.game && payload.game_mode) {
@@ -206,8 +206,8 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           payload.game_mode === "force_loss"
             ? `🔴 ${gName}: Force Loss (House Win) ACTIVE!`
             : payload.game_mode === "force_win"
-            ? `🟢 ${gName}: Force Win ACTIVE!`
-            : `⚖️ ${gName}: Set to Fair RNG`,
+              ? `🟢 ${gName}: Force Win ACTIVE!`
+              : `⚖️ ${gName}: Set to Fair RNG`,
           "success"
         );
       } else if ((payload.account_id || payload.player_id) && (payload.account_mode || payload.player_mode)) {
@@ -338,11 +338,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
       {/* Toast Notification */}
       {toastMsg && (
         <div
-          className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md border animate-in slide-in-from-top-4 ${
-            toastMsg.type === "success"
+          className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 backdrop-blur-md border animate-in slide-in-from-top-4 ${toastMsg.type === "success"
               ? "bg-emerald-950/90 border-emerald-500/50 text-emerald-200"
               : "bg-rose-950/90 border-rose-500/50 text-rose-200"
-          }`}
+            }`}
         >
           {toastMsg.type === "success" ? <CheckCircle2 size={18} className="text-emerald-400" /> : <AlertTriangle size={18} className="text-rose-400" />}
           <span className="text-sm font-medium">{toastMsg.text}</span>
@@ -378,7 +377,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
       {/* SECTION 1: MASTER GLOBAL OUTCOME COMMAND */}
       <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-[#111740] to-[#0a0f2c] p-6 shadow-xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-neon-500/5 rounded-full blur-3xl pointer-events-none" />
-        
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-white/10">
           <div>
             <div className="text-xs uppercase font-bold tracking-wider text-neon-400 flex items-center gap-1.5">
@@ -393,17 +392,16 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           <div className="flex items-center gap-2">
             <span className="text-xs text-white/50">Current Status:</span>
             <span
-              className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
-                data.global_mode === "force_loss"
+              className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 ${data.global_mode === "force_loss"
                   ? "bg-rose-500/20 border-rose-500 text-rose-400 animate-pulse"
                   : data.global_mode === "force_win"
-                  ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                  : "bg-blue-500/20 border-blue-500/40 text-blue-300"
-              }`}
+                    ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                    : "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                }`}
             >
-              {data.global_mode === "force_loss" && "🔴 Strict Loss (85% Loss / 15% Win)"}
-              {data.global_mode === "force_win" && "🟢 Strict Win (50% Win / 50% Loss)"}
-              {data.global_mode === "fair" && "⚖️ Fair Mode (60% Loss / 30% Win / 10% RNG)"}
+              {data.global_mode === "force_loss" && "🔴 100% House Win (Force Player Loss)"}
+              {data.global_mode === "force_win" && "🟢 Player Win Mode (Favor Players)"}
+              {data.global_mode === "fair" && "⚖️ Fair Play (Normal RNG)"}
             </span>
           </div>
         </div>
@@ -414,11 +412,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           <button
             onClick={() => handleGlobalChange("force_loss")}
             disabled={savingKey === "global"}
-            className={`text-left p-5 rounded-xl border transition-all relative overflow-hidden group ${
-              data.global_mode === "force_loss"
+            className={`text-left p-5 rounded-xl border transition-all relative overflow-hidden group ${data.global_mode === "force_loss"
                 ? "bg-rose-950/40 border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.35)]"
                 : "bg-white/[0.03] border-white/10 hover:border-rose-500/50 hover:bg-rose-950/20"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 grid place-items-center text-rose-400">
@@ -431,10 +428,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               )}
             </div>
             <div className="font-bold text-white text-base mt-3 group-hover:text-rose-400 transition-colors">
-              🔴 Strict Loss (85% Loss / 15% Win)
+              🔴 Force Player Loss (House Win)
             </div>
             <div className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              85% rounds me platform jitega (client haarega), aur 15% me client jitega taaki continuous loss suspicious na lage.
+              Sabhi games me players haarenge. Aviator 1.00x par crash hoga, Roulette/Casino me 0 payout milega. Paisa house ke paas rahega.
             </div>
           </button>
 
@@ -442,11 +439,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           <button
             onClick={() => handleGlobalChange("fair")}
             disabled={savingKey === "global"}
-            className={`text-left p-5 rounded-xl border transition-all relative overflow-hidden group ${
-              data.global_mode === "fair"
+            className={`text-left p-5 rounded-xl border transition-all relative overflow-hidden group ${data.global_mode === "fair"
                 ? "bg-blue-950/40 border-blue-400 shadow-[0_0_25px_rgba(96,165,250,0.3)]"
                 : "bg-white/[0.03] border-white/10 hover:border-blue-400/50 hover:bg-blue-950/20"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 grid place-items-center text-blue-400">
@@ -459,10 +455,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               )}
             </div>
             <div className="font-bold text-white text-base mt-3 group-hover:text-blue-400 transition-colors">
-              ⚖️ Fair Mode (60% Loss / 30% Win)
+              ⚖️ Fair Mode (Normal RNG)
             </div>
             <div className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              60% rounds me client haarega (platform revenue protected), 30% me client jitega, aur 10% natural random odds chalega.
+              Standard mathematical probability and normal house edge. Koi outcome rigging nahi hogi, standard random gameplay chalega.
             </div>
           </button>
 
@@ -470,11 +466,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
           <button
             onClick={() => handleGlobalChange("force_win")}
             disabled={savingKey === "global"}
-            className={`text-left p-5 rounded-xl border transition-all relative overflow-hidden group ${
-              data.global_mode === "force_win"
+            className={`text-left p-5 rounded-xl border transition-all relative overflow-hidden group ${data.global_mode === "force_win"
                 ? "bg-emerald-950/40 border-emerald-500 shadow-[0_0_25px_rgba(16,185,129,0.35)]"
                 : "bg-white/[0.03] border-white/10 hover:border-emerald-500/50 hover:bg-emerald-950/20"
-            }`}
+              }`}
           >
             <div className="flex items-center justify-between">
               <span className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 grid place-items-center text-emerald-400">
@@ -487,10 +482,10 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               )}
             </div>
             <div className="font-bold text-white text-base mt-3 group-hover:text-emerald-400 transition-colors">
-              🟢 Strict Win (50% Win / 50% Loss)
+              🟢 Force Player Win (Favor Players)
             </div>
             <div className="text-xs text-white/60 mt-1.5 leading-relaxed">
-              50% rounds me client jitega aur 50% me haarega. Client ko high win-rate feel hoga bina 100% rigged lage.
+              Players ko high payouts milenge. Aviator 15x–45x udhega, Dragon Tiger aur Roulette me winning bets aayengi.
             </div>
           </button>
         </div>
@@ -505,19 +500,19 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               onClick={() => handleApplyPreset("force_loss")}
               className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 font-medium"
             >
-              Set All Games to 🔴 Strict Loss (85% Loss)
+              Set All Games to 🔴 Force Loss
             </button>
             <button
               onClick={() => handleApplyPreset("fair")}
               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/80 border border-white/10 font-medium"
             >
-              Reset All to ⚖️ Fair Mode (60% Loss / 30% Win)
+              Reset All to ⚖️ Fair RNG
             </button>
             <button
               onClick={() => handleApplyPreset("force_win")}
               className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 font-medium"
             >
-              Set All Games to 🟢 Strict Win (50% Win)
+              Set All Games to 🟢 Force Win
             </button>
           </div>
         </div>
@@ -547,33 +542,29 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
         <div className="flex items-center gap-2 mt-4 overflow-x-auto no-scrollbar pb-1">
           <button
             onClick={() => setTargetTab("all")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-              targetTab === "all" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/60 hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${targetTab === "all" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/60 hover:text-white"
+              }`}
           >
             All Targets ({targetedList.length})
           </button>
           <button
             onClick={() => setTargetTab("player")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              targetTab === "player" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/60 hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${targetTab === "player" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/60 hover:text-white"
+              }`}
           >
             <Users size={13} /> Players ({targetedList.filter((t) => t.role === "player").length})
           </button>
           <button
             onClick={() => setTargetTab("agent")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              targetTab === "agent" ? "bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30" : "bg-white/5 text-white/60 hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${targetTab === "agent" ? "bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30" : "bg-white/5 text-white/60 hover:text-white"
+              }`}
           >
             <Briefcase size={13} /> Agents ({targetedList.filter((t) => t.role === "agent").length})
           </button>
           <button
             onClick={() => setTargetTab("admin")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-              targetTab === "admin" ? "bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30" : "bg-white/5 text-white/60 hover:text-white"
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${targetTab === "admin" ? "bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30" : "bg-white/5 text-white/60 hover:text-white"
+              }`}
           >
             <Crown size={13} /> Admins ({targetedList.filter((t) => t.role === "admin").length})
           </button>
@@ -585,22 +576,20 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
             {displayedTargets.map((tp) => (
               <div
                 key={tp.id}
-                className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${
-                  tp.mode === "force_loss"
+                className={`p-4 rounded-xl border flex items-center justify-between gap-3 ${tp.mode === "force_loss"
                     ? "bg-rose-950/20 border-rose-500/40"
                     : "bg-emerald-950/20 border-emerald-500/40"
-                }`}
+                  }`}
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
-                        tp.role === "admin"
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${tp.role === "admin"
                           ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
                           : tp.role === "agent"
-                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                          : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                      }`}
+                            ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                            : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                        }`}
                     >
                       {tp.role === "admin" ? "👑 Admin" : tp.role === "agent" ? "💼 Agent" : "🧑 Player"}
                     </span>
@@ -622,19 +611,18 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
 
                   <div className="mt-2 flex items-center gap-1.5">
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        tp.mode === "force_loss"
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tp.mode === "force_loss"
                           ? "bg-rose-500/20 border-rose-500 text-rose-300"
                           : "bg-emerald-500/20 border-emerald-500 text-emerald-300"
-                      }`}
+                        }`}
                     >
                       {tp.mode === "force_loss"
                         ? tp.role === "player"
                           ? "🔴 Always Loses (House Beats Player)"
                           : "🔴 Downline Always Loses"
                         : tp.role === "player"
-                        ? "🟢 Always Wins (Rigged to Win)"
-                        : "🟢 Downline Always Wins"}
+                          ? "🟢 Always Wins (Rigged to Win)"
+                          : "🟢 Downline Always Wins"}
                     </span>
                   </div>
                 </div>
@@ -713,13 +701,12 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
             return (
               <div
                 key={g.id}
-                className={`card p-5 relative overflow-hidden transition-all border ${
-                  effectiveMode === "force_loss"
+                className={`card p-5 relative overflow-hidden transition-all border ${effectiveMode === "force_loss"
                     ? "border-rose-500/40 bg-gradient-to-br from-[#120a1f] to-[#150d26]"
                     : effectiveMode === "force_win"
-                    ? "border-emerald-500/40 bg-gradient-to-br from-[#0a171d] to-[#0c1c24]"
-                    : "border-white/10 bg-[#0d1335]"
-                }`}
+                      ? "border-emerald-500/40 bg-gradient-to-br from-[#0a171d] to-[#0c1c24]"
+                      : "border-white/10 bg-[#0d1335]"
+                  }`}
               >
                 <div className="flex items-center gap-3">
                   <div
@@ -732,13 +719,12 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                     <div className="font-bold text-sm text-white truncate">{g.name}</div>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          effectiveMode === "force_loss"
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${effectiveMode === "force_loss"
                             ? "bg-rose-500/20 border-rose-500 text-rose-300"
                             : effectiveMode === "force_win"
-                            ? "bg-emerald-500/20 border-emerald-500 text-emerald-300"
-                            : "bg-blue-500/20 border-blue-500/40 text-blue-300"
-                        }`}
+                              ? "bg-emerald-500/20 border-emerald-500 text-emerald-300"
+                              : "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                          }`}
                       >
                         {effectiveMode === "force_loss" && "🔴 Force Loss"}
                         {effectiveMode === "force_win" && "🟢 Force Win"}
@@ -758,8 +744,8 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                   {effectiveMode === "force_loss"
                     ? details.lossNote
                     : effectiveMode === "force_win"
-                    ? details.winNote
-                    : "Standard mathematical odds and random outcomes."}
+                      ? details.winNote
+                      : "Standard mathematical odds and random outcomes."}
                 </div>
 
                 {/* 3 Segmented Command Buttons */}
@@ -767,33 +753,30 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                   <button
                     onClick={() => handleGameChange(g.id, "fair")}
                     disabled={isSaving}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center ${
-                      specificMode === "fair" || (!specificMode && data.global_mode === "fair")
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center ${specificMode === "fair" || (!specificMode && data.global_mode === "fair")
                         ? "bg-blue-500 text-white shadow"
                         : "text-white/60 hover:text-white hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     ⚖️ Fair
                   </button>
                   <button
                     onClick={() => handleGameChange(g.id, "force_win")}
                     disabled={isSaving}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center ${
-                      specificMode === "force_win"
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center ${specificMode === "force_win"
                         ? "bg-emerald-500 text-black font-bold shadow"
                         : "text-white/60 hover:text-white hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     🟢 Win
                   </button>
                   <button
                     onClick={() => handleGameChange(g.id, "force_loss")}
                     disabled={isSaving}
-                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center ${
-                      specificMode === "force_loss"
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-colors text-center ${specificMode === "force_loss"
                         ? "bg-rose-500 text-white font-bold shadow"
                         : "text-white/60 hover:text-white hover:bg-white/5"
-                    }`}
+                      }`}
                   >
                     🔴 Loss
                   </button>
@@ -838,36 +821,32 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
               <button
                 type="button"
                 onClick={() => setModalRoleFilter("all")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                  modalRoleFilter === "all" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/50 hover:text-white"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${modalRoleFilter === "all" ? "bg-white/20 text-white font-bold" : "bg-white/5 text-white/50 hover:text-white"
+                  }`}
               >
                 All
               </button>
               <button
                 type="button"
                 onClick={() => setModalRoleFilter("player")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                  modalRoleFilter === "player" ? "bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30" : "bg-white/5 text-white/50 hover:text-white"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${modalRoleFilter === "player" ? "bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30" : "bg-white/5 text-white/50 hover:text-white"
+                  }`}
               >
                 🧑 Players
               </button>
               <button
                 type="button"
                 onClick={() => setModalRoleFilter("agent")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                  modalRoleFilter === "agent" ? "bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30" : "bg-white/5 text-white/50 hover:text-white"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${modalRoleFilter === "agent" ? "bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30" : "bg-white/5 text-white/50 hover:text-white"
+                  }`}
               >
                 💼 Agents
               </button>
               <button
                 type="button"
                 onClick={() => setModalRoleFilter("admin")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
-                  modalRoleFilter === "admin" ? "bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30" : "bg-white/5 text-white/50 hover:text-white"
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium ${modalRoleFilter === "admin" ? "bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30" : "bg-white/5 text-white/50 hover:text-white"
+                  }`}
               >
                 👑 Admins
               </button>
@@ -903,13 +882,12 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                     <div>
                       <div className="font-medium text-sm text-white flex items-center gap-1.5">
                         <span
-                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
-                            p.role === "admin"
+                          className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${p.role === "admin"
                               ? "bg-purple-500/20 text-purple-300"
                               : p.role === "agent"
-                              ? "bg-amber-500/20 text-amber-300"
-                              : "bg-blue-500/20 text-blue-300"
-                          }`}
+                                ? "bg-amber-500/20 text-amber-300"
+                                : "bg-blue-500/20 text-blue-300"
+                            }`}
                         >
                           {p.role}
                         </span>
@@ -932,13 +910,12 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
                   <div>
                     <div className="font-bold text-white text-sm flex items-center gap-1.5">
                       <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                          selectedAccount.role === "admin"
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${selectedAccount.role === "admin"
                             ? "bg-purple-500/20 text-purple-300"
                             : selectedAccount.role === "agent"
-                            ? "bg-amber-500/20 text-amber-300"
-                            : "bg-blue-500/20 text-blue-300"
-                        }`}
+                              ? "bg-amber-500/20 text-amber-300"
+                              : "bg-blue-500/20 text-blue-300"
+                          }`}
                       >
                         {ROLE_LABEL[selectedAccount.role]}
                       </span>
