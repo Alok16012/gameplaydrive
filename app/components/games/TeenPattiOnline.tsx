@@ -147,15 +147,20 @@ export function TeenPattiOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number;
     nav.back();
   };
 
-  // A hand you played ends: no automatic next hand — Play Again keeps you seated, otherwise back to the lobby
-  // just before the next deal.
-  const [again, setAgain] = useState(-1); // hand number Play Again was tapped for
+  // Continuous play: player automatically stays seated for the next hand as long as they have coins.
+  // Only auto-leave if the player does not have enough balance for the boot.
+  const [again, setAgain] = useState(-1);
   const gone = useRef(false);
   useEffect(() => {
-    if (gone.current || v?.status !== "done" || !v.result || v.me == null || !v.seats[v.me]?.playing || again === v.hand_no) return;
-    if (secsTo(v.next_hand_at) <= 1.5) { gone.current = true; leave(); }
+    if (gone.current || v?.status !== "done" || !v.result || v.me == null) return;
+    const myBal = v.seats[v.me]?.bal ?? 0;
+    if (myBal < buyIn && secsTo(v.next_hand_at) <= 1.5) {
+      gone.current = true;
+      showToast("Not enough coins for next boot");
+      leave();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [now, v, again]);
+  }, [now, v, buyIn]);
 
   const leave = () => {
     gameSocket.resume(null);
