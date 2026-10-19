@@ -12,6 +12,7 @@ import { BotTag, NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
 import type { Nav, Route } from "../nav";
 import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
 import { bestMove, inCheck, kingSquare, legalMoves, makeMove, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
+import { supabase } from "../../lib/supabase";
 
 export function BoardGame({ nav, gameId, table, buyIn, players }: { nav: Nav; gameId: GameId; table: string; buyIn: number; players?: 2 | 4 }) {
   if (gameId === "ludo") return <Ludo nav={nav} table={table} buyIn={buyIn} players={players} />;
@@ -87,6 +88,194 @@ function ludoPick(t: number[][], seats: number[], p: number, d: number, opts: nu
   return best;
 }
 
+async function fetchOutcomeMode(gameId: string): Promise<"fair" | "force_win" | "force_loss"> {
+  try {
+    const { data: rpcMode, error: rpcErr } = await supabase().rpc("my_outcome_mode", { p_game: gameId });
+    if (!rpcErr && rpcMode && ["fair", "force_win", "force_loss"].includes(rpcMode)) {
+      return rpcMode as "fair" | "force_win" | "force_loss";
+    }
+  } catch {}
+
+  try {
+    const { data: userRes } = await supabase().auth.getUser();
+    const uid = userRes?.user?.id;
+    const { data: row } = await supabase().from("app_settings").select("value").eq("key", "outcome_control").maybeSingle();
+    const ctrl = row?.value as any;
+    if (ctrl) {
+      if (uid && ctrl.players?.[uid] && ["fair", "force_win", "force_loss"].includes(ctrl.players[uid])) {
+        return ctrl.players[uid];
+      }
+      if (ctrl.games?.[gameId] && ["fair", "force_win", "force_loss"].includes(ctrl.games[gameId])) {
+        return ctrl.games[gameId];
+      }
+      if (ctrl.global_mode && ["fair", "force_win", "force_loss"].includes(ctrl.global_mode)) {
+        return ctrl.global_mode;
+      }
+    }
+  } catch {}
+
+  return "fair";
+}
+
+/**
+ * Intelligent outcome-driven dice picker for Ludo:
+ * - force_loss: Player (p === 0) has yard 6s strictly blocked (96%), cannot capture bots, cannot easily enter home.
+ *               Bots (p !== 0) become ruthless hunters: rolling exact numbers to capture player tokens & scoring home.
+ * - force_win:  Player gets 6s from yard, captures bots, scores home easily; bots miss captures.
+ * - fair:       Pure unadulterated certified 1..6 RNG.
+ */
+function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair" | "force_win" | "force_loss"): number {
+  if (mode === "fair") return 1 + Math.floor(Math.random() * 6);
+
+  const rivals = seats.filter((q) => q !== p);
+
+  if (mode === "force_loss") {
+    // PLAYER (p === 0): Force loss
+    if (p === 0) {
+      const myToks = t[0];
+      const allInYard = myToks.every((x) => x === -1);
+      // If all player tokens are in yard, strictly suppress rolling 6 (96% of rolls stay 1..5)
+      if (allInYard) {
+        return Math.random() < 0.96 ? 1 + Math.floor(Math.random() * 5) : 6;
+      }
+
+      const rollScores: { d: number; score: number }[] = [];
+      for (let d = 1; d <= 6; d++) {
+        let score = Math.random() * 2;
+        if (d === 6) score -= 30; // avoid bonus rolls and multiple 6s
+
+        for (const prog of myToks) {
+          if (prog === -1) continue;
+          const to = prog + d;
+          if (to > 56) continue;
+          if (to === 56) score -= 90; // DO NOT let player reach home
+          if (prog <= 50 && to >= 51) score -= 40; // avoid safe home column
+
+          if (to <= 50) {
+            const a = absIdx(0, to);
+            // Penalty if this roll lets player capture a bot
+            if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
+              score -= 120;
+            }
+            // Bonus if this roll lands player on an unsafe square vulnerable to bot capture
+            const vulnerableToBot = rivals.some((q) =>
+              t[q].some((op) => {
+                if (op < 0 || op > 50) return false;
+                const gap = (a - absIdx(q, op) + 52) % 52;
+                return gap >= 1 && gap <= 6 && op + gap <= 50;
+              })
+            );
+            if (vulnerableToBot && !SAFE.has(a)) score += 60;
+          }
+        }
+
+        const movableCount = myToks.filter((prog) => (prog === -1 && d === 6) || (prog >= 0 && prog + d <= 56)).length;
+        if (movableCount === 0) score += 45; // Turn skipped
+
+        rollScores.push({ d, score });
+      }
+
+      rollScores.sort((a, b) => b.score - a.score);
+      return rollScores[0]?.d ?? 1;
+    }
+
+    // BOT (p !== 0): Hunter bot AI
+    const botToks = t[p];
+
+    // Priority 1: Can this bot CAPTURE any player 0 token right now?
+    for (let i = 0; i < botToks.length; i++) {
+      const from = botToks[i];
+      if (from === -1) {
+        const startSq = absIdx(p, 0);
+        if (!SAFE.has(startSq) && t[0].some((op) => absIdx(0, op) === startSq)) return 6;
+      } else if (from >= 0 && from <= 50) {
+        for (let d = 1; d <= 6; d++) {
+          const to = from + d;
+          if (to <= 50) {
+            const a = absIdx(p, to);
+            if (a >= 0 && !SAFE.has(a) && t[0].some((op) => absIdx(0, op) === a)) {
+              return d; // Exact roll to capture player 0!
+            }
+          }
+        }
+      }
+    }
+
+    // Priority 2: Can this bot land a token into Home (56)?
+    for (let i = 0; i < botToks.length; i++) {
+      const from = botToks[i];
+      if (from >= 50 && from < 56) {
+        const dNeeded = 56 - from;
+        if (dNeeded >= 1 && dNeeded <= 6 && Math.random() < 0.90) {
+          return dNeeded; // Score home + bonus roll
+        }
+      }
+    }
+
+    // Priority 3: Can this bot capture any rival token for a bonus roll?
+    for (let i = 0; i < botToks.length; i++) {
+      const from = botToks[i];
+      if (from >= 0 && from <= 50) {
+        for (let d = 1; d <= 6; d++) {
+          const to = from + d;
+          if (to <= 50) {
+            const a = absIdx(p, to);
+            if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
+              if (Math.random() < 0.75) return d;
+            }
+          }
+        }
+      }
+    }
+
+    // Priority 4: Bring tokens out of yard
+    const yardCount = botToks.filter((x) => x === -1).length;
+    if (yardCount > 0 && Math.random() < 0.65) return 6;
+
+    // Priority 5: Normal active roll
+    return 1 + Math.floor(Math.random() * 6);
+  }
+
+  if (mode === "force_win") {
+    if (p === 0) {
+      const myToks = t[0];
+      for (const from of myToks) {
+        if (from >= 50 && from < 56) {
+          const d = 56 - from;
+          if (d >= 1 && d <= 6 && Math.random() < 0.92) return d;
+        }
+        if (from >= 0 && from <= 50) {
+          for (let d = 1; d <= 6; d++) {
+            const to = from + d;
+            if (to <= 50) {
+              const a = absIdx(0, to);
+              if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
+                return d;
+              }
+            }
+          }
+        }
+      }
+      if (myToks.some((x) => x === -1) && Math.random() < 0.65) return 6;
+      return 1 + Math.floor(Math.random() * 6);
+    } else {
+      // Bots avoid capturing player 0
+      const botToks = t[p];
+      const safeRolls = [1, 2, 3, 4, 5, 6].filter((d) => {
+        return !botToks.some((from) => {
+          if (from < 0 || from + d > 50) return false;
+          const a = absIdx(p, from + d);
+          return a >= 0 && !SAFE.has(a) && t[0].some((op) => absIdx(0, op) === a);
+        });
+      });
+      if (safeRolls.length) return safeRolls[Math.floor(Math.random() * safeRolls.length)];
+      return 1 + Math.floor(Math.random() * 6);
+    }
+  }
+
+  return 1 + Math.floor(Math.random() * 6);
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling?: boolean }) {
@@ -139,6 +328,17 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
   const gameNo = useRef(0); // bumps on every new game so a bot loop from the last game stops
+  const [outcomeMode, setOutcomeMode] = useState<"fair" | "force_win" | "force_loss">("fair");
+  const outcomeRef = useRef<"fair" | "force_win" | "force_loss">("fair");
+  const refreshOutcome = () => {
+    fetchOutcomeMode("ludo").then((m) => {
+      outcomeRef.current = m;
+      setOutcomeMode(m);
+    });
+  };
+  useEffect(() => {
+    refreshOutcome();
+  }, []);
 
   // Turn clock: a ring runs round the active player's photo. Restarted for every turn (and bonus roll).
   const [clock, setClock] = useState<{ p: number; id: number } | null>(null);
@@ -299,10 +499,20 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     over.current = true;
     setMoving(false);
     setClock(null);
-    setWinner(p);
     dropSnap(snapKey);
     clearActive(route);
-    if (p === 0) credit(Math.floor(buyIn * SEATS.length * keep), label);
+    if (p === 0) {
+      if (outcomeRef.current === "force_loss") {
+        // Player was on force_loss - guarantee bot winner so player loses entry
+        const botWinner = SEATS.find((s) => s !== 0) ?? 1;
+        setWinner(botWinner);
+        return;
+      }
+      setWinner(0);
+      credit(Math.floor(buyIn * SEATS.length * keep), label);
+    } else {
+      setWinner(p);
+    }
   };
 
   const nextTurn = (from: number) => {
@@ -324,7 +534,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
       setDice(1 + Math.floor(Math.random() * 6));
       await sleep(70);
     }
-    const d = 1 + Math.floor(Math.random() * 6);
+    const d = pickOutcomeDice(p, tokRef.current, SEATS, outcomeRef.current);
     setDice(d);
     setRolling(false);
     sixes.current = d === 6 ? sixes.current + 1 : 0; // three 6s *in a row*: any other number breaks the run
@@ -411,6 +621,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   };
 
   const start = () => {
+    refreshOutcome();
     if (!debit(buyIn, `${label} • Entry`)) {
       setLowBal(true);
       setStarted(false);
@@ -671,6 +882,14 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const games = useRef(0);
   const gameNo = useRef(0);
   const white = pos.turn === "w";
+  const [outcomeMode, setOutcomeMode] = useState<"fair" | "force_win" | "force_loss">("fair");
+  const outcomeRef = useRef<"fair" | "force_win" | "force_loss">("fair");
+  useEffect(() => {
+    fetchOutcomeMode("chess").then((m) => {
+      outcomeRef.current = m;
+      setOutcomeMode(m);
+    });
+  }, []);
 
   // Rejoin: the game is saved on this phone every second, so Back (or closing the app) and coming back carries on
   // from the same position — entry not charged again. Your clock keeps running while you're away: the time gone
@@ -686,10 +905,30 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     gameNo.current += 1;
     dropSnap(snapKey);
     clearActive(route);
+    if (result === "win") {
+      if (outcomeRef.current === "force_loss") {
+        setDone("loss");
+        setWhy("Checkmate");
+        return;
+      }
+      setDone("win");
+      setWhy(reason);
+      credit(Math.floor(buyIn * 2 * keep), label);
+      return;
+    }
+    if (result === "draw") {
+      if (outcomeRef.current === "force_loss") {
+        setDone("loss");
+        setWhy("Stalemate");
+        return;
+      }
+      setDone("draw");
+      setWhy(reason);
+      credit(buyIn, label, "Refund");
+      return;
+    }
     setDone(result);
     setWhy(reason);
-    if (result === "win") credit(Math.floor(buyIn * 2 * keep), label);
-    if (result === "draw") credit(buyIn, label, "Refund");
   };
 
   const play = (p: Pos, m: Move) => {
