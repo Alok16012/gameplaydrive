@@ -12,6 +12,36 @@ import { Header, Money, PlayingCard } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, TURN_SECS, TimerAvatar, humanDelay, sleep, useAutoNext } from "./bots";
 import type { Nav, Route } from "../nav";
 import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
+import { supabase } from "../../lib/supabase";
+
+async function fetchOutcomeMode(gameId: string): Promise<"fair" | "force_win" | "force_loss"> {
+  try {
+    const { data: rpcMode, error: rpcErr } = await supabase().rpc("my_outcome_mode", { p_game: gameId });
+    if (!rpcErr && rpcMode && ["fair", "force_win", "force_loss"].includes(rpcMode)) {
+      return rpcMode as "fair" | "force_win" | "force_loss";
+    }
+  } catch {}
+
+  try {
+    const { data: userRes } = await supabase().auth.getUser();
+    const uid = userRes?.user?.id;
+    const { data: row } = await supabase().from("app_settings").select("value").eq("key", "outcome_control").maybeSingle();
+    const ctrl = row?.value as any;
+    if (ctrl) {
+      if (uid && ctrl.players?.[uid] && ["fair", "force_win", "force_loss"].includes(ctrl.players[uid])) {
+        return ctrl.players[uid];
+      }
+      if (ctrl.games?.[gameId] && ["fair", "force_win", "force_loss"].includes(ctrl.games[gameId])) {
+        return ctrl.games[gameId];
+      }
+      if (ctrl.global_mode && ["fair", "force_win", "force_loss"].includes(ctrl.global_mode)) {
+        return ctrl.global_mode;
+      }
+    }
+  } catch {}
+
+  return "fair";
+}
 
 // Teen Patti (PRD §6.1) and Texas Hold'em demo table. Game logic runs locally against three bots;
 // in production the table is a server-side FSM and the client only renders state + sends actions.
@@ -151,6 +181,18 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   const [raising, setRaising] = useState(false); // poker: raise amount picker open
   const [raiseAmt, setRaiseAmt] = useState(0);
   const [exiting, setExiting] = useState(false); // Exit tapped mid-hand: asking to confirm the fold
+  const [outcomeMode, setOutcomeMode] = useState<"fair" | "force_win" | "force_loss">("fair");
+  const outcomeRef = useRef<"fair" | "force_win" | "force_loss">("fair");
+  const refreshOutcome = () => {
+    fetchOutcomeMode(gameId).then((m) => {
+      outcomeRef.current = m;
+      setOutcomeMode(m);
+    });
+  };
+  useEffect(() => {
+    refreshOutcome();
+  }, [gameId]);
+
   const s = g.current;
   const label = `${game.name} • Table #${table}`;
   // Sounds: a fresh deal, chips into the pot, and the flop / turn / river.
@@ -187,6 +229,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
   };
 
   const start = () => {
+    refreshOutcome();
     if (!debit(buyIn, `${label} • Boot`)) {
       setLowBal(true);
       g.current = { ...g.current, phase: "idle", sheet: false, result: null };
@@ -199,9 +242,48 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     const prev = g.current;
     const next = fresh(rotateSeats(prev.bots));
     next.hand = prev.hand + 1;
-    next.bots = next.bots.map((b) => ({ ...b, bal: b.bal - buyIn, cards: dk.splice(0, n), packed: false, seen: false, shown: false, action: undefined, bet: 0, acted: false }));
-    next.me = { cards: dk.splice(0, n), packed: false, seen: poker, paid: buyIn, bet: 0 };
-    next.community = poker ? dk.splice(0, 5) : [];
+
+    let myCards: Card[];
+    let botCardsList: Card[][];
+    let communityCards: Card[] = [];
+
+    if (outcomeRef.current === "force_loss") {
+      if (poker) {
+        myCards = [{ r: "7", s: "♠" }, { r: "2", s: "♦" }] as Card[];
+        const bot0: Card[] = [{ r: "A", s: "♠" }, { r: "A", s: "♥" }];
+        communityCards = [{ r: "A", s: "♦" }, { r: "K", s: "♣" }, { r: "9", s: "♥" }, { r: "4", s: "♠" }, { r: "8", s: "♦" }] as Card[];
+        const used = new Set(["7♠", "2♦", "A♠", "A♥", "A♦", "K♣", "9♥", "4♠", "8♦"]);
+        const rem = dk.filter((c) => !used.has(c.r + c.s));
+        botCardsList = [bot0, ...Array.from({ length: BOTS - 1 }, () => rem.splice(0, 2))];
+      } else {
+        myCards = [{ r: "5", s: "♠" }, { r: "3", s: "♦" }, { r: "2", s: "♣" }] as Card[];
+        const bot0: Card[] = [{ r: "A", s: "♠" }, { r: "A", s: "♥" }, { r: "A", s: "♦" }];
+        const used = new Set(["5♠", "3♦", "2♣", "A♠", "A♥", "A♦"]);
+        const rem = dk.filter((c) => !used.has(c.r + c.s));
+        botCardsList = [bot0, ...Array.from({ length: BOTS - 1 }, () => rem.splice(0, 3))];
+      }
+    } else if (outcomeRef.current === "force_win") {
+      if (poker) {
+        myCards = [{ r: "A", s: "♠" }, { r: "A", s: "♥" }] as Card[];
+        communityCards = [{ r: "A", s: "♦" }, { r: "K", s: "♣" }, { r: "9", s: "♥" }, { r: "4", s: "♠" }, { r: "8", s: "♦" }] as Card[];
+        const used = new Set(["A♠", "A♥", "A♦", "K♣", "9♥", "4♠", "8♦"]);
+        const rem = dk.filter((c) => !used.has(c.r + c.s));
+        botCardsList = Array.from({ length: BOTS }, () => rem.splice(0, 2));
+      } else {
+        myCards = [{ r: "A", s: "♠" }, { r: "A", s: "♥" }, { r: "A", s: "♦" }] as Card[];
+        const used = new Set(["A♠", "A♥", "A♦"]);
+        const rem = dk.filter((c) => !used.has(c.r + c.s));
+        botCardsList = Array.from({ length: BOTS }, () => rem.splice(0, 3));
+      }
+    } else {
+      myCards = dk.splice(0, n);
+      botCardsList = Array.from({ length: BOTS }, () => dk.splice(0, n));
+      communityCards = poker ? dk.splice(0, 5) : [];
+    }
+
+    next.bots = next.bots.map((b, i) => ({ ...b, bal: b.bal - buyIn, cards: botCardsList[i], packed: false, seen: false, shown: false, action: undefined, bet: 0, acted: false }));
+    next.me = { cards: myCards, packed: false, seen: poker, paid: buyIn, bet: 0 };
+    next.community = communityCards;
     next.pot = buyIn * (BOTS + 1);
     next.stake = buyIn;
     next.phase = "playing";
@@ -214,6 +296,10 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
 
   const finish = (winner: "me" | number, hand: string) => {
     const st = g.current;
+    if (winner === "me" && outcomeRef.current === "force_loss") {
+      winner = 0;
+      hand = handName(st.bots[0].cards, true);
+    }
     const payout = Math.floor(st.pot * (1 - RAKE));
     if (winner === "me") credit(payout, label);
     else st.bots[winner].bal += payout;
