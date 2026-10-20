@@ -3,6 +3,7 @@
 // table row, calls these, and commits the result atomically.
 
 import { applyCommand, processDue, startHand, type Command, type Ctx, type HandState, type LedgerEntry, type Rng, type Rules, type Seat } from "./engine.ts";
+import { fullDeck, cardId, type Card } from "./evaluator.ts";
 
 export const TABLE_SEATS = 6;
 /** Between hands. */
@@ -11,6 +12,101 @@ export const NEXT_HAND_MS = 8000;
 export const AWAY_MS = 60000;
 /** With fewer than two players able to pay the boot, try again this often. */
 const WAIT_RETRY_MS = 4000;
+
+function buildEngagingTeenPattiDeck(
+  seats: Seat[],
+  prevDealerSeat: number | null,
+  boot: number,
+  balances: Record<string, number>,
+  botBalances: Record<string, number>,
+  outcomeModes?: Record<string, string>,
+  rng?: Rng
+): Card[] | undefined {
+  if (!outcomeModes) return undefined;
+  const can = (x: Seat) => (x.bot ? botBalances[x.playerId] ?? 0 : balances[x.playerId] ?? 0) >= boot;
+  const playing = seats.filter(can);
+  if (playing.length < 2) return undefined;
+
+  const after = prevDealerSeat === null ? -1 : prevDealerSeat;
+  const dealer = playing.find((x) => x.seat > after) ?? playing[0];
+  const di = playing.indexOf(dealer);
+  const orderSeats = [...playing.slice(di + 1), ...playing.slice(0, di + 1)];
+
+  const lossIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_loss");
+  const winIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_win");
+  const botIdx = orderSeats.findIndex((s) => s.bot);
+
+  if (lossIdx >= 0 && botIdx >= 0) {
+    let humanHand: Card[];
+    let botHand: Card[];
+
+    const roll = Math.random();
+    if (roll < 0.65) {
+      // 65%: Human has Pair of Kings (K♠ K♥ 8♦), Bot has Pair of Aces (A♠ A♦ 9♣)
+      humanHand = [{ r: 13, s: "S" }, { r: 13, s: "H" }, { r: 8, s: "D" }];
+      botHand = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
+    } else if (roll < 0.85) {
+      // 20%: Human has Ace-high Color (A♥ 10♥ 4♥), Bot has Sequence (10♣ J♦ Q♠)
+      humanHand = [{ r: 14, s: "H" }, { r: 10, s: "H" }, { r: 4, s: "H" }];
+      botHand = [{ r: 10, s: "C" }, { r: 11, s: "D" }, { r: 12, s: "S" }];
+    } else {
+      // 15%: Human has Sequence (9♠ 10♦ J♣), Bot has higher Sequence (J♥ Q♦ K♠)
+      humanHand = [{ r: 9, s: "S" }, { r: 10, s: "D" }, { r: 11, s: "C" }];
+      botHand = [{ r: 11, s: "H" }, { r: 12, s: "D" }, { r: 13, s: "S" }];
+    }
+
+    const usedIds = new Set([...humanHand.map(cardId), ...botHand.map(cardId)]);
+    const rest = fullDeck().filter((c) => !usedIds.has(cardId(c)));
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = rng ? rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+
+    const deck: Card[] = [];
+    let restPtr = 0;
+    for (let i = 0; i < orderSeats.length; i++) {
+      if (i === lossIdx) {
+        deck.push(...humanHand);
+      } else if (i === botIdx) {
+        deck.push(...botHand);
+      } else {
+        deck.push(rest[restPtr++], rest[restPtr++], rest[restPtr++]);
+      }
+    }
+    while (restPtr < rest.length) {
+      deck.push(rest[restPtr++]);
+    }
+    return deck;
+  }
+
+  if (winIdx >= 0 && botIdx >= 0) {
+    const humanHand: Card[] = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
+    const botHand: Card[] = [{ r: 13, s: "S" }, { r: 13, s: "H" }, { r: 8, s: "D" }];
+    const usedIds = new Set([...humanHand.map(cardId), ...botHand.map(cardId)]);
+    const rest = fullDeck().filter((c) => !usedIds.has(cardId(c)));
+    for (let i = rest.length - 1; i > 0; i--) {
+      const j = rng ? rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
+      [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+    const deck: Card[] = [];
+    let restPtr = 0;
+    for (let i = 0; i < orderSeats.length; i++) {
+      if (i === winIdx) {
+        deck.push(...humanHand);
+      } else if (i === botIdx) {
+        deck.push(...botHand);
+      } else {
+        deck.push(rest[restPtr++], rest[restPtr++], rest[restPtr++]);
+      }
+    }
+    while (restPtr < rest.length) {
+      deck.push(rest[restPtr++]);
+    }
+    return deck;
+  }
+
+  return undefined;
+}
 
 export interface TableSeat {
   seat: number;
@@ -148,9 +244,10 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
   const handNo = t.handNo + 1;
+  const deck = buildEngagingTeenPattiDeck(seats, t.dealerSeat, t.boot, ctx.balances, botBalances, ctx.outcomeModes, ctx.rng);
   const r = startHand({
     tableId: t.id, handId: `${t.id}:${handNo}`, handNo, rules: t.rules, seats, prevDealerSeat: t.dealerSeat,
-    balances: ctx.balances, botBalances, now: ctx.now, rng: ctx.rng,
+    balances: ctx.balances, botBalances, now: ctx.now, rng: ctx.rng, deck,
   });
   if (!r) {
     // Fewer than two can pay the boot: wait, and check again shortly.

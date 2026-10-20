@@ -158,6 +158,7 @@ export interface Ctx {
   /** Human wallet balances at the time of the command (the database re-checks every debit). */
   balances: Record<string, number>;
   rng: Rng;
+  outcomeModes?: Record<string, string>;
 }
 
 export type ErrorCode =

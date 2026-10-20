@@ -57,6 +57,23 @@ async function balancesFor(t: TableState, extra: string[] = []): Promise<Record<
   return Object.fromEntries(rows.map((r) => [r.user_id, Number(r.coins)]));
 }
 
+async function outcomeModesFor(t: TableState): Promise<Record<string, string>> {
+  const humanIds = t.seats.filter((s) => !s.bot).map((s) => s.playerId);
+  if (!humanIds.length) return {};
+  const res: Record<string, string> = {};
+  await Promise.all(
+    humanIds.map(async (uid) => {
+      try {
+        const m = await rpc<string>("get_outcome_mode", { p_user_id: uid, p_game: "teen-patti" });
+        res[uid] = m || "fair";
+      } catch {
+        res[uid] = "fair";
+      }
+    })
+  );
+  return res;
+}
+
 function patchOf(before: TableState, after: TableState) {
   const p: Record<string, unknown> = {};
   if (after.seats !== before.seats) p.seats = after.seats;
@@ -82,10 +99,10 @@ export async function withTable<T>(id: string, step: Step<T>, extraPlayers: stri
     const t = await loadTable(id);
     if (!t) throw new TableError("Table not found", 404);
     // Balances of everyone seated, plus a player about to sit down (so they can be dealt into this hand).
-    const balances = await balancesFor(t, extraPlayers);
+    const [balances, outcomeModes] = await Promise.all([balancesFor(t, extraPlayers), outcomeModesFor(t)]);
     const now = Date.now();
     const { version, ...state } = t;
-    const r = step(state, { now, balances, rng });
+    const r = step(state, { now, balances, outcomeModes, rng });
     const patch = patchOf(state, r.table);
     if (!Object.keys(patch).length && !r.ledger.length) return { table: r.table, balances, result: r.result, now };
     try {

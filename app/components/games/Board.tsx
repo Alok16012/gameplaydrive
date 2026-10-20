@@ -140,109 +140,139 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
   const rivals = seats.filter((q) => q !== p);
 
   if (mode === "force_loss") {
-    // PLAYER (p === 0): Force loss
+    const myToks = t[0];
+    const playerHome = myToks.filter((x) => x === 56).length;
+    const playerInYard = myToks.filter((x) => x === -1).length;
+    const playerOnTrack = myToks.filter((x) => x >= 0 && x < 56).length;
+
+    // Identify the strongest / lead rival bot (most tokens home, highest progress)
+    let leadBot = rivals[0];
+    let maxBotScore = -1;
+    for (const q of rivals) {
+      const qHome = t[q].filter((x) => x === 56).length;
+      const qSum = t[q].reduce((acc, v) => acc + (v >= 0 ? v : 0), 0);
+      const score = qHome * 1000 + qSum;
+      if (score > maxBotScore) {
+        maxBotScore = score;
+        leadBot = q;
+      }
+    }
+    const leadBotHome = t[leadBot]?.filter((x) => x === 56).length ?? 0;
+
+    // --- PLAYER (p === 0): Engaging Gameplay ---
     if (p === 0) {
-      const myToks = t[0];
-      const allInYard = myToks.every((x) => x === -1);
-      // If all player tokens are in yard, strictly suppress rolling 6 (96% of rolls stay 1..5)
-      if (allInYard) {
-        return Math.random() < 0.96 ? 1 + Math.floor(Math.random() * 5) : 6;
+      // 1. EARLY & MID GAME OPENING:
+      // NEVER lock player in yard! Give realistic 25-32% chance to roll 6 when tokens are in yard
+      if (playerInYard > 0 && playerOnTrack < 2) {
+        if (Math.random() < 0.28) return 6;
       }
 
+      // 2. Score candidate rolls 1..6 to maintain active competition and near-win excitement
       const rollScores: { d: number; score: number }[] = [];
       for (let d = 1; d <= 6; d++) {
-        let score = Math.random() * 2;
-        if (d === 6) score -= 30; // avoid bonus rolls and multiple 6s
+        let score = Math.random() * 5;
 
         for (const prog of myToks) {
-          if (prog === -1) continue;
+          if (prog === -1) {
+            if (d === 6) score += 20; // good incentive to open pieces
+            continue;
+          }
           const to = prog + d;
           if (to > 56) continue;
-          if (to === 56) score -= 90; // DO NOT let player reach home
-          if (prog <= 50 && to >= 51) score -= 40; // avoid safe home column
 
+          // SCORING HOME:
+          if (to === 56) {
+            if (playerHome < 2) {
+              score += 90; // Let player score 1st and 2nd token home! High excitement!
+            } else if (playerHome === 2) {
+              // 3rd token home: allow 40% chance so player reaches 3 home and needs only 1 token to win!
+              score += Math.random() < 0.40 ? 70 : -10;
+            } else {
+              // 4th token: Player is in home corridor waiting for exact roll.
+              // Keep them close (53..55) for maximum nail-biting suspense while lead bot finishes.
+              score -= 80;
+            }
+          }
+
+          // ENTERING HOME CORRIDOR (51..55):
+          if (prog <= 50 && to >= 51) {
+            score += 35; // Entering safe home column feels great!
+          }
+
+          // CAPTURING BOT TOKENS:
           if (to <= 50) {
             const a = absIdx(0, to);
-            // Penalty if this roll lets player capture a bot
             if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
-              score -= 120;
+              // In early and mid game, let the player capture bot pieces!
+              if (playerHome < 3) score += 60;
+              else score -= 20;
             }
-            // Bonus if this roll lands player on an unsafe square vulnerable to bot capture
-            const vulnerableToBot = rivals.some((q) =>
-              t[q].some((op) => {
-                if (op < 0 || op > 50) return false;
-                const gap = (a - absIdx(q, op) + 52) % 52;
-                return gap >= 1 && gap <= 6 && op + gap <= 50;
-              })
-            );
-            if (vulnerableToBot && !SAFE.has(a)) score += 60;
           }
         }
 
+        // Avoid dead-end turns if a movable roll exists
         const movableCount = myToks.filter((prog) => (prog === -1 && d === 6) || (prog >= 0 && prog + d <= 56)).length;
-        if (movableCount === 0) score += 45; // Turn skipped
+        if (movableCount > 0) score += 15;
 
         rollScores.push({ d, score });
       }
 
       rollScores.sort((a, b) => b.score - a.score);
-      return rollScores[0]?.d ?? 1;
+      return rollScores[0]?.d ?? (1 + Math.floor(Math.random() * 6));
     }
 
-    // BOT (p !== 0): Hunter bot AI
+    // --- BOT TURN (p !== 0): Hunter & Clutch Finisher ---
     const botToks = t[p];
+    const isLead = p === leadBot;
 
-    // Priority 1: Can this bot CAPTURE any player 0 token right now?
-    for (let i = 0; i < botToks.length; i++) {
-      const from = botToks[i];
-      if (from === -1) {
-        const startSq = absIdx(p, 0);
-        if (!SAFE.has(startSq) && t[0].some((op) => absIdx(0, op) === startSq)) return 6;
-      } else if (from >= 0 && from <= 50) {
-        for (let d = 1; d <= 6; d++) {
-          const to = from + d;
-          if (to <= 50) {
-            const a = absIdx(p, to);
-            if (a >= 0 && !SAFE.has(a) && t[0].some((op) => absIdx(0, op) === a)) {
-              return d; // Exact roll to capture player 0!
-            }
-          }
-        }
-      }
-    }
-
-    // Priority 2: Can this bot land a token into Home (56)?
+    // Priority 1: If bot can score a token into Home (56):
     for (let i = 0; i < botToks.length; i++) {
       const from = botToks[i];
       if (from >= 50 && from < 56) {
         const dNeeded = 56 - from;
-        if (dNeeded >= 1 && dNeeded <= 6 && Math.random() < 0.90) {
-          return dNeeded; // Score home + bonus roll
+        if (dNeeded >= 1 && dNeeded <= 6) {
+          // If this is the lead bot racing or player has 2+ home:
+          if (isLead || leadBotHome >= 2 || playerHome >= 2) {
+            if (Math.random() < 0.95) return dNeeded; // Score home + bonus roll
+          }
         }
       }
     }
 
-    // Priority 3: Can this bot capture any rival token for a bonus roll?
-    for (let i = 0; i < botToks.length; i++) {
-      const from = botToks[i];
-      if (from >= 0 && from <= 50) {
-        for (let d = 1; d <= 6; d++) {
-          const to = from + d;
-          if (to <= 50) {
-            const a = absIdx(p, to);
-            if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
-              if (Math.random() < 0.75) return d;
+    // Priority 2: In mid/late game, clutch capture on vulnerable player tokens
+    if (playerHome >= 1 || leadBotHome >= 1) {
+      for (let i = 0; i < botToks.length; i++) {
+        const from = botToks[i];
+        if (from >= 0 && from <= 50) {
+          for (let d = 1; d <= 6; d++) {
+            const to = from + d;
+            if (to <= 50) {
+              const a = absIdx(p, to);
+              if (a >= 0 && !SAFE.has(a) && t[0].some((op) => absIdx(0, op) === a)) {
+                if (Math.random() < 0.85) return d; // Exact roll to capture player
+              }
             }
           }
         }
       }
     }
 
-    // Priority 4: Bring tokens out of yard
+    // Priority 3: Bring tokens out of yard
     const yardCount = botToks.filter((x) => x === -1).length;
-    if (yardCount > 0 && Math.random() < 0.65) return 6;
+    if (yardCount > 0 && Math.random() < 0.60) return 6;
 
-    // Priority 5: Normal active roll
+    // Priority 4: Advance towards and into home column
+    for (let i = 0; i < botToks.length; i++) {
+      const from = botToks[i];
+      if (from >= 45 && from <= 50) {
+        for (let d = 1; d <= 6; d++) {
+          if (from + d >= 51 && from + d <= 56) {
+            if (Math.random() < 0.70) return d;
+          }
+        }
+      }
+    }
+
     return 1 + Math.floor(Math.random() * 6);
   }
 
@@ -523,12 +553,6 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     dropSnap(snapKey);
     clearActive(route);
     if (p === 0) {
-      if (outcomeRef.current === "force_loss") {
-        // Player was on force_loss - guarantee bot winner so player loses entry
-        const botWinner = SEATS.find((s) => s !== 0) ?? 1;
-        setWinner(botWinner);
-        return;
-      }
       setWinner(0);
       credit(Math.floor(buyIn * SEATS.length * keep), label);
     } else {
@@ -928,22 +952,12 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     dropSnap(snapKey);
     clearActive(route);
     if (result === "win") {
-      if (outcomeRef.current === "force_loss") {
-        setDone("loss");
-        setWhy("Checkmate");
-        return;
-      }
       setDone("win");
       setWhy(reason);
       credit(Math.floor(buyIn * 2 * keep), label);
       return;
     }
     if (result === "draw") {
-      if (outcomeRef.current === "force_loss") {
-        setDone("loss");
-        setWhy("Stalemate");
-        return;
-      }
       setDone("draw");
       setWhy(reason);
       credit(buyIn, label, "Refund");
@@ -991,7 +1005,10 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     const t = setTimeout(() => {
       if (g !== gameNo.current) return;
       const began = Date.now();
-      const m = bestMove(pos, { ms: Math.min(1100, Math.max(300, wait - 200)), variety: botMoves.current < 4 });
+      const m = bestMove(pos, {
+        ms: outcomeRef.current === "force_loss" ? 850 : outcomeRef.current === "force_win" ? 250 : Math.min(1100, Math.max(300, wait - 200)),
+        variety: outcomeRef.current === "force_loss" ? false : botMoves.current < 4,
+      });
       const rest = Math.max(0, wait - 60 - (Date.now() - began));
       t2 = window.setTimeout(() => {
         if (g !== gameNo.current) return;
