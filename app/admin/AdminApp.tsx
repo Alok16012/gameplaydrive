@@ -4,6 +4,7 @@ import { SupportCard } from "./SupportCard";
 import { IpAlertsBell } from "./IpAlerts";
 import { recordLogin } from "../lib/loginEvent";
 import { useAutoUpdate } from "../lib/autoUpdate";
+import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
@@ -44,8 +45,10 @@ export default function AdminApp() {
 
   // Record this console session's IP for the same-IP alerts.
   useEffect(() => {
-    if (me?.id && me.role !== "player") recordLogin();
+    if (me?.id && me.role !== "player") { recordLogin(); ensureSessionTag("staff"); }
   }, [me?.id, me?.role]);
+  // One device per account: signed in elsewhere → this console signs out.
+  useSingleSession("staff", !!me && me.role !== "player", () => supabase().auth.signOut());
 
   if (me === undefined) return <div className="min-h-dvh bg-[#070b22]" />;
   if (!me || me.role === "player" || me.status !== "Active") return <AdminLogin blocked={me ? (me.role === "player" ? "player" : "frozen") : null} />;
@@ -258,6 +261,7 @@ function AdminLogin({ blocked }: { blocked: "player" | "frozen" | null }) {
     if (!user.trim() || !pw) return setErr("Enter your username and password");
     setBusy(true);
     const { error } = await supabase().auth.signInWithPassword({ email: staffEmail(user), password: pw });
+    if (!error) await claimSession("staff");
     setBusy(false);
     if (error) setErr(/invalid/i.test(error.message) ? "Wrong username or password" : error.message);
   };

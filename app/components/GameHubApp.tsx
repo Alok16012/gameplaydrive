@@ -3,6 +3,7 @@
 import { LudoOnline } from "./games/LudoOnline";
 import { recordLogin } from "../lib/loginEvent";
 import { useAutoUpdate } from "../lib/autoUpdate";
+import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { REJOIN_MS, markActive, touchActive } from "../lib/rejoin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
@@ -40,7 +41,7 @@ function Shell() {
   const [forceChangePw, setForceChangePw] = useState(false);
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
   const route = stack[stack.length - 1];
-  const { signIn, signOut } = useStore();
+  const { signIn, signOut, showToast } = useStore();
 
   const enter = useCallback(async (p: Account) => {
     const { data: agent } = await supabase().from("profiles").select("name").eq("id", p.parentId ?? "").maybeSingle();
@@ -121,16 +122,18 @@ function Shell() {
   // After the splash, resume a saved session if it belongs to an active player.
   const splashDone = useCallback(async () => {
     const me = await loadMe().catch(() => null);
-    if (me && me.role === "player" && me.status === "Active") return enter(me);
+    if (me && me.role === "player" && me.status === "Active") { await ensureSessionTag("player"); return enter(me); }
     if (me) await supabase().auth.signOut();
     setAuth((a) => (a === "splash" ? "login" : a));
   }, [enter]);
 
   // Reload onto a newer deploy — never while a game table is open.
   useAutoUpdate(GAME_ROUTES.has(route.name) && route.name !== "lobby");
+  // One device per account: signed in elsewhere → this device signs out.
+  useSingleSession("player", auth === "in", () => { showToast("Signed out — this account was opened on another device"); nav.logout(); });
 
   if (auth === "splash") return <Splash onDone={splashDone} />;
-  if (auth === "login") return <Login onDone={enter} />;
+  if (auth === "login") return <Login onDone={async (p) => { await claimSession("player"); await enter(p); }} />;
 
   const tab = TAB_OF[route.name];
   const goHome = () => nav.reset({ name: "home" });
