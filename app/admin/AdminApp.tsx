@@ -47,8 +47,8 @@ export default function AdminApp() {
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "outcome", label: "Win / Loss Control", icon: <Sliders size={18} />, roles: ["superadmin"] },
     { id: "cricket", label: "Cricket Results", icon: <Trophy size={18} />, roles: ["superadmin"] },
-    { id: "requests", label: "Payment Requests", icon: <ArrowDownLeft size={18} />, roles: ["superadmin", "admin", "agent"] },
-    { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: ["superadmin", "admin", "agent"] },
+    { id: "requests", label: "Payment Requests", icon: <ArrowDownLeft size={18} />, roles: [] },
+    { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: [] },
     { id: "whatsapp", label: "Contact for ID (WhatsApp)", icon: <MessageCircle size={18} className="text-[#25d366]" />, roles: ["superadmin", "admin"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
     { id: "agents", label: "Agents", icon: <Briefcase size={18} />, roles: ["superadmin", "admin"] },
@@ -327,26 +327,6 @@ function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
           ))}
           {recent.length === 0 && <div className="text-sm text-white/50 py-4">No players yet. Create one from the Players tab.</div>}
         </div>
-      </div>
-
-      <div className="card p-5 mt-4 bg-gradient-to-r from-neon-500/10 via-neon-400/5 to-transparent border border-neon-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-neon-400/20 text-neon-400 grid place-items-center shrink-0 shadow-lg">
-            <QrCode size={24} />
-          </div>
-          <div>
-            <div className="font-semibold text-sm text-white">Player Deposit UPI & QR Code</div>
-            <div className="text-xs text-white/60 mt-0.5">
-              Set up your UPI ID and QR code so your players can pay you directly for coins. Only players created under your account can see these details.
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={() => go("payment")}
-          className="btn-green px-5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap self-start sm:self-auto shadow-md"
-        >
-          Manage UPI & QR
-        </button>
       </div>
 
       {(me.role === "superadmin" || me.role === "admin") && (

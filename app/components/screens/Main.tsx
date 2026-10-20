@@ -22,7 +22,7 @@ export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   else nav.push({ name: "lobby", game: game.id });
 }
 
-export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
+export function BalanceSummary() {
   const { total } = useStore();
   return (
     <div
@@ -34,11 +34,8 @@ export function BalanceSummary({ onAdd }: { onAdd: () => void }) {
           <div className="text-sm text-white/75">Coin Balance</div>
           <Money n={total} className="block text-[26px] font-semibold mt-0.5" />
         </div>
-        <button onClick={onAdd} className="btn-green pill px-4 py-2 text-sm flex items-center gap-1.5">
-          <Plus size={16} strokeWidth={3} /> Get Coins
-        </button>
       </div>
-      <div className="text-[11px] text-white/50 mt-2">Virtual coins • no cash value</div>
+      <div className="text-[11px] text-white/50 mt-2">Virtual coins • Managed directly by your agent</div>
     </div>
   );
 }
@@ -101,7 +98,7 @@ export function Home({ nav }: { nav: Nav }) {
         </div>
       </div>
 
-      <div className="mt-5"><BalanceSummary onAdd={() => nav.push({ name: "addcash" })} /></div>
+      <div className="mt-5"><BalanceSummary /></div>
 
       <div className="grid grid-cols-3 gap-2.5 mt-4">
         {GAMES.map((g) => (

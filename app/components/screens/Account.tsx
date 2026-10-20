@@ -141,7 +141,7 @@ export function ResponsibleGaming({ nav }: { nav: Nav }) {
       <div className="px-4">
         <div className="text-sm text-[var(--ink-soft)]">Set limits that keep gaming fun. Lower limits apply instantly; higher limits take effect after 24 hours.</div>
         <div className="card mt-4 divide-y divide-white/5">
-          <LimitSlider label="Daily deposit limit" value={l.deposit} min={500} max={50000} step={500} unit="coins" onChange={(v) => setL({ ...l, deposit: v })} />
+          <LimitSlider label="Daily coin limit" value={l.deposit} min={500} max={50000} step={500} unit="coins" onChange={(v) => setL({ ...l, deposit: v })} />
           <LimitSlider label="Daily loss limit" value={l.loss} min={500} max={25000} step={500} unit="coins" onChange={(v) => setL({ ...l, loss: v })} />
           <LimitSlider label="Session time limit" value={l.session} min={15} max={480} step={15} unit="min" onChange={(v) => setL({ ...l, session: v })} />
         </div>

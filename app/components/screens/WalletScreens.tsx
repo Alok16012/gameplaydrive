@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowDownLeft,
   Check,
+  ChevronRight,
   Copy,
   ExternalLink,
   Eye,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 import { inr, type Txn } from "../../lib/data";
 import { useStore } from "../../lib/store";
+import { useSupport, whatsappLink } from "../../lib/support";
 import { supabase } from "../../lib/supabase";
 import { Header, Money } from "../ui";
 import type { Nav } from "../nav";
@@ -83,17 +85,22 @@ export function WalletScreen({ nav }: { nav: Nav }) {
           <div className="text-[11px] text-white/60 mt-2">{player?.agent ? `Your agent: ${player.agent}` : "Coins come from your agent"}</div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mt-5">
-          {[
-            ["Get Coins", <Plus key="a" size={20} strokeWidth={3} />, () => nav.push({ name: "addcash" }), true],
-            ["Withdraw", <ArrowDownLeft key="w" size={20} className={total > 0 ? "text-rose-400" : "text-white/40"} />, () => nav.push({ name: "addcash", withdraw: true }), false],
-            ["History", <ReceiptText key="t" size={20} />, () => nav.push({ name: "txns" }), false],
-          ].map(([label, icon, fn, primary]) => (
-            <button key={label as string} onClick={fn as () => void} className="flex flex-col items-center gap-2 text-xs font-medium">
-              <span className={`w-12 h-12 rounded-full grid place-items-center ${primary ? "btn-green" : "btn-ghost"}`}>{icon as React.ReactNode}</span>
-              {label as string}
-            </button>
-          ))}
+        <div className="mt-5">
+          <button
+            onClick={() => nav.push({ name: "txns" })}
+            className="w-full card p-3.5 flex items-center justify-between hover:bg-white/10 transition active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-10 h-10 rounded-xl bg-neon-400/15 text-neon-400 grid place-items-center">
+                <ReceiptText size={20} />
+              </span>
+              <div className="text-left">
+                <div className="text-sm font-semibold text-white">Account Statement &amp; History</div>
+                <div className="text-[11px] text-white/50">View all game wins, bets and coin transfers</div>
+              </div>
+            </div>
+            <ChevronRight size={18} className="text-white/40" />
+          </button>
         </div>
 
         <div className="card mt-5 px-4 pt-3">
@@ -114,8 +121,68 @@ export function WalletScreen({ nav }: { nav: Nav }) {
   );
 }
 
-/** "Get coins" — displays the player's specific agent UPI and QR code details. */
-export function AddCash({ nav, defaultWithdraw }: { nav: Nav; defaultWithdraw?: boolean }) {
+/** "Get coins" — informs players that coins are managed directly by their agent. */
+export function AddCash({ nav }: { nav: Nav; defaultWithdraw?: boolean }) {
+  const { player, total } = useStore();
+  const support = useSupport();
+  const whatsappUrl = whatsappLink(
+    support?.whatsapp,
+    `Hello, I need coins for my Khelobaazi account. My Player ID is ${player?.code || ""}.`
+  );
+
+  return (
+    <div className="min-h-dvh flex flex-col pb-24 fadein">
+      <Header title="Coins & Support" onBack={() => nav.back()} />
+      <div className="px-4 max-w-md mx-auto w-full pt-4">
+        <div className="card p-6 flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/30 grid place-items-center mb-4 shadow-[0_0_24px_rgba(245,158,11,0.2)]">
+            <WalletIcon size={32} />
+          </div>
+          <h2 className="text-lg font-bold text-white">Coins Managed by Agent</h2>
+          <p className="text-xs text-white/60 mt-1.5 leading-relaxed max-w-xs">
+            Online deposit and withdrawal is currently closed. All coin loading, transfers and settlements are handled directly by your designated Agent.
+          </p>
+
+          <div className="mt-5 w-full p-4 rounded-xl bg-white/5 border border-white/5 text-left text-xs space-y-2">
+            <div className="flex justify-between">
+              <span className="text-white/40">Your Account ID:</span>
+              <span className="font-mono font-bold text-white">{player?.code || "—"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-white/40">Current Balance:</span>
+              <span className="font-semibold text-gold-300">🪙 {Math.round(total).toLocaleString("en-IN")}</span>
+            </div>
+            {player?.agent && (
+              <div className="flex justify-between">
+                <span className="text-white/40">Your Agent:</span>
+                <span className="font-medium text-white">{player.agent}</span>
+              </div>
+            )}
+          </div>
+
+          <a
+            href={whatsappUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-6 w-full py-3.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-[0_4px_16px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
+          >
+            <MessageCircle size={18} /> Contact Agent / Desk on WhatsApp
+          </a>
+
+          <button
+            onClick={() => nav.back()}
+            className="mt-3 w-full py-2.5 rounded-xl text-xs font-semibold text-white/60 hover:text-white bg-white/5 hover:bg-white/10 transition"
+          >
+            Back to Games
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _UnusedOldAddCash({ nav, defaultWithdraw }: { nav: Nav; defaultWithdraw?: boolean }) {
   const { player, refresh, total, showToast } = useStore();
   const [paymentInfo, setPaymentInfo] = useState<AgentPaymentInfo | null>(null);
   const [loading, setLoading] = useState(true);
