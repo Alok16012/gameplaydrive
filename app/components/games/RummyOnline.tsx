@@ -307,17 +307,8 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     nav.push({ name: "rummy", table: `S-${askedStake}-${Date.now() % 1000000}`, buyIn: askedStake, mode: askedMode, deals: askedDeals, cards, avoid: old ?? undefined });
   };
 
-  // A game you played ends (points deal, or the whole match): no automatic next game — Play Again keeps you at
-  // the table, otherwise back to the lobby just before the next deal. Deals inside a match carry on as before.
-  const [again, setAgain] = useState(""); // match:deal Play Again was tapped for
-  const gone = useRef(false);
-  useEffect(() => {
-    const r = v?.result;
-    if (gone.current || v?.status !== "dealdone" || !r || !(r.match_over || mode === "points") || !r.rows.some((x) => x.seat === v.me)) return;
-    if (again === `${v.match_no}:${v.deal_no}`) return;
-    if (secsTo(v.next_at) <= 1.5) { gone.current = true; leave(); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [now, v, again]);
+  // When a game ends you stay at the table and the next one deals itself, as in any rummy room; Leave Table on the
+  // result sheet (or Exit) gives the seat up.
 
   const leave = () => {
     if (tableId.current) fire(supabase().rpc("rm_leave", { p_table: tableId.current }));
@@ -885,8 +876,6 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           left={Math.ceil(secsTo(v.next_at))}
           nextLabel={res.match_over || mode === "points" ? "Next game starts in" : `Deal ${v.deal_no + 1} starts in`}
           onLeave={leave}
-          onAgain={(res.match_over || mode === "points") && myRow ? () => setAgain(key) : undefined}
-          again={again === key}
           onClose={() => setPeek(true)}
         >
           <div className="mt-4 rounded-xl bg-white/5 overflow-hidden text-left">
