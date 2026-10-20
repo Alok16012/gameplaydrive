@@ -1039,12 +1039,12 @@ function CreateModal({
     password: "",
     state: STATES[0],
     owner: owners[0]?.id ?? me.id,
-    city: "Aurangabad",
-    partnershipName: "Partnership With No Return",
+    city: "",
+    partnershipName: "",
     userPart: "0",
     ourPart: "0",
     creditPts: "0",
-    remark: "Nothing",
+    remark: "",
   });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1071,14 +1071,14 @@ function CreateModal({
         username: f.username.trim() || undefined,
         password: f.password,
         parentId: f.owner,
-        state: staff ? f.city : f.state,
+        state: staff ? f.city.trim() || undefined : f.state,
         meta: staff
           ? {
-            partnershipName: f.partnershipName.trim() || "Partnership With No Return",
+            partnershipName: f.partnershipName.trim(),
             userPart: Number(f.userPart),
             ourPart: Number(f.ourPart) || 0,
-            remark: f.remark.trim() || "Nothing",
-            city: f.city.trim() || "Aurangabad",
+            remark: f.remark.trim(),
+            city: f.city.trim(),
             creditPts: Number(f.creditPts) || 0,
             exposure: 0,
             casinoPts: 0,
@@ -1163,7 +1163,7 @@ function CreateModal({
 
               <div className="grid grid-cols-2 gap-2.5">
                 <label className="block text-xs text-white/60">City
-                  <input value={f.city} onChange={(e) => set("city", e.target.value)} placeholder="Aurangabad" className={`${inputCls} mt-1`} />
+                  <input value={f.city} onChange={(e) => set("city", e.target.value)} placeholder="City" className={`${inputCls} mt-1`} />
                 </label>
                 <label className="block text-xs text-white/60">Credit pts
                   <input type="number" value={f.creditPts} onChange={(e) => set("creditPts", e.target.value)} placeholder="0" className={`${inputCls} mt-1`} />
@@ -1171,7 +1171,7 @@ function CreateModal({
               </div>
 
               <label className="block text-xs text-white/60">Partnership Name
-                <input value={f.partnershipName} onChange={(e) => set("partnershipName", e.target.value)} placeholder="Partnership With No Return" className={`${inputCls} mt-1`} />
+                <input value={f.partnershipName} onChange={(e) => set("partnershipName", e.target.value)} placeholder="Partnership name" className={`${inputCls} mt-1`} />
               </label>
 
               <div className="grid grid-cols-2 gap-2.5">
@@ -1184,7 +1184,7 @@ function CreateModal({
               </div>
 
               <label className="block text-xs text-white/60">Remark
-                <input value={f.remark} onChange={(e) => set("remark", e.target.value)} placeholder="Nothing" className={`${inputCls} mt-1`} />
+                <input value={f.remark} onChange={(e) => set("remark", e.target.value)} placeholder="Optional" className={`${inputCls} mt-1`} />
               </label>
             </div>
           )}

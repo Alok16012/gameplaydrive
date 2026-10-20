@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
 import { supabase } from "../lib/supabase";
+import type { SportBetRow } from "../lib/cricketApi";
 import { ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 
 export interface UserExchangeMeta {
@@ -34,12 +35,19 @@ export interface UserExchangeMeta {
   thirdPartyPts?: number;
 }
 
+// Live figures from /api/account-meta (computed from the ledger, never stored).
 interface AccountStats {
   clientPL: number;
   userShare: number;
   ourShare: number;
   pts: number;
   players: number;
+  deposits: number;
+  withdrawals: number;
+  turnover: number;
+  returns: number;
+  exposure: number;
+  openBets: number;
 }
 
 interface UserDetailsModalProps {
@@ -62,16 +70,11 @@ export function UserDetailsModal({
   onReload,
 }: UserDetailsModalProps) {
   const [meta, setMeta] = useState<UserExchangeMeta>({
-    partnershipName: "Partnership With No Return",
+    partnershipName: "",
     userPart: 0,
     ourPart: 0,
-    remark: "Nothing",
-    city: target.state || "Aurangabad",
-    creditPts: 0,
-    exposure: 0,
-    casinoPts: 0,
-    sportsPts: 0,
-    thirdPartyPts: 0,
+    remark: "",
+    city: "",
   });
 
   const [loading, setLoading] = useState(true);
@@ -80,52 +83,41 @@ export function UserDetailsModal({
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<UserExchangeMeta>(meta);
+  const [statsErr, setStatsErr] = useState("");
   const [stats, setStats] = useState<AccountStats | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [showSportsExposure, setShowSportsExposure] = useState(false);
   const [showResetPw, setShowResetPw] = useState(false);
 
-  // Load saved metadata from app_settings or fallback
+  // Saved partnership details plus live ledger figures.
   useEffect(() => {
     let active = true;
     async function loadMeta() {
+      setStatsErr("");
       try {
-        const res = await fetch(`/api/account-meta?id=${target.id}`);
+        const { data: sess } = await supabase().auth.getSession();
+        const res = await fetch(`/api/account-meta?id=${target.id}`, {
+          headers: { Authorization: `Bearer ${sess.session?.access_token ?? ""}` },
+        });
         const json = await res.json();
-        if (active) setStats(json?.stats ?? null);
-        if (active && json?.meta) {
-          const merged: UserExchangeMeta = {
-            partnershipName: json.meta.partnershipName ?? "Partnership With No Return",
-            userPart: json.meta.userPart ?? 0,
-            ourPart: json.meta.ourPart ?? 0,
-            remark: json.meta.remark ?? "Nothing",
-            city: json.meta.city || target.state || "Aurangabad",
-            creditPts: json.meta.creditPts ?? 0,
-            exposure: json.meta.exposure ?? 0,
-            casinoPts: json.meta.casinoPts ?? 0,
-            sportsPts: json.meta.sportsPts ?? 0,
-            thirdPartyPts: json.meta.thirdPartyPts ?? 0,
-          };
-          setMeta(merged);
-          setForm(merged);
-        } else if (active) {
-          const fallback: UserExchangeMeta = {
-            partnershipName: "Partnership With No Return",
-            userPart: 0,
-            ourPart: 0,
-            remark: "Nothing",
-            city: target.state || "Aurangabad",
-            creditPts: 0,
-            exposure: 0,
-            casinoPts: 0,
-            sportsPts: 0,
-            thirdPartyPts: 0,
-          };
-          setMeta(fallback);
-          setForm(fallback);
-        }
-      } catch {
-        // Fallback defaults
+        if (!active) return;
+        if (!res.ok) throw new Error(json?.error || "Could not load figures");
+        setStats(json?.stats ?? null);
+        if (!json?.stats) setStatsErr("Could not load live figures");
+        const m = json?.meta ?? {};
+        // Accounts created before this fix had these placeholders saved as if they were real values.
+        const real = (v: unknown, placeholder: string) => (typeof v === "string" && v.trim() !== placeholder ? v : "");
+        const merged: UserExchangeMeta = {
+          partnershipName: real(m.partnershipName, "Partnership With No Return"),
+          userPart: m.userPart ?? 0,
+          ourPart: m.ourPart ?? 0,
+          remark: real(m.remark, "Nothing"),
+          city: real(m.city, "Aurangabad"),
+        };
+        setMeta(merged);
+        setForm(merged);
+      } catch (e) {
+        if (active) setStatsErr(e instanceof Error ? e.message : "Could not load live figures");
       } finally {
         if (active) setLoading(false);
       }
@@ -134,7 +126,7 @@ export function UserDetailsModal({
     return () => {
       active = false;
     };
-  }, [target.id, target.state, target.coins, reloadKey]);
+  }, [target.id, target.coins, reloadKey]);
 
   const saveMeta = async () => {
     const up = Number(form.userPart ?? 0);
@@ -205,7 +197,7 @@ export function UserDetailsModal({
 
   // Format exact Date & Time: 24/03/2026 12:24:19
   const formatExactDate = (dateStr?: string) => {
-    if (!dateStr) return "24/03/2026 12:24:19";
+    if (!dateStr) return "—";
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -221,9 +213,10 @@ export function UserDetailsModal({
   // Capitalized Title Bar Username
   const titleDisplay = (target.username || target.code || target.name).toUpperCase();
 
-  // Current points (wallets balance or fallback)
   const currentPts = stats?.pts ?? target.coins;
   const clientPL = stats?.clientPL ?? 0;
+  const isPlayer = target.role === "player";
+  const live = (n: number | undefined, dec = true) => (loading ? "…" : stats ? formatPts(n ?? 0, dec) : "—");
   const plColor = (n: number) => (n < 0 ? "text-rose-600 font-medium" : n > 0 ? "text-emerald-600 font-medium" : "text-slate-700");
 
   return (
@@ -345,24 +338,14 @@ export function UserDetailsModal({
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">City</label>
-                    <input
-                      value={form.city || ""}
-                      onChange={(e) => setForm({ ...form, city: e.target.value })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold text-slate-600 block mb-1">Credit pts</label>
-                    <input
-                      type="number"
-                      value={form.creditPts ?? 0}
-                      onChange={(e) => setForm({ ...form, creditPts: Number(e.target.value) })}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
-                    />
-                  </div>
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">City</label>
+                  <input
+                    value={form.city || ""}
+                    onChange={(e) => setForm({ ...form, city: e.target.value })}
+                    placeholder={target.state || ""}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-500"
+                  />
                 </div>
 
                 <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1">
@@ -402,7 +385,8 @@ export function UserDetailsModal({
             </div>
           ) : (
             <>
-              {/* Card 1: Partnership Information */}
+              {/* Card 1: Partnership Information — only admins and agents have a share */}
+              {!isPlayer && (
               <div className="bg-white rounded-2xl p-5 border border-slate-200/70 shadow-sm">
                 <h3 className="text-[15px] font-bold text-slate-800 mb-3.5 tracking-tight">
                   Partnership Information
@@ -411,49 +395,41 @@ export function UserDetailsModal({
                 <div className="space-y-2 text-[13.5px]">
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Partnership Name:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.partnershipName || "Partnership With No Return"}
-                    </span>
+                    <span className="text-slate-700 font-normal">{meta.partnershipName || "—"}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">User Part:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.userPart ?? 0}
-                    </span>
+                    <span className="text-slate-700 font-normal">{meta.userPart ?? 0}%</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Our Part:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.ourPart ?? 0}
-                    </span>
+                    <span className="text-slate-700 font-normal">{meta.ourPart ?? 0}%</span>
                   </div>
-
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">Players Under:</span>
+                    <span className="text-slate-700 font-normal">{live(stats?.players, false)}</span>
+                  </div>
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">Client P/L:</span>
+                    <span className={plColor(clientPL)}>{live(clientPL)}</span>
+                  </div>
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">User Share P/L:</span>
-                    <span className={plColor(stats?.userShare ?? 0)}>
-                      {formatPts(stats?.userShare ?? 0, true)}
-                    </span>
+                    <span className={plColor(stats?.userShare ?? 0)}>{live(stats?.userShare)}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Our Share P/L:</span>
-                    <span className={plColor(stats?.ourShare ?? 0)}>
-                      {formatPts(stats?.ourShare ?? 0, true)}
-                    </span>
+                    <span className={plColor(stats?.ourShare ?? 0)}>{live(stats?.ourShare)}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Remark:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.remark || "Nothing"}
-                    </span>
+                    <span className="text-slate-700 font-normal">{meta.remark || "—"}</span>
                   </div>
                 </div>
               </div>
+              )}
 
-              {/* Card 2: Additional Information */}
+              {/* Card 2: Account details and live ledger figures */}
               <div className="bg-white rounded-2xl p-5 border border-slate-200/70 shadow-sm">
                 <h3 className="text-[15px] font-bold text-slate-800 mb-3.5 tracking-tight">
                   Additional Information
@@ -462,96 +438,69 @@ export function UserDetailsModal({
                 <div className="space-y-2 text-[13.5px]">
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">User Name:</span>
-                    <span className="text-slate-700 font-normal">
-                      {target.username || target.name}
-                    </span>
+                    <span className="text-slate-700 font-normal">{target.username || "—"}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Full Name:</span>
                     <span className="text-slate-700 font-normal">{target.name}</span>
                   </div>
-
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">Role:</span>
+                    <span className="text-slate-700 font-normal">{ROLE_LABEL[target.role]}</span>
+                  </div>
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Mobile Number:</span>
-                    <span className="text-slate-700 font-normal">
-                      {target.phone ? `+91 ${target.phone}` : ""}
-                    </span>
+                    <span className="text-slate-700 font-normal">{target.phone ? `+91 ${target.phone}` : "—"}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">City:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.city || target.state || "Aurangabad"}
-                    </span>
+                    <span className="font-bold text-slate-700">City / State:</span>
+                    <span className="text-slate-700 font-normal">{meta.city || target.state || "—"}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Credit pts:</span>
-                    <span className="text-slate-700 font-normal">
-                      {formatPts(meta.creditPts ?? 0)}
-                    </span>
+                    <span className="font-bold text-slate-700">Balance pts:</span>
+                    <span className="text-slate-900 font-semibold">{live(currentPts)}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">pts:</span>
-                    <span className="text-slate-700 font-normal">
-                      {formatPts(currentPts, true)}
-                    </span>
+                    <span className="font-bold text-slate-700">Total Deposit:</span>
+                    <span className="text-emerald-600 font-medium">{live(stats?.deposits)}</span>
                   </div>
-
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Available pts:</span>
-                    <span className="text-slate-700 font-normal">
-                      {formatPts(currentPts - (meta.exposure ?? 0))}
-                    </span>
+                    <span className="font-bold text-slate-700">Total Withdraw:</span>
+                    <span className="text-rose-600 font-medium">{live(stats?.withdrawals)}</span>
                   </div>
-
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">Turnover (bets):</span>
+                    <span className="text-slate-700 font-normal">{live(stats?.turnover)}</span>
+                  </div>
+                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <span className="font-bold text-slate-700">Won + Refunds:</span>
+                    <span className="text-slate-700 font-normal">{live(stats?.returns)}</span>
+                  </div>
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Client P/L:</span>
-                    <span className={plColor(clientPL)}>
-                      {formatPts(clientPL, true)}
-                    </span>
+                    <span className={plColor(clientPL)}>{live(clientPL)}</span>
                   </div>
 
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Exposure:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.exposure ?? 0}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Casino pts:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.casinoPts ?? 0}
-                    </span>
-                  </div>
-
-                  <div 
-                    className="grid grid-cols-[140px_1fr] items-baseline cursor-pointer hover:bg-slate-50 p-1 -ml-1 rounded transition" 
-                    onClick={() => setShowSportsExposure(true)}
+                  <div
+                    className={`grid grid-cols-[140px_1fr] items-baseline ${isPlayer && stats?.openBets ? "cursor-pointer hover:bg-slate-50 p-1 -ml-1 rounded transition" : ""}`}
+                    onClick={() => isPlayer && stats?.openBets && setShowSportsExposure(true)}
                   >
-                    <span className="font-bold text-slate-700">Live Sports Exposure:</span>
-                    <span className="text-slate-700 font-normal text-blue-600 font-semibold underline decoration-blue-300 underline-offset-2">
-                      {meta.sportsPts ?? 0}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Third Party pts:</span>
-                    <span className="text-slate-700 font-normal">
-                      {meta.thirdPartyPts ?? 0}
+                    <span className="font-bold text-slate-700">Exposure:</span>
+                    <span className={isPlayer && stats?.openBets ? "text-blue-600 font-semibold underline decoration-blue-300 underline-offset-2" : "text-slate-700 font-normal"}>
+                      {live(stats?.exposure)}
+                      {stats?.openBets ? ` (${stats.openBets} open bet${stats.openBets === 1 ? "" : "s"})` : ""}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Created Date :</span>
-                    <span className="text-slate-700 font-normal">
-                      {formatExactDate(target.createdAt)}
-                    </span>
+                    <span className="text-slate-700 font-normal">{formatExactDate(target.createdAt)}</span>
                   </div>
                 </div>
+                {statsErr && <div className="text-xs text-rose-600 mt-3">{statsErr}</div>}
+                {!isPlayer && stats && (
+                  <div className="text-[11px] text-slate-500 mt-3">Turnover, P/L and exposure cover all {stats.players} players under this account.</div>
+                )}
               </div>
             </>
           )}
@@ -638,27 +587,22 @@ export function UserDetailsModal({
 }
 
 function LiveSportsExposureModal({ target, onClose }: { target: Account; onClose: () => void }) {
-  const [bets, setBets] = useState<any[]>([]);
+  const [bets, setBets] = useState<SportBetRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
-    async function load() {
-      try {
-        const { data } = await supabase()
-          .from("ledger")
-          .select("*")
-          .eq("user_id", target.id)
-          .eq("kind", "bet")
-          .order("created_at", { ascending: false })
-          .limit(50);
-        if (active) setBets(data || []);
-      } catch (e) {
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    load();
+    supabase()
+      .from("sport_bets")
+      .select("*")
+      .eq("user_id", target.id)
+      .eq("status", "OPEN")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (!active) return;
+        setBets((data as SportBetRow[]) ?? []);
+        setLoading(false);
+      });
     return () => { active = false; };
   }, [target.id]);
 
@@ -669,32 +613,28 @@ function LiveSportsExposureModal({ target, onClose }: { target: Account; onClose
           <h3 className="font-bold tracking-wider text-sm text-white">LIVE SPORTS EXPOSURE</h3>
           <button onClick={onClose} className="text-white/60 hover:text-white p-1 rounded-lg bg-white/5"><X size={16} /></button>
         </div>
-        <div className="px-4 py-3 bg-slate-800/50 text-xs text-white/50 border-b border-white/5 flex justify-between items-center">
-          <span>Exposure points blocked across live sports events</span>
+        <div className="px-4 py-3 bg-slate-800/50 text-xs text-white/50 border-b border-white/5">
+          Coins locked in open cricket bets, waiting for a result
         </div>
         <div className="p-4 max-h-[60vh] overflow-y-auto space-y-2">
           {loading ? (
             <div className="py-8 text-center text-white/40 text-sm">Loading bets...</div>
           ) : bets.length === 0 ? (
-            <div className="py-8 text-center text-white/40 text-sm">No active sports exposure found.</div>
+            <div className="py-8 text-center text-white/40 text-sm">No open bets.</div>
           ) : (
             bets.map((b) => (
               <div key={b.id} className="flex items-center gap-3 py-3 border-b border-white/5 last:border-0">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg,#fca5a5,#dc2626)" }}>
-                  <span className="text-[13px]">🎲</span>
-                </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-white truncate">
-                    {b.note?.split(" [")[0] || "Live Sports Bet"}
-                  </div>
+                  <div className="text-sm font-medium text-white truncate">{b.event_name}</div>
                   <div className="text-[11px] text-white/50 truncate">
-                    {b.note?.includes("[") ? `[${b.note.split(" [")[1]}` : "Match Odds"}
+                    {b.market_name} • {b.runner_name} • {b.bet_type} @ {b.market_type === "FANCY" ? b.line : Number(b.odds)}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-sm font-bold text-rose-400 font-mono">
-                    - {Math.abs(b.amount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    - {Number(b.exposure).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
+                  <div className="text-[10px] text-white/40">Stake {Number(b.stake).toLocaleString("en-IN")}</div>
                 </div>
               </div>
             ))
