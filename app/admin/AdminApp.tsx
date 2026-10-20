@@ -364,6 +364,25 @@ function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
   );
 }
 
+/** Lifetime game P&L per account id from /api/pl (migration 059). */
+function usePl() {
+  const [data, setData] = useState<Record<string, number> | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data: s } = await supabase().auth.getSession();
+      const r = await fetch("/api/pl", { headers: { Authorization: `Bearer ${s.session?.access_token ?? ""}` } }).catch(() => null);
+      const j = await r?.json().catch(() => null);
+      if (!active) return;
+      if (!r?.ok) setErr(j?.error ?? "Could not load P&L");
+      else setData(j.pl ?? {});
+    })();
+    return () => { active = false; };
+  }, []);
+  return { data, err };
+}
+
 function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
@@ -376,6 +395,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [outcomeFor, setOutcomeFor] = useState<Account | null>(null);
   const [detailsFor, setDetailsFor] = useState<Account | null>(null);
   const [err, setErr] = useState("");
+  const pl = usePl();
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
   const list = rows.filter((u) => (u.name + u.code + (u.phone ?? "") + (u.username ?? "")).toLowerCase().includes(q.toLowerCase()));
@@ -392,8 +412,15 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
     superadmin: "",
   }[role];
   const head = role === "player"
-    ? ["Player", "Phone", "Created by", "State", "Coins", "Status", ""]
-    : ["Name", "Username", "Phone", "Reports to", role === "admin" ? "Agents" : "Players", "Coins", "Status", ""];
+    ? ["Player", "Phone", "Created by", "State", "Coins", "Status", "P&L", ""]
+    : ["Name", "Username", "Phone", "Reports to", role === "admin" ? "Agents" : "Players", "Coins", "Status", "P&L", ""];
+  // Player: their own win (+) / loss (−). Admin / agent: their side of their players' games — profit when the
+  // players under them lose.
+  const plOf = (u: Account) => {
+    if (!pl.data) return null;
+    if (u.role === "player") return pl.data[u.id] ?? 0;
+    return -downline(accounts, u.id).reduce((t, a) => t + (a.role === "player" ? pl.data![a.id] ?? 0 : 0), 0);
+  };
 
   return (
     <>
@@ -431,6 +458,13 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                 )}
                 <td className="px-4 py-3 tabular-nums text-gold-300 whitespace-nowrap">{coins(u.coins)}</td>
                 <td className="px-4 py-3"><Pill tone={u.status === "Active" ? "green" : "red"}>{u.status}</Pill></td>
+                <td className="px-4 py-3 tabular-nums whitespace-nowrap font-semibold" title={pl.err || (role === "player" ? "Player's own win / loss in games" : "Profit / loss from the players under them")}>
+                  {(() => {
+                    const v = plOf(u);
+                    if (v === null) return <span className="text-white/30 font-normal">{pl.err ? "—" : "…"}</span>;
+                    return <span className={v > 0 ? "text-emerald-400" : v < 0 ? "text-rose-400" : "text-white/50"}>{v > 0 ? "+" : v < 0 ? "−" : ""}{Math.abs(Math.round(v)).toLocaleString("en-IN")}</span>;
+                  })()}
+                </td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <button
                     onClick={() => setCoinsFor({ u, dir: "give" })}
