@@ -1,4 +1,4 @@
-import { playerEmail, staffEmail } from "../../lib/loginEmail";
+import { loginEmail } from "../../lib/loginEmail";
 import {
   insertRow,
   patchRow,
@@ -64,9 +64,7 @@ export async function POST(req: Request) {
   const profile = await selectOne<Profile>("profiles", `id=eq.${actor.id}`);
   if (!profile) return Response.json({ error: "Account not found" }, { status: 404 });
 
-  const email = profile.role === "player"
-    ? (profile.phone ? playerEmail(profile.phone) : null)
-    : (profile.username ? staffEmail(profile.username) : null);
+  const email = loginEmail(profile);
   if (!email) return Response.json({ error: "Cannot determine login credentials" }, { status: 400 });
 
   // Verify old password by attempting a sign-in

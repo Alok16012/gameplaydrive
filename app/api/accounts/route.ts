@@ -1,4 +1,4 @@
-import { staffEmail, playerEmail } from "../../lib/loginEmail";
+import { loginEmail } from "../../lib/loginEmail";
 import {
   createAuthUser,
   deleteAuthUser,
@@ -33,14 +33,13 @@ export async function POST(req: Request) {
   if (!ROLES.includes(role)) return Response.json({ error: "Invalid role" }, { status: 400 });
   if (!name) return Response.json({ error: "Enter a name" }, { status: 400 });
   if (phone && !/^\d{10}$/.test(phone)) return Response.json({ error: "Enter a 10-digit mobile number" }, { status: 400 });
-  if (role === "player" && !phone) return Response.json({ error: "Players need a mobile number to sign in" }, { status: 400 });
-  // Staff sign in with their username; a player's username is optional and only shown as their name.
-  if ((role !== "player" || username) && !/^[a-z0-9._]{3,}$/.test(username ?? "")) return Response.json({ error: "Username: at least 3 letters, numbers, dots or underscores" }, { status: 400 });
+  // Everyone signs in with a username; a mobile number is optional (players can also sign in with it).
+  if (!/^[a-z0-9._]{3,}$/.test(username ?? "")) return Response.json({ error: "Username: at least 3 letters, numbers, dots or underscores" }, { status: 400 });
   if (password.length < 6) return Response.json({ error: "Password must be at least 6 characters" }, { status: 400 });
 
   let authId: string | null = null;
   try {
-    const email = role === "player" ? playerEmail(phone) : staffEmail(username!);
+    const email = loginEmail({ role, phone: phone || null, username })!;
     authId = (await createAuthUser(email, password)).id;
     const profile = await rpc<Profile>("create_profile", {
       p_id: authId, p_actor: actor.id, p_role: role, p_name: name, p_phone: phone || null,
@@ -78,14 +77,14 @@ export async function POST(req: Request) {
     if (authId) await deleteAuthUser(authId).catch(() => {});
     const msg = e instanceof Error ? e.message : "Could not create account";
     const friendly = /already been registered|already exists|duplicate key/i.test(msg)
-      ? role === "player" ? "A player with this mobile number already exists" : "That username or mobile number is taken"
+      ? "That username or mobile number is taken"
       : msg;
     return Response.json({ error: friendly }, { status: 400 });
   }
 }
 
 interface Profile { id: string; role: string; name: string; phone: string | null; username: string | null; state: string | null; code?: string; status?: string }
-const loginOf = (p: Profile) => (p.role === "player" ? (p.phone ? playerEmail(p.phone) : null) : p.username ? staffEmail(p.username) : null);
+const loginOf = loginEmail;
 
 export async function PATCH(req: Request) {
   const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
@@ -110,7 +109,7 @@ export async function PATCH(req: Request) {
     return Response.json({ error: /could not find the function/i.test(msg) ? "Editing isn't switched on yet: the database needs migration 007" : msg }, { status: 400 });
   }
 
-  // Keep the login in step: players sign in with their mobile number, staff with their username.
+  // Keep the login in step with the mobile number / username it is built from (see loginEmail).
   const before = loginOf(res.old), after = loginOf(res.new);
   try {
     if ((after && after !== before) || password) {

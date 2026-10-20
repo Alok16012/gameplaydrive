@@ -921,13 +921,15 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
   const [saved, setSaved] = useState(false);
   const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
   const owner = accounts.find((a) => a.id === target.parentId);
-  const loginChanged = staff ? f.username.trim().toLowerCase() !== (target.username ?? "") : f.phone !== (target.phone ?? "");
+  const usernameChanged = f.username.trim().toLowerCase() !== (target.username ?? "");
+  // A player's login is their mobile number when they have one, otherwise their username.
+  const loginChanged = staff ? usernameChanged : f.phone !== (target.phone ?? "") || (!f.phone && usernameChanged);
   const dirty = f.name.trim() !== target.name || f.phone !== (target.phone ?? "") || f.username.trim().toLowerCase() !== (target.username ?? "") || f.state !== (target.state ?? "") || f.password !== "";
 
   const submit = async () => {
     if (!f.name.trim()) return setErr("Enter a name");
     if (f.phone && !/^\d{10}$/.test(f.phone)) return setErr("Enter a 10-digit mobile number");
-    if (!staff && !f.phone) return setErr("Players need a mobile number to sign in");
+    if (!staff && !f.phone && !f.username.trim()) return setErr("Players need a username or a mobile number to sign in");
     if ((staff || f.username.trim()) && !/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
     if (f.password && f.password.length < 6) return setErr("Password must be at least 6 characters");
     setBusy(true);
@@ -953,7 +955,7 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
           </div>
           {(loginChanged || f.password) && (
             <div className="text-xs text-amber-200 mt-3">
-              {loginChanged && <>They now sign in with their new {staff ? "username" : "mobile number"}. </>}
+              {loginChanged && <>They now sign in with their new {staff || !f.phone ? "username" : "mobile number"}. </>}
               {f.password && <>Share the new password with them.</>}
             </div>
           )}
@@ -966,10 +968,10 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
           </div>
           <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
           {!staff && (
-            <label className="block text-xs text-white/60">Username <span className="text-white/40">(optional)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+            <label className="block text-xs text-white/60">Username <span className="text-rose-300">*</span> <span className="text-white/40">(used to sign in)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
           )}
-          <label className="block text-xs text-white/60">Mobile number{staff ? <span className="text-white/40"> (optional)</span> : <span className="text-rose-300"> *</span>}
-            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" required={!staff} value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
+          <label className="block text-xs text-white/60">Mobile number <span className="text-white/40">(optional)</span>
+            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
           </label>
           {staff ? (
             <label className="block text-xs text-white/60">Username<input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
@@ -1028,8 +1030,8 @@ function CreateModal({
 
   const submit = async () => {
     if (!f.name.trim()) return setErr("Enter a name");
-    if (!/^\d{10}$/.test(f.phone) && (!staff || f.phone)) return setErr("Enter a 10-digit mobile number");
-    if ((staff || f.username.trim()) && !/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
+    if (f.phone && !/^\d{10}$/.test(f.phone)) return setErr("Enter a 10-digit mobile number");
+    if (!/^[a-z0-9._]{3,}$/i.test(f.username.trim())) return setErr("Username: at least 3 letters, numbers, dots or underscores");
     if (f.password.length < 6) return setErr("Password must be at least 6 characters");
     if (staff) {
       const up = Number(f.userPart), our = Number(f.ourPart);
@@ -1083,7 +1085,7 @@ function CreateModal({
             {staff && <div className="flex justify-between"><span className="text-white/60">Credit pts</span><span>🪙 {Number(f.creditPts).toLocaleString("en-IN")}</span></div>}
           </div>
           <div className="text-xs text-emerald-300/90 mt-3">
-            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : "They sign in to the player app with this mobile number and the password you set. Give them coins from the Players list."}
+            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : `They sign in to the player app with username "${done.username}"${done.phone ? " (or their mobile number)" : ""} and the password you set. Give them coins from the Players list.`}
           </div>
           <div className="flex items-center gap-2 mt-5">
             {onShowDetails && staff && (
@@ -1105,10 +1107,10 @@ function CreateModal({
         <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3 max-h-[75vh] overflow-y-auto pr-1">
           <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
           {!staff && (
-            <label className="block text-xs text-white/60">Username <span className="text-white/40">(optional)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+            <label className="block text-xs text-white/60">Username <span className="text-rose-300">*</span> <span className="text-white/40">(used to sign in)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
           )}
-          <label className="block text-xs text-white/60">Mobile number{staff ? <span className="text-white/40"> (optional)</span> : <span className="text-rose-300"> *</span>}
-            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" required={!staff} value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
+          <label className="block text-xs text-white/60">Mobile number <span className="text-white/40">(optional)</span>
+            <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
           </label>
           <div className="grid grid-cols-2 gap-3">
             {staff ? (
