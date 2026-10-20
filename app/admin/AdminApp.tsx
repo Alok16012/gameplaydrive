@@ -191,7 +191,7 @@ export default function AdminApp() {
               onOpenDetails={(u) => setDetailsForGlobal(u)}
             />
           )}
-          {sec === "audit" && <AuditView />}
+          {sec === "audit" && <AuditView {...ctx} />}
         </div>
       </main>
 
@@ -1592,47 +1592,135 @@ function LimitModal({ target, reload, onClose }: { target: Account; reload: () =
 
 
 
-interface AuditRow { id: number; actor_name: string | null; action: string; before: string | null; after: string | null; created_at: string }
+interface AuditRow { id: number; actor_id: string | null; actor_name: string | null; action: string; before: string | null; after: string | null; created_at: string }
 
 const AUDIT_PAGE = 200;
 
-// Newest first, AUDIT_PAGE rows at a time; "Load older" continues below the oldest id already shown.
-function AuditView() {
+// Audit action kinds, matched on the text the database writes (see write_audit callers in supabase/migrations).
+const AUDIT_TYPES = [
+  { id: "all", label: "All actions" },
+  { id: "coins", label: "Coins given / taken" },
+  { id: "created", label: "Accounts created" },
+  { id: "status", label: "Freeze / unfreeze" },
+  { id: "edit", label: "Account edits & limits" },
+  { id: "game", label: "Game settings & outcome" },
+  { id: "cricket", label: "Cricket results" },
+  { id: "contact", label: "Support / WhatsApp contact" },
+] as const;
+type AuditType = (typeof AUDIT_TYPES)[number]["id"];
+
+const AUDIT_SORTS = [
+  { id: "new", label: "Newest first", col: "id", asc: false },
+  { id: "old", label: "Oldest first", col: "id", asc: true },
+  { id: "by", label: "By person (A–Z)", col: "actor_name", asc: true },
+  { id: "action", label: "By action (A–Z)", col: "action", asc: true },
+] as const;
+type AuditSort = (typeof AUDIT_SORTS)[number]["id"];
+
+// Filters and sorting run in the database, so they cover the whole log, not just the rows loaded so far.
+function AuditView({ me, accounts }: Ctx) {
   const [rows, setRows] = useState<AuditRow[] | null>(null);
-  const [more, setMore] = useState(false);
+  const [total, setTotal] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const load = async (before?: number) => {
+  const [q, setQ] = useState("");
+  const [needle, setNeedle] = useState("");
+  const [type, setType] = useState<AuditType>("all");
+  const [actor, setActor] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [sort, setSort] = useState<AuditSort>("new");
+
+  // Wait for typing to pause before querying.
+  useEffect(() => {
+    const t = setTimeout(() => setNeedle(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const people = useMemo(() => [me, ...accounts.filter((a) => a.id !== me.id && a.role !== "player")].sort((a, b) => (a.id === me.id ? -1 : b.id === me.id ? 1 : a.name.localeCompare(b.name))), [me, accounts]);
+
+  const load = async (offset: number) => {
     setBusy(true);
     setErr("");
-    let q = supabase().from("audit_log").select("*");
-    if (before !== undefined) q = q.lt("id", before);
-    const { data, error } = await q.order("id", { ascending: false }).limit(AUDIT_PAGE);
+    let query = supabase().from("audit_log").select("*", { count: offset === 0 ? "exact" : undefined });
+    // PostgREST's or() syntax breaks on these characters, so drop them from the search text.
+    const term = needle.replace(/[,()*%\\]/g, " ").trim();
+    if (term) query = query.or(["action", "actor_name", "before", "after"].map((c) => `${c}.ilike.*${term}*`).join(","));
+    if (type === "coins") query = query.ilike("action", "Coins %");
+    else if (type === "created") query = query.ilike("action", "% created under %");
+    else if (type === "status") query = query.in("after", ["active", "frozen"]);
+    else if (type === "edit") query = query.like("action", "% • %").not("action", "ilike", "Game %").not("action", "ilike", "Declared result%");
+    else if (type === "game") query = query.ilike("action", "Game %");
+    else if (type === "cricket") query = query.ilike("action", "Declared result%");
+    else if (type === "contact") query = query.ilike("action", "%contact%");
+    if (actor !== "all") query = query.eq("actor_id", actor);
+    if (from) query = query.gte("created_at", new Date(from + "T00:00:00").toISOString());
+    if (to) {
+      const end = new Date(to + "T00:00:00");
+      end.setDate(end.getDate() + 1);
+      query = query.lt("created_at", end.toISOString());
+    }
+    const o = AUDIT_SORTS.find((x) => x.id === sort)!;
+    query = query.order(o.col, { ascending: o.asc, nullsFirst: false });
+    if (o.col !== "id") query = query.order("id", { ascending: false });
+    const { data, error, count } = await query.range(offset, offset + AUDIT_PAGE - 1);
     setBusy(false);
     if (error) return setErr(errText(error));
     const page = (data ?? []) as AuditRow[];
-    setRows((r) => (before !== undefined && r ? [...r, ...page] : page));
-    setMore(page.length === AUDIT_PAGE);
+    setRows((r) => (offset > 0 && r ? [...r, ...page] : page));
+    if (offset === 0) setTotal(count ?? null);
   };
-  useEffect(() => { load(); }, []);
-  const oldest = rows?.[rows.length - 1];
+  useEffect(() => {
+    setRows(null);
+    load(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needle, type, actor, from, to, sort]);
+
+  const filtered = !!needle || type !== "all" || actor !== "all" || !!from || !!to;
+  const reset = () => { setQ(""); setNeedle(""); setType("all"); setActor("all"); setFrom(""); setTo(""); setSort("new"); };
+  const more = rows !== null && total !== null && rows.length < total;
+  const sel = `${inputCls} py-2`;
   return (
     <>
       <Title t="Audit Log" s="Every action with who did it, when, and before/after values" />
+      <div className="card p-3 mb-3 space-y-2">
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search action, name, ID, before / after…" className={`${inputCls} pl-8`} />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          <select value={type} onChange={(e) => setType(e.target.value as AuditType)} className={sel}>
+            {AUDIT_TYPES.map((t) => <option key={t.id} value={t.id} className="bg-[#0d1335]">{t.label}</option>)}
+          </select>
+          <select value={actor} onChange={(e) => setActor(e.target.value)} className={sel}>
+            <option value="all" className="bg-[#0d1335]">Anyone</option>
+            {people.map((a) => <option key={a.id} value={a.id} className="bg-[#0d1335]">{a.id === me.id ? `Me (${a.name})` : `${a.name} • ${ROLE_LABEL[a.role]}`}</option>)}
+          </select>
+          <select value={sort} onChange={(e) => setSort(e.target.value as AuditSort)} className={`${sel} col-span-2 md:col-span-1`}>
+            {AUDIT_SORTS.map((o) => <option key={o.id} value={o.id} className="bg-[#0d1335]">Sort: {o.label}</option>)}
+          </select>
+          <label className="text-[11px] text-white/50">From<input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className={`${sel} mt-1`} /></label>
+          <label className="text-[11px] text-white/50">To<input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className={`${sel} mt-1`} /></label>
+        </div>
+        <div className="flex items-center justify-between text-xs text-white/50">
+          <span>{total === null ? (busy ? "Loading…" : "") : `${total.toLocaleString("en-IN")} ${filtered ? "matching " : ""}entries`}</span>
+          {(filtered || sort !== "new") && <button onClick={reset} className="text-neon-400 font-medium">Clear filters</button>}
+        </div>
+      </div>
       <div className="card overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
           <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["When", "By", "Action", "Before", "After"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
           <tbody>
             {(rows ?? []).map((a) => (
               <tr key={a.id} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-3 text-white/60 whitespace-nowrap">{new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                <td className="px-4 py-3 text-white/60 whitespace-nowrap">{new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
                 <td className="px-4 py-3">{a.actor_name}</td>
                 <td className="px-4 py-3">{a.action}</td>
                 <td className="px-4 py-3 text-rose-300">{a.before}</td>
                 <td className="px-4 py-3 text-neon-400">{a.after}</td>
               </tr>
             ))}
-            {rows && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Nothing yet.</td></tr>}
+            {rows && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">{filtered ? "No entries match these filters." : "Nothing yet."}</td></tr>}
             {!rows && !err && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Loading…</td></tr>}
           </tbody>
         </table>
@@ -1640,9 +1728,9 @@ function AuditView() {
       {err && <div className="text-xs text-rose-300 mt-3">{err}</div>}
       {rows && rows.length > 0 && (
         <div className="flex items-center justify-between gap-3 mt-3 text-xs text-white/50">
-          <span>{rows.length} entries • back to {new Date(oldest!.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+          <span>Showing {rows.length.toLocaleString("en-IN")}{total !== null ? ` of ${total.toLocaleString("en-IN")}` : ""}</span>
           {more ? (
-            <button disabled={busy} onClick={() => load(oldest!.id)} className="btn-ghost rounded-xl px-4 py-2 text-sm">{busy ? "Loading…" : "Load older"}</button>
+            <button disabled={busy} onClick={() => load(rows.length)} className="btn-ghost rounded-xl px-4 py-2 text-sm">{busy ? "Loading…" : "Load more"}</button>
           ) : (
             <span>That&apos;s everything</span>
           )}
