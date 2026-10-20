@@ -3,7 +3,7 @@
 import { SupportCard } from "./SupportCard";
 import { useEffect, useState } from "react";
 import {
-  ArrowDownLeft, BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
+  ArrowDownLeft, BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -23,7 +23,7 @@ import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePassword
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "outcome" | "cricket" | "payment" | "requests" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "audit";
+type Section = "dashboard" | "outcome" | "cricket" | "payment" | "requests" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "whatsapp" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -49,6 +49,7 @@ export default function AdminApp() {
     { id: "cricket", label: "Cricket Results", icon: <Trophy size={18} />, roles: ["superadmin"] },
     { id: "requests", label: "Payment Requests", icon: <ArrowDownLeft size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: ["superadmin", "admin", "agent"] },
+    { id: "whatsapp", label: "Contact for ID (WhatsApp)", icon: <MessageCircle size={18} className="text-[#25d366]" />, roles: ["superadmin", "admin"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
     { id: "agents", label: "Agents", icon: <Briefcase size={18} />, roles: ["superadmin", "admin"] },
     { id: "players", label: "Players", icon: <Users size={18} />, roles: ["superadmin", "admin", "agent"] },
@@ -182,6 +183,11 @@ export default function AdminApp() {
           {sec === "bots" && <BotsView />}
           {sec === "network" && <NetworkView {...ctx} />}
           {sec === "config" && <ConfigView />}
+          {sec === "whatsapp" && (
+            <div className="space-y-6 max-w-4xl">
+              <SupportCard me={me} />
+            </div>
+          )}
           {sec === "reports" && (
             <ReportsView
               me={me}
@@ -342,6 +348,33 @@ function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
           Manage UPI & QR
         </button>
       </div>
+
+      {(me.role === "superadmin" || me.role === "admin") && (
+        <div className="card p-5 mt-4 bg-gradient-to-r from-emerald-500/10 via-emerald-400/5 to-transparent border border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-[#25d366] grid place-items-center shrink-0 shadow-lg">
+              <MessageCircle size={24} />
+            </div>
+            <div>
+              <div className="font-semibold text-sm text-white flex items-center gap-2">
+                <span>Player ID WhatsApp Desk</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  Login Page
+                </span>
+              </div>
+              <div className="text-xs text-white/60 mt-0.5">
+                Update the official WhatsApp number &amp; pre-filled message for player &quot;Contact for ID&quot; buttons on the login screen.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => go("whatsapp")}
+            className="px-5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap self-start sm:self-auto shadow-md bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-2"
+          >
+            <MessageCircle size={15} /> Update WhatsApp
+          </button>
+        </div>
+      )}
     </>
   );
 }

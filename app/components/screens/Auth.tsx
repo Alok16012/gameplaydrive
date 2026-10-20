@@ -1,6 +1,6 @@
 "use client";
 
-import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
+import { DEFAULT_ID_MESSAGE, prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { useEffect, useState } from "react";
 import {
   CheckCircle2,
@@ -156,20 +156,8 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
   const [successMsg, setSuccessMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Check URL parameters for referral code or direct register intent
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const p = new URLSearchParams(window.location.search);
-      const ref = p.get("ref") || p.get("agent") || p.get("code");
-      if (ref) {
-        setRegReferral(ref.trim());
-        setMode("register");
-      }
-      if (p.get("register") === "true" || p.get("signup") === "true") {
-        setMode("register");
-      }
-    }
-  }, []);
+  // WhatsApp link for Contact for ID
+  const whatsappIdUrl = whatsappLink(support?.whatsapp, support?.message || DEFAULT_ID_MESSAGE);
 
   // Sign in with a 10-digit mobile number, or with a username (anything with a letter, dot or underscore).
   const byUsername = /[^0-9]/.test(phone);
@@ -304,7 +292,7 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
       </div>
 
       {/* Segmented Mode Selector */}
-      <div className="flex p-1 rounded-2xl bg-white/[0.06] border border-white/10 mb-6 backdrop-blur-md">
+      <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-white/[0.06] border border-white/10 mb-6 backdrop-blur-md">
         <button
           type="button"
           onClick={() => {
@@ -312,29 +300,22 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
             setErr("");
             setSuccessMsg("");
           }}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
+          className={`py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
             mode === "login"
-              ? "bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-[0_2px_12px_rgba(245,158,11,0.35)]"
+              ? "bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold shadow-[0_2px_12px_rgba(245,158,11,0.35)]"
               : "text-white/60 hover:text-white"
           }`}
         >
           <LogIn size={16} /> Sign In
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            setMode("register");
-            setErr("");
-            setSuccessMsg("");
-          }}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${
-            mode === "register"
-              ? "bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-[0_2px_12px_rgba(16,185,129,0.35)]"
-              : "text-white/60 hover:text-white"
-          }`}
+        <a
+          href={whatsappIdUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="py-2.5 px-3 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 active:scale-[0.98]"
         >
-          <UserPlus size={16} /> Register (Sign Up)
-        </button>
+          <MessageCircle size={16} className="text-[#25d366]" /> Contact for ID
+        </a>
       </div>
 
       {/* LOGIN MODE */}
@@ -395,8 +376,9 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
             />
             <button
               type="button"
+              aria-label={showLoginPw ? "Hide password" : "Show password"}
               onClick={() => setShowLoginPw(!showLoginPw)}
-              className="text-white/40 hover:text-white/80 transition-colors p-1"
+              className="text-white/50 hover:text-white transition-colors p-2 -mr-1 flex items-center justify-center active:scale-95"
             >
               {showLoginPw ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
@@ -406,17 +388,15 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
             <div className="mt-3.5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 leading-relaxed">
               {err}
               {err.toLowerCase().includes("not registered") && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRegPhone(byUsername ? "" : phone);
-                    setMode("register");
-                    setErr("");
-                  }}
-                  className="block mt-1 font-semibold text-amber-300 underline underline-offset-2"
+                <a
+                  href={whatsappIdUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 font-semibold text-emerald-300 underline underline-offset-2 flex items-center gap-1.5"
                 >
-                  Click here to Register Now →
-                </button>
+                  <MessageCircle size={14} className="text-[#25d366]" />
+                  Contact on WhatsApp to get an ID →
+                </a>
               )}
             </div>
           )}
@@ -458,27 +438,53 @@ export function Login({ onDone }: { onDone: (player: Account) => void }) {
           </button>
 
           <div className="mt-6 pt-5 border-t border-white/10 text-center">
-            <p className="text-xs text-white/50">
-              New player? Don&apos;t have an account yet?
+            <p className="text-xs text-white/60">
+              New player? Don&apos;t have an ID yet?
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                setRegPhone(byUsername ? "" : phone);
-                setMode("register");
-                setErr("");
-                setSuccessMsg("");
-              }}
-              className="mt-2 text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors inline-flex items-center gap-1.5"
+            <a
+              href={whatsappIdUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2.5 w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-[0_4px_16px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
             >
-              <UserPlus size={16} /> Create Free Account / Register Now
-            </button>
+              <MessageCircle size={18} className="text-white" /> Contact on WhatsApp for ID
+            </a>
+            <p className="text-[11px] text-white/40 mt-2 flex items-center justify-center gap-1">
+              <ShieldCheck size={12} className="text-emerald-400" />
+              <span>Instant ID creation • 24/7 Official Support</span>
+            </p>
           </div>
         </form>
       )}
 
-      {/* REGISTER MODE */}
+      {/* REGISTER / CONTACT FOR ID MODE */}
       {mode === "register" && (
+        <div className="fadein flex flex-col items-center text-center py-4">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 mb-3">
+            <MessageCircle size={28} />
+          </div>
+          <h1 className="text-xl font-bold text-white">Contact Us for Player ID</h1>
+          <p className="text-xs text-white/60 mt-1 max-w-xs">
+            Direct player registrations are handled instantly on WhatsApp. Click below to get your account ID &amp; password.
+          </p>
+          <a
+            href={whatsappIdUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 w-full py-3.5 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-[0_4px_16px_rgba(16,185,129,0.3)] transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
+          >
+            <MessageCircle size={18} /> Contact on WhatsApp for ID
+          </a>
+          <button
+            type="button"
+            onClick={() => setMode("login")}
+            className="mt-4 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors inline-flex items-center gap-1"
+          >
+            <LogIn size={14} /> Back to Sign In
+          </button>
+        </div>
+      )}
+      {false && mode === "register" && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
