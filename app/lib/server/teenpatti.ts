@@ -29,7 +29,7 @@ export async function loadTable(id: string) {
 
 /** Table rules from the Admin → Game Config settings for Teen Patti. */
 export async function rulesFor(boot: number): Promise<Rules> {
-  const cfg = await rpc<Record<string, unknown>>("game_cfg", { id: "teen-patti" }).catch(() => ({} as Record<string, unknown>));
+  const cfg = await rpc<Record<string, unknown>>("game_cfg", { p_game: "teen-patti" }).catch(() => ({} as Record<string, unknown>));
   const turn = Number(cfg?.turn) || 15;
   return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null };
 }
