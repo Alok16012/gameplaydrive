@@ -3,7 +3,7 @@
 import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise, vibrate } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, ChevronLeft, Hand, Layers, ListOrdered, Menu, Plus } from "lucide-react";
+import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
@@ -598,6 +598,12 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 )}
                 <div className={`relative rounded-[10px] ${myTurn && v.phase === "draw" ? "rc-glow" : ""}`}><RcBack w={deckW} h={deckH} /></div>
               </button>
+              {/* Table moves: a small arrow in the gap between the closed deck and the open pile opens everyone's moves */}
+              {v.log && (
+                <button onClick={() => setMoves(true)} aria-label="Table moves" className="absolute -translate-x-1/2 -translate-y-1/2 z-10 grid place-items-center rounded-full bg-black/45 border border-white/30 text-white shadow-[0_3px_8px_rgba(0,0,0,.45)] active:scale-90 transition-transform" style={{ left: `calc(45% + ${deckW / 4}px)`, width: Math.round(26 * S), height: Math.round(26 * S) }}>
+                  <ChevronUp size={Math.round(18 * S)} strokeWidth={2.6} />
+                </button>
+              )}
               {/* Open card */}
               {/* The open pile: tap to pick its card on your draw; with one card selected on your discard turn, tap it
                   to throw that card here (or drag the card onto it). */}
