@@ -387,6 +387,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [editing, setEditing] = useState<Account | null>(null);
   const [resetPwFor, setResetPwFor] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
+  const [freezeFor, setFreezeFor] = useState<Account | null>(null);
   const [outcomeFor, setOutcomeFor] = useState<Account | null>(null);
   const [detailsFor, setDetailsFor] = useState<Account | null>(null);
   const [err, setErr] = useState("");
@@ -394,13 +395,6 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
   const list = rows.filter((u) => (u.name + u.code + (u.phone ?? "") + (u.username ?? "")).toLowerCase().includes(q.toLowerCase()));
   const canCreate = CREATES[me.role].includes(role);
-  const toggle = async (u: Account) => {
-    try {
-      await setStatus(u.id, u.status === "Frozen" ? "Active" : "Frozen");
-      setErr("");
-      await reload();
-    } catch (e) { setErr(errText(e)); }
-  };
   const owner = (u: Account) => {
     const p = byId.get(u.parentId ?? "");
     return p ? <><div>{p.id === me.id ? "You" : p.name}</div><div className="text-[11px] text-white/50">{ROLE_LABEL[p.role]}</div></> : "—";
@@ -492,7 +486,18 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                       <Sliders size={13} />Outcome
                     </button>
                   )}
-                  <button onClick={() => toggle(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2">{u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}{u.status === "Frozen" ? "Unfreeze" : "Freeze"}</button>
+                  <button
+                    onClick={() => setFreezeFor(u)}
+                    className={`rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2 transition ${
+                      u.status === "Frozen"
+                        ? "text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/25"
+                        : "btn-ghost"
+                    }`}
+                    title={`${u.status === "Frozen" ? "Unfreeze" : "Freeze"} ${ROLE_LABEL[u.role]}`}
+                  >
+                    {u.status === "Frozen" ? <Snowflake size={13} /> : <Ban size={13} />}
+                    {u.status === "Frozen" ? "Unfreeze" : "Freeze"}
+                  </button>
                   {me.role === "superadmin" && (
                     <button
                       onClick={() => setDeleting(u)}
@@ -514,6 +519,14 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
       {outcomeFor && <PlayerOutcomeModal target={outcomeFor} onClose={() => setOutcomeFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
+      {freezeFor && (
+        <FreezeModal
+          target={freezeFor}
+          accounts={accounts}
+          reload={reload}
+          onClose={() => setFreezeFor(null)}
+        />
+      )}
       {resetPwFor && (
         <ResetSubordinatePasswordModal
           target={resetPwFor}
@@ -642,6 +655,161 @@ function DeleteAccountModal({
           >
             <Trash2 size={14} />
             {busy ? "Deleting…" : `Delete ${ROLE_LABEL[target.role]}`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function FreezeModal({
+  target,
+  accounts,
+  reload,
+  onClose,
+}: {
+  target: Account;
+  accounts: Account[];
+  reload: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const isFreezing = target.status !== "Frozen";
+
+  const subs = downline(accounts, target.id);
+  const agentCount = subs.filter((a) => a.role === "agent").length;
+  const playerCount = subs.filter((a) => a.role === "player").length;
+
+  const handleAction = async (cascade: boolean) => {
+    setBusy(true);
+    setErr("");
+    try {
+      await setStatus(target.id, isFreezing ? "Frozen" : "Active", cascade);
+      await reload();
+      onClose();
+    } catch (e) {
+      setErr(errText(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={isFreezing ? `Freeze ${ROLE_LABEL[target.role]}` : `Unfreeze ${ROLE_LABEL[target.role]}`} onClose={onClose}>
+      <div className="space-y-4 pt-3 text-sm">
+        {err && (
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300">
+            {err}
+          </div>
+        )}
+
+        {isFreezing ? (
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 flex items-start gap-3 text-rose-300">
+            <Ban size={22} className="shrink-0 text-rose-400 mt-0.5" />
+            <div className="text-xs leading-relaxed space-y-1">
+              <div className="font-semibold text-white text-sm">
+                Freeze {target.name} ({target.code})?
+              </div>
+              <div>
+                {subs.length > 0 ? (
+                  <span>
+                    Freezing this {ROLE_LABEL[target.role].toLowerCase()} will <b>automatically freeze their entire downline</b> ({subs.length} total: {agentCount > 0 ? `${agentCount} Agent(s), ` : ""}{playerCount} Player(s)). None of them will be able to log in, play, or place bets.
+                  </span>
+                ) : (
+                  <span>
+                    This account will be frozen immediately and won&apos;t be able to log in, play, or place bets.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/25 flex items-start gap-3 text-sky-200">
+            <Snowflake size={22} className="shrink-0 text-sky-400 mt-0.5" />
+            <div className="text-xs leading-relaxed space-y-1">
+              <div className="font-semibold text-white text-sm">
+                Unfreeze {target.name} ({target.code})?
+              </div>
+              <div>
+                {subs.length > 0 ? (
+                  <span>
+                    This {ROLE_LABEL[target.role].toLowerCase()} has <b>{subs.length} downline account(s)</b> ({agentCount > 0 ? `${agentCount} Agent(s), ` : ""}{playerCount} Player(s)). You can unfreeze the entire downline or only this account.
+                  </span>
+                ) : (
+                  <span>
+                    This account will be activated and will be able to log in and play again.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Downline breakdown card */}
+        {subs.length > 0 && (
+          <div className="card p-3 bg-white/5 border border-white/5 space-y-2 text-xs">
+            <div className="font-semibold text-white/80">Downline Accounts Affected:</div>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {agentCount > 0 && (
+                <div className="p-2.5 rounded-lg bg-white/5 flex items-center justify-between">
+                  <span className="text-white/60">Agents under ID:</span>
+                  <span className="font-mono font-bold text-white">{agentCount}</span>
+                </div>
+              )}
+              <div className="p-2.5 rounded-lg bg-white/5 flex items-center justify-between">
+                <span className="text-white/60">Players under ID:</span>
+                <span className="font-mono font-bold text-white">{playerCount}</span>
+              </div>
+            </div>
+            <div className="text-[11px] text-white/50 pt-1">
+              Total downline accounts linked to this ID: <b className="text-white">{subs.length}</b>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2 pt-2">
+          {isFreezing ? (
+            <button
+              onClick={() => handleAction(true)}
+              disabled={busy}
+              className="w-full py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-900/30 transition flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Ban size={15} />
+              {busy ? "Freezing accounts…" : subs.length > 0 ? `Freeze Account & All ${subs.length} Downline Accounts` : "Freeze Account"}
+            </button>
+          ) : (
+            <>
+              {subs.length > 0 && (
+                <button
+                  onClick={() => handleAction(true)}
+                  disabled={busy}
+                  className="w-full py-2.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Snowflake size={15} />
+                  {busy ? "Unfreezing…" : `Unfreeze Account & All ${subs.length} Downline Accounts`}
+                </button>
+              )}
+              <button
+                onClick={() => handleAction(subs.length === 0)}
+                disabled={busy}
+                className={`w-full py-2.5 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50 ${
+                  subs.length > 0
+                    ? "bg-white/10 hover:bg-white/20 text-white border border-white/10"
+                    : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30"
+                }`}
+              >
+                <Snowflake size={15} />
+                {busy ? "Unfreezing…" : subs.length > 0 ? "Unfreeze Only This Account (Keep Downline Frozen)" : "Unfreeze Account"}
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="w-full py-2 rounded-xl text-xs text-white/50 hover:text-white transition"
+          >
+            Cancel
           </button>
         </div>
       </div>

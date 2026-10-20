@@ -103,9 +103,14 @@ export async function updateAccount(body: { id: string; name: string; phone: str
   if (!r.ok) throw new Error(j.error ?? "Could not save");
 }
 
-export async function setStatus(id: string, status: "Active" | "Frozen") {
-  const { error } = await supabase().rpc("set_account_status", { target: id, new_status: status.toLowerCase() });
+export async function setStatus(id: string, status: "Active" | "Frozen", cascadeDownline: boolean = true): Promise<number> {
+  const { data, error } = await supabase().rpc("set_account_status", {
+    target: id,
+    new_status: status.toLowerCase(),
+    cascade_downline: cascadeDownline,
+  });
   if (error) throw new Error(errText(error));
+  return typeof data === "number" ? data : 1;
 }
 
 /** Positive: give coins; negative: take them back. Only the Super Admin creates new coins. */
