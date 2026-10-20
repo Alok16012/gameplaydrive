@@ -94,6 +94,66 @@ interface AuditRow {
   created_at: string;
 }
 
+type DateRange = "all" | "today" | "yesterday" | "7days" | "30days" | "custom";
+
+/** [start, end) of a date filter in the viewer's local time; undefined = open-ended. */
+function rangeBounds(r: DateRange, customStart: string, customEnd: string): { start?: Date; end?: Date } {
+  const day = (offset: number) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + offset);
+    return d;
+  };
+  if (r === "today") return { start: day(0) };
+  if (r === "yesterday") return { start: day(-1), end: day(0) };
+  if (r === "7days") return { start: day(-6) };
+  if (r === "30days") return { start: day(-29) };
+  if (r === "custom") {
+    const end = customEnd ? new Date(customEnd + "T00:00:00") : undefined;
+    end?.setDate(end.getDate() + 1);
+    return { start: customStart ? new Date(customStart + "T00:00:00") : undefined, end };
+  }
+  return {};
+}
+
+const inRange = (iso: string | undefined, b: { start?: Date; end?: Date }) => {
+  if (!iso) return !b.start && !b.end;
+  const t = new Date(iso).getTime();
+  return (!b.start || t >= b.start.getTime()) && (!b.end || t < b.end.getTime());
+};
+
+// PostgREST returns at most 1000 rows per request, so read in pages until the table runs out (or the cap).
+const PAGE = 1000;
+const ROW_CAP = 60000;
+async function fetchAllPages<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<{ rows: T[]; capped: boolean }> {
+  const rows: T[] = [];
+  for (let from = 0; from < ROW_CAP; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw error;
+    const batch = (data as T[]) ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE) return { rows, capped: false };
+  }
+  return { rows, capped: true };
+}
+
+// Game of a ledger row. Game bets carry the game's name as the note ("Teen Patti", "Ludo • …"); cricket bets
+// start with "CRICKET: …".
+const GAMES_BY_NAME_LEN = [...GAMES].sort((a, b) => b.name.length - a.name.length);
+function gameOf(note: string | null): { key: string; name: string; category: string } {
+  const n = (note ?? "").trim();
+  if (/^[A-Z]+:/.test(n)) {
+    const sport = n.split(":")[0];
+    return { key: sport.toLowerCase(), name: sport === "CRICKET" ? "Cricket" : sport[0] + sport.slice(1).toLowerCase(), category: "sports" };
+  }
+  const head = n.split("•")[0].trim().toLowerCase();
+  const g =
+    GAMES.find((x) => x.name.toLowerCase() === head || x.id === head.replace(/\s+/g, "-")) ??
+    GAMES_BY_NAME_LEN.find((x) => n.toLowerCase().includes(x.name.toLowerCase()));
+  if (g) return { key: g.id, name: g.name, category: g.category };
+  return { key: head || "other", name: n.split("•")[0].trim() || "Other", category: "other" };
+}
+
 interface ReportsViewProps {
   me: Account;
   accounts: Account[];
@@ -110,7 +170,7 @@ export function ReportsView({
   onOpenDetails,
 }: ReportsViewProps) {
   const [activeTab, setActiveTab] = useState<ReportSubTab>(initialTab);
-  const [dateRange, setDateRange] = useState<"all" | "today" | "yesterday" | "7days" | "30days" | "custom">("all");
+  const [dateRange, setDateRange] = useState<DateRange>("all");
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [reloadKey, setReloadKey] = useState<number>(0);
@@ -122,6 +182,9 @@ export function ReportsView({
   const [loading, setLoading] = useState<boolean>(true);
   const [ledgerData, setLedgerData] = useState<LedgerRow[]>([]);
   const [auditData, setAuditData] = useState<AuditRow[]>([]);
+  // Sum of ledger amounts after the period ends, per user — rewinds today's balances to the period's close.
+  const [afterEnd, setAfterEnd] = useState<Map<string, number>>(new Map());
+  const [capped, setCapped] = useState(false);
   const [err, setErr] = useState<string>("");
   const [viewRow, setViewRow] = useState<LedgerRow | null>(null);
   const [openBets, setOpenBets] = useState<SportBetRow[]>([]);
@@ -137,6 +200,8 @@ export function ReportsView({
       setTimeout(() => setCopiedKey(null), 2000);
     }
   };
+
+  const bounds = useMemo(() => rangeBounds(dateRange, customStart, customEnd), [dateRange, customStart, customEnd]);
 
   // Open sports bets (from every match, any date) for the Current Bets report.
   useEffect(() => {
@@ -171,6 +236,7 @@ export function ReportsView({
   const bookRows = useMemo(() => {
     const m = new Map<string, { match: string; vol: number; bets: number; net: number; open: number }>();
     for (const b of bookBets) {
+      if (!inRange(b.created_at, bounds)) continue;
       const r = m.get(b.event_id) ?? { match: b.event_name, vol: 0, bets: 0, net: 0, open: 0 };
       r.vol += Number(b.stake);
       r.bets += 1;
@@ -179,7 +245,7 @@ export function ReportsView({
       m.set(b.event_id, r);
     }
     return [...m.values()];
-  }, [bookBets]);
+  }, [bookBets, bounds]);
 
   const byId = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
 
@@ -188,7 +254,7 @@ export function ReportsView({
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
 
-  // Load ledger and audit data from Supabase directly — zero fake data, no dropped transactions
+  // Load every ledger row of the period (paged past the 1000-row API limit) plus the audit trail.
   useEffect(() => {
     let active = true;
     async function loadReports() {
@@ -196,85 +262,36 @@ export function ReportsView({
       setErr("");
       try {
         const sb = supabase();
-        let query = sb.from("ledger").select("*");
-
-        // When a specific player is selected, filter directly by user_id in Postgres so no transactions are missed!
-        if (selectedUser !== "all") {
-          query = query.eq("user_id", selectedUser);
-        }
-
-        // Apply real date boundaries based on dateRange
-        if (dateRange === "today") {
-          const startToday = new Date();
-          startToday.setHours(0, 0, 0, 0);
-          query = query.gte("created_at", startToday.toISOString());
-        } else if (dateRange === "yesterday") {
-          const startYesterday = new Date();
-          startYesterday.setDate(startYesterday.getDate() - 1);
-          startYesterday.setHours(0, 0, 0, 0);
-          const endYesterday = new Date();
-          endYesterday.setHours(0, 0, 0, 0);
-          query = query
-            .gte("created_at", startYesterday.toISOString())
-            .lt("created_at", endYesterday.toISOString());
-        } else if (dateRange === "7days") {
-          const d7 = new Date();
-          d7.setDate(d7.getDate() - 7);
-          d7.setHours(0, 0, 0, 0);
-          query = query.gte("created_at", d7.toISOString());
-        } else if (dateRange === "30days") {
-          const d30 = new Date();
-          d30.setDate(d30.getDate() - 30);
-          d30.setHours(0, 0, 0, 0);
-          query = query.gte("created_at", d30.toISOString());
-        } else if (dateRange === "custom") {
-          if (customStart) {
-            const s = new Date(customStart + "T00:00:00");
-            query = query.gte("created_at", s.toISOString());
-          }
-          if (customEnd) {
-            const e = new Date(customEnd + "T23:59:59");
-            query = query.lte("created_at", e.toISOString());
-          }
-        }
-        // If dateRange === "all", NO gte filter is added — full ledger is queried!
-
-        // For a single player, pull up to 5000 transactions so not a single record is cut off.
-        const maxLimit = selectedUser !== "all" ? 5000 : 1000;
-        query = query.order("created_at", { ascending: false }).limit(maxLimit);
-
+        const { start, end } = bounds;
+        const ledgerPage = (from: number, to: number) => {
+          let q = sb.from("ledger").select("*");
+          if (selectedUser !== "all") q = q.eq("user_id", selectedUser);
+          if (start) q = q.gte("created_at", start.toISOString());
+          if (end) q = q.lt("created_at", end.toISOString());
+          return q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to);
+        };
+        const afterPage = (from: number, to: number) => {
+          let q = sb.from("ledger").select("id,user_id,amount").gte("created_at", end!.toISOString());
+          if (selectedUser !== "all") q = q.eq("user_id", selectedUser);
+          return q.order("id", { ascending: true }).range(from, to);
+        };
         let audQuery = sb.from("audit_log").select("*");
-        if (dateRange === "today") {
-          const startToday = new Date();
-          startToday.setHours(0, 0, 0, 0);
-          audQuery = audQuery.gte("created_at", startToday.toISOString());
-        } else if (dateRange === "yesterday") {
-          const startYesterday = new Date();
-          startYesterday.setDate(startYesterday.getDate() - 1);
-          startYesterday.setHours(0, 0, 0, 0);
-          audQuery = audQuery.gte("created_at", startYesterday.toISOString());
-        } else if (dateRange === "7days") {
-          const d7 = new Date();
-          d7.setDate(d7.getDate() - 7);
-          audQuery = audQuery.gte("created_at", d7.toISOString());
-        } else if (dateRange === "30days") {
-          const d30 = new Date();
-          d30.setDate(d30.getDate() - 30);
-          audQuery = audQuery.gte("created_at", d30.toISOString());
-        } else if (dateRange === "custom") {
-          if (customStart) audQuery = audQuery.gte("created_at", new Date(customStart + "T00:00:00").toISOString());
-          if (customEnd) audQuery = audQuery.lte("created_at", new Date(customEnd + "T23:59:59").toISOString());
-        }
-        audQuery = audQuery.order("created_at", { ascending: false }).limit(200);
+        if (start) audQuery = audQuery.gte("created_at", start.toISOString());
+        if (end) audQuery = audQuery.lt("created_at", end.toISOString());
 
-        const [ledRes, audRes] = await Promise.all([query, audQuery]);
-
-        if (active) {
-          if (ledRes.error) setErr(errText(ledRes.error));
-          else if (ledRes.data) setLedgerData(ledRes.data as LedgerRow[]);
-
-          if (audRes.data) setAuditData(audRes.data as AuditRow[]);
-        }
+        const [led, after, audRes] = await Promise.all([
+          fetchAllPages<LedgerRow>(ledgerPage),
+          end ? fetchAllPages<{ user_id: string; amount: number }>(afterPage) : Promise.resolve({ rows: [], capped: false }),
+          audQuery.order("created_at", { ascending: false }).limit(500),
+        ]);
+        if (!active) return;
+        setLedgerData(led.rows);
+        setCapped(led.capped);
+        const m = new Map<string, number>();
+        for (const r of after.rows) m.set(r.user_id, (m.get(r.user_id) ?? 0) + Number(r.amount));
+        setAfterEnd(m);
+        if (audRes.error) setErr(errText(audRes.error));
+        else setAuditData((audRes.data as AuditRow[]) ?? []);
       } catch (e) {
         if (active) setErr(errText(e));
       } finally {
@@ -285,7 +302,7 @@ export function ReportsView({
     return () => {
       active = false;
     };
-  }, [dateRange, selectedUser, customStart, customEnd, reloadKey]);
+  }, [bounds, selectedUser, reloadKey]);
 
   // Indian currency formatting
   const fmt = (n?: number, forceDec = true) => {
@@ -418,16 +435,22 @@ export function ReportsView({
     });
   }, [ledgerData, selectedUser, txType, searchQ, byId]);
 
-  // Account Settlement & Financial Reconciliation calculations
+  // Account Settlement & Financial Reconciliation — over the whole period (search / type filters only narrow the
+  // table). Balances are rewound from today's wallets: closing = now − everything after the period,
+  // opening = closing − everything inside it. Only accounts in the visible list count, so the two always tie.
   const settlement = useMemo(() => {
     let deposits = 0;
     let withdrawals = 0;
     let bets = 0;
     let wins = 0;
     let refunds = 0;
+    let periodNet = 0;
 
-    filteredLedger.forEach((r) => {
-      const amt = Math.abs(r.amount);
+    const inScope = (uid: string) => (selectedUser === "all" ? byId.has(uid) : uid === selectedUser);
+    ledgerData.forEach((r) => {
+      if (!inScope(r.user_id)) return;
+      const amt = Math.abs(Number(r.amount));
+      periodNet += Number(r.amount);
       if (["transfer_in", "mint"].includes(r.kind)) deposits += amt;
       else if (["transfer_out", "burn"].includes(r.kind)) withdrawals += amt;
       else if (r.kind === "bet") bets += amt;
@@ -439,21 +462,10 @@ export function ReportsView({
     const playerNetPL = winsAndRefunds - bets; // +ve: Player in profit, -ve: Player in loss
     const houseNetPL = bets - winsAndRefunds; // +ve: Platform/Agent in profit, -ve: Loss
 
-    // Calculate opening balance before the filtered period
-    // filteredLedger is sorted descending (newest first, oldest last)
-    let opening = 0;
+    const scope = selectedUser === "all" ? accounts : accounts.filter((a) => a.id === selectedUser);
     let closing = 0;
-
-    if (filteredLedger.length > 0) {
-      const oldest = filteredLedger[filteredLedger.length - 1];
-      const newest = filteredLedger[0];
-      opening = oldest.balance_after - oldest.amount;
-      closing = newest.balance_after;
-    } else if (selectedUser !== "all") {
-      const curBal = byId.get(selectedUser)?.coins ?? 0;
-      opening = curBal;
-      closing = curBal;
-    }
+    for (const a of scope) closing += a.coins - (afterEnd.get(a.id) ?? 0);
+    const opening = closing - periodNet;
 
     // Reconciled math: Opening + Deposits - Withdrawals + Gaming Net
     const reconciled = opening + deposits - withdrawals + playerNetPL;
@@ -470,20 +482,54 @@ export function ReportsView({
       playerNetPL,
       houseNetPL,
       reconciled,
-      txCount: filteredLedger.length,
+      txCount: ledgerData.length,
     };
-  }, [filteredLedger, selectedUser, byId]);
+  }, [ledgerData, afterEnd, accounts, selectedUser, byId]);
 
-  // Backward-compatible statement summary for other tabs
-  const statementSummary = useMemo(() => {
-    return {
-      deposit: settlement.deposits,
-      withdraw: settlement.withdrawals,
-      betTotal: settlement.bets,
-      winTotal: settlement.winsAndRefunds,
-      netProfit: settlement.houseNetPL,
+  // Gaming activity per account (bets / wins+refunds) in the period, and per game.
+  const perUser = useMemo(() => {
+    const m = new Map<string, { bets: number; returns: number; count: number }>();
+    for (const r of ledgerData) {
+      if (r.kind !== "bet" && r.kind !== "win" && r.kind !== "refund") continue;
+      const v = m.get(r.user_id) ?? { bets: 0, returns: 0, count: 0 };
+      if (r.kind === "bet") { v.bets += Math.abs(Number(r.amount)); v.count += 1; }
+      else v.returns += Math.abs(Number(r.amount));
+      m.set(r.user_id, v);
+    }
+    return m;
+  }, [ledgerData]);
+
+  const perGame = useMemo(() => {
+    const m = new Map<string, { name: string; category: string; bets: number; returns: number; count: number; players: Set<string> }>();
+    for (const r of ledgerData) {
+      if (r.kind !== "bet" && r.kind !== "win" && r.kind !== "refund") continue;
+      const g = gameOf(r.note);
+      const v = m.get(g.key) ?? { name: g.name, category: g.category, bets: 0, returns: 0, count: 0, players: new Set<string>() };
+      if (r.kind === "bet") { v.bets += Math.abs(Number(r.amount)); v.count += 1; v.players.add(r.user_id); }
+      else v.returns += Math.abs(Number(r.amount));
+      m.set(g.key, v);
+    }
+    return [...m.values()].sort((a, b) => b.bets - a.bets);
+  }, [ledgerData]);
+
+  // Party win/loss: each admin / agent rolls up its whole downline; a player is just itself.
+  const partyRows = useMemo(() => {
+    const kids = new Map<string, Account[]>();
+    for (const a of accounts) if (a.parentId) kids.set(a.parentId, [...(kids.get(a.parentId) ?? []), a]);
+    const roll = (a: Account): { bets: number; returns: number; count: number } => {
+      const own = perUser.get(a.id) ?? { bets: 0, returns: 0, count: 0 };
+      const t = { ...own };
+      for (const k of kids.get(a.id) ?? []) {
+        const c = roll(k);
+        t.bets += c.bets; t.returns += c.returns; t.count += c.count;
+      }
+      return t;
     };
-  }, [settlement]);
+    return accounts
+      .filter((a) => a.role !== "superadmin" && (selectedUser === "all" || a.id === selectedUser))
+      .map((a) => ({ a, ...roll(a) }))
+      .sort((x, y) => y.bets - x.bets || x.a.name.localeCompare(y.a.name));
+  }, [accounts, perUser, selectedUser]);
 
   // Paginated ledger rows
   const paginatedLedger = useMemo(() => {
@@ -822,6 +868,7 @@ export function ReportsView({
                   <span className="text-[11px] text-white/40 font-mono">
                     {settlement.txCount} Records Analyzed
                   </span>
+                  {capped && <span className="text-[11px] text-amber-300">First {settlement.txCount.toLocaleString("en-IN")} only — pick a shorter period</span>}
                 </div>
               </div>
 
@@ -1306,19 +1353,22 @@ export function ReportsView({
               <div>
                 <h3 className="text-base font-bold text-white">Party-Wise Win / Loss Report</h3>
                 <p className="text-xs text-white/50">
-                  Comprehensive settlement breakdown per admin, agent, and player
+                  Bets and payouts in the selected period. Admins and agents include their whole downline.
                 </p>
               </div>
               <button
                 onClick={() =>
                   exportToCSV(
-                    "party_win_loss",
-                    accounts.map((a) => ({
-                      Name: a.name,
-                      Username: a.username || a.code,
-                      Role: a.role,
-                      CurrentBalance: a.coins,
-                      Status: a.status,
+                    `party_win_loss_${dateRange}`,
+                    partyRows.map((r) => ({
+                      Name: r.a.name,
+                      Code: r.a.code,
+                      Role: ROLE_LABEL[r.a.role],
+                      Balance: r.a.coins,
+                      Turnover: r.bets,
+                      Bets: r.count,
+                      PlayerPL: r.returns - r.bets,
+                      HousePL: r.bets - r.returns,
                     }))
                   )
                 }
@@ -1334,19 +1384,20 @@ export function ReportsView({
                   <tr>
                     <th className="px-4 py-3">Party Name</th>
                     <th className="px-4 py-3">Role</th>
-                    <th className="px-4 py-3 text-right">User Part (%)</th>
                     <th className="px-4 py-3 text-right">Balance Pts</th>
-                    <th className="px-4 py-3 text-right">Gross Win / Loss</th>
-                    <th className="px-4 py-3 text-right">Company Net</th>
+                    <th className="px-4 py-3 text-right">Turnover</th>
+                    <th className="px-4 py-3 text-right">Bets</th>
+                    <th className="px-4 py-3 text-right">Player Win / Loss</th>
+                    <th className="px-4 py-3 text-right">House Net</th>
                     <th className="px-4 py-3 text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {accounts.map((u) => {
-                    const isProfit = u.coins > 1000;
-                    const dummyPl = (u.coins * 0.12) * (isProfit ? 1 : -1);
+                  {partyRows.map(({ a: u, bets, returns, count }) => {
+                    const pl = returns - bets;
+                    const house = bets - returns;
                     return (
-                      <tr key={u.id} className="hover:bg-white/[0.02] transition">
+                      <tr key={u.id} className={`hover:bg-white/[0.02] transition ${count ? "" : "opacity-50"}`}>
                         <td className="px-4 py-3 font-semibold text-white">
                           <div>{u.name}</div>
                           <div className="text-[10px] text-white/40">{u.username || u.code}</div>
@@ -1356,24 +1407,11 @@ export function ReportsView({
                             {ROLE_LABEL[u.role]}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-medium text-white/70">
-                          {u.role === "admin" ? "87%" : u.role === "agent" ? "70%" : "100%"}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-gold-300">
-                          🪙 {fmt(u.coins)}
-                        </td>
-                        <td
-                          className={`px-4 py-3 text-right font-mono font-bold ${
-                            dummyPl >= 0 ? "text-emerald-400" : "text-rose-400"
-                          }`}
-                        >
-                          {dummyPl >= 0 ? "+" : ""}
-                          {fmt(dummyPl)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-sky-400">
-                          {dummyPl >= 0 ? "-" : "+"}
-                          {fmt(Math.abs(dummyPl * 0.13))}
-                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-gold-300">🪙 {fmt(u.coins)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-amber-300">🪙 {fmt(bets)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/70">{count}</td>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${pl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{pl >= 0 ? "+" : ""}{fmt(pl)}</td>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${house >= 0 ? "text-sky-400" : "text-rose-400"}`}>{house >= 0 ? "+" : ""}{fmt(house)}</td>
                         <td className="px-4 py-3 text-center">
                           <button
                             onClick={() => onOpenDetails && onOpenDetails(u)}
@@ -1385,6 +1423,7 @@ export function ReportsView({
                       </tr>
                     );
                   })}
+                  {partyRows.length === 0 && <tr><td colSpan={8} className="px-4 py-10 text-center text-white/40">No accounts.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1562,28 +1601,43 @@ export function ReportsView({
         {/* ============================================================== */}
         {(activeTab === "our_casino_result" || activeTab === "live_casino_result") && (
           <div className="space-y-4">
-            <h3 className="text-base font-bold text-white">
-              {activeTab === "our_casino_result" ? "Our Casino" : "Live Casino"} Round Results
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {GAMES.slice(0, 8).map((g, idx) => (
-                <div key={g.id} className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white text-sm">{g.name}</span>
-                    <span className="text-[10px] text-sky-400 font-mono">Round #20{idx}4</span>
-                  </div>
-                  <div className="text-xs text-white/60">
-                    Winning Outcome:{" "}
-                    <b className="text-emerald-400">
-                      {idx % 2 === 0 ? "Player Wins (Trio A-A-A)" : "Dragon Win (King High)"}
-                    </b>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] pt-2 border-t border-white/5 text-white/50 font-mono">
-                    <span>Total Bets: 24</span>
-                    <span>Payout: 🪙 42,500</span>
-                  </div>
-                </div>
-              ))}
+            <div>
+              <h3 className="text-base font-bold text-white">
+                {activeTab === "our_casino_result" ? "Our Casino" : "Live Casino"} Results
+              </h3>
+              <p className="text-xs text-white/50">
+                {activeTab === "our_casino_result" ? "Card and board tables (Teen Patti, Rummy, Ludo, Poker…)" : "Casino and instant games (Aviator, Roulette, Andar Bahar…)"} in the selected period
+              </p>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
+                  <tr>
+                    <th className="px-4 py-3">Game</th>
+                    <th className="px-4 py-3 text-right">Turnover</th>
+                    <th className="px-4 py-3 text-right">Bets</th>
+                    <th className="px-4 py-3 text-right">Players</th>
+                    <th className="px-4 py-3 text-right">Paid Out</th>
+                    <th className="px-4 py-3 text-right">House Net</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-xs">
+                  {perGame.filter((g) => (activeTab === "our_casino_result" ? g.category === "card" || g.category === "board" : g.category === "casino")).map((g) => {
+                    const net = g.bets - g.returns;
+                    return (
+                      <tr key={g.name} className="hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-semibold text-white">{g.name}</td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-amber-300">🪙 {fmt(g.bets)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/80">{g.count}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/80">{g.players.size}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sky-300">🪙 {fmt(g.returns)}</td>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${net >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{net >= 0 ? "+" : ""}{fmt(net)}</td>
+                      </tr>
+                    );
+                  })}
+                  {perGame.filter((g) => (activeTab === "our_casino_result" ? g.category === "card" || g.category === "board" : g.category === "casino")).length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/40">No games played in this period.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -1648,23 +1702,39 @@ export function ReportsView({
         {/* ============================================================== */}
         {activeTab === "turnover" && (
           <div className="space-y-4">
-            <h3 className="text-base font-bold text-white">Game-Wise Turnover Summary</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {GAMES.map((g) => {
-                const dummyTurn = Math.floor(Math.random() * 500000) + 100000;
-                return (
-                  <div key={g.id} className="p-4 rounded-xl border border-white/10 bg-white/5 space-y-1.5">
-                    <div className="font-semibold text-white text-sm">{g.name}</div>
-                    <div className="text-xl font-bold text-amber-300 font-mono">
-                      🪙 {fmt(dummyTurn)}
-                    </div>
-                    <div className="text-[11px] text-white/50 flex justify-between pt-1">
-                      <span>Total Bets: {Math.floor(dummyTurn / 400)}</span>
-                      <span>Rake/Comm: 3%</span>
-                    </div>
-                  </div>
-                );
-              })}
+            <div>
+              <h3 className="text-base font-bold text-white">Game-Wise Turnover Summary</h3>
+              <p className="text-xs text-white/50">Every game, cricket included, in the selected period</p>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
+                  <tr>
+                    <th className="px-4 py-3">Game</th>
+                    <th className="px-4 py-3 text-right">Turnover</th>
+                    <th className="px-4 py-3 text-right">Bets</th>
+                    <th className="px-4 py-3 text-right">Players</th>
+                    <th className="px-4 py-3 text-right">Paid Out</th>
+                    <th className="px-4 py-3 text-right">House Net</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-xs">
+                  {perGame.map((g) => {
+                    const net = g.bets - g.returns;
+                    return (
+                      <tr key={g.name} className="hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-semibold text-white">{g.name}</td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-amber-300">🪙 {fmt(g.bets)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/80">{g.count}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/80">{g.players.size}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sky-300">🪙 {fmt(g.returns)}</td>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${net >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{net >= 0 ? "+" : ""}{fmt(net)}</td>
+                      </tr>
+                    );
+                  })}
+                  {perGame.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/40">No bets in this period.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -1691,7 +1761,7 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {accounts.map((u) => (
+                  {accounts.filter((u) => activeTab === "user_auth" || inRange(u.createdAt, bounds)).map((u) => (
                     <tr key={u.id} className="hover:bg-white/[0.02]">
                       <td className="px-4 py-3 font-mono text-[11px] text-white/60">
                         {u.createdAt ? fmtDate(u.createdAt) : u.created}
@@ -1704,7 +1774,7 @@ export function ReportsView({
                         {u.phone ? `+91 ${u.phone}` : u.username || "—"}
                       </td>
                       <td className="px-4 py-3 text-white/80">{ROLE_LABEL[u.role]}</td>
-                      <td className="px-4 py-3 text-white/60">{u.state || "Aurangabad"}</td>
+                      <td className="px-4 py-3 text-white/60">{u.state || "—"}</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-gold-300">
                         🪙 {fmt(u.coins)}
                       </td>
@@ -1730,30 +1800,96 @@ export function ReportsView({
         {/* ============================================================== */}
         {/* 10. TOTAL PROFIT LOSS & USER WIN LOSS */}
         {/* ============================================================== */}
-        {(activeTab === "total_profit_loss" || activeTab === "user_win_loss") && (
+        {activeTab === "total_profit_loss" && (
           <div className="space-y-4">
-            <h3 className="text-base font-bold text-white">
-              {activeTab === "total_profit_loss" ? "Total Profit & Loss Audit" : "User Win Loss Summary"}
-            </h3>
+            <h3 className="text-base font-bold text-white">Total Profit & Loss</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl border border-white/10 bg-white/5">
-                <div className="text-xs text-white/50">Overall Platform Turnover</div>
-                <div className="text-2xl font-bold text-gold-300 font-mono mt-1">
-                  🪙 {fmt(statementSummary.betTotal || 1450000)}
-                </div>
+                <div className="text-xs text-white/50">Platform Turnover</div>
+                <div className="text-2xl font-bold text-gold-300 font-mono mt-1">🪙 {fmt(settlement.bets)}</div>
               </div>
               <div className="p-4 rounded-xl border border-white/10 bg-white/5">
-                <div className="text-xs text-white/50">Total Player Payouts</div>
-                <div className="text-2xl font-bold text-sky-400 font-mono mt-1">
-                  🪙 {fmt(statementSummary.winTotal || 1280000)}
-                </div>
+                <div className="text-xs text-white/50">Player Payouts (wins + refunds)</div>
+                <div className="text-2xl font-bold text-sky-400 font-mono mt-1">🪙 {fmt(settlement.winsAndRefunds)}</div>
               </div>
               <div className="p-4 rounded-xl border border-white/10 bg-white/5">
                 <div className="text-xs text-white/50">Net House Profit</div>
-                <div className="text-2xl font-bold text-emerald-400 font-mono mt-1">
-                  🪙 +{fmt((statementSummary.betTotal || 1450000) - (statementSummary.winTotal || 1280000))}
+                <div className={`text-2xl font-bold font-mono mt-1 ${settlement.houseNetPL >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                  🪙 {settlement.houseNetPL >= 0 ? "+" : ""}{fmt(settlement.houseNetPL)}
                 </div>
               </div>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
+                  <tr>
+                    <th className="px-4 py-3">Game</th>
+                    <th className="px-4 py-3 text-right">Turnover</th>
+                    <th className="px-4 py-3 text-right">Bets</th>
+                    <th className="px-4 py-3 text-right">Players</th>
+                    <th className="px-4 py-3 text-right">Paid Out</th>
+                    <th className="px-4 py-3 text-right">House Net</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-xs">
+                  {perGame.map((g) => {
+                    const net = g.bets - g.returns;
+                    return (
+                      <tr key={g.name} className="hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-semibold text-white">{g.name}</td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-amber-300">🪙 {fmt(g.bets)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/80">{g.count}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/80">{g.players.size}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sky-300">🪙 {fmt(g.returns)}</td>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${net >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{net >= 0 ? "+" : ""}{fmt(net)}</td>
+                      </tr>
+                    );
+                  })}
+                  {perGame.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/40">No bets in this period.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "user_win_loss" && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-bold text-white">User Win Loss Summary</h3>
+              <p className="text-xs text-white/50">Players who bet in the selected period</p>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
+                  <tr>
+                    <th className="px-4 py-3">Player</th>
+                    <th className="px-4 py-3 text-right">Turnover</th>
+                    <th className="px-4 py-3 text-right">Bets</th>
+                    <th className="px-4 py-3 text-right">Won + Refunds</th>
+                    <th className="px-4 py-3 text-right">Win / Loss</th>
+                    <th className="px-4 py-3 text-right">Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 text-xs">
+                  {partyRows.filter((r) => r.a.role === "player" && r.count > 0).map(({ a: u, bets, returns, count }) => {
+                    const pl = returns - bets;
+                    return (
+                      <tr key={u.id} className="hover:bg-white/[0.02]">
+                        <td className="px-4 py-3 font-semibold text-white">
+                          <div>{u.name}</div>
+                          <div className="text-[10px] text-white/40">{u.username || u.code}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-amber-300">🪙 {fmt(bets)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-white/70">{count}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sky-300">🪙 {fmt(returns)}</td>
+                        <td className={`px-4 py-3 text-right font-mono font-bold ${pl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{pl >= 0 ? "+" : ""}{fmt(pl)}</td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-gold-300">🪙 {fmt(u.coins)}</td>
+                      </tr>
+                    );
+                  })}
+                  {!partyRows.some((r) => r.a.role === "player" && r.count > 0) && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/40">No player bets in this period.</td></tr>}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
