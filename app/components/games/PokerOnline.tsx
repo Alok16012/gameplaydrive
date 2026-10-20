@@ -29,7 +29,7 @@ const ui = (c: Card): UiCard => ({ r: RANK[c.r] ?? (String(c.r) as UiCard["r"]),
 const SEAT_BOX: { style: React.CSSProperties; reverse?: boolean }[] = [
   { style: { left: "1%", top: "52%", transform: "translateY(-50%)" } },
   { style: { left: "13%", top: "2%" } },
-  { style: { left: "50%", top: "2%", transform: "translateX(-50%)" } },
+  { style: { left: "50%", top: "1%", transform: "translateX(-50%)" } },
   { style: { right: "13%", top: "2%" }, reverse: true },
   { style: { right: "1%", top: "52%", transform: "translateY(-50%)" }, reverse: true },
 ];
@@ -206,7 +206,7 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
           </div>
 
           {/* Board, pot and status */}
-          <div className="absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-center z-10 w-[46%]">
+          <div className="absolute left-1/2 top-[46%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-center z-10 w-[46%]">
             {!resp ? (
               <div className="text-[13px] text-white/80">Finding a table…</div>
             ) : !liveHand ? (
