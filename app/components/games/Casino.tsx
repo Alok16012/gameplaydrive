@@ -12,7 +12,8 @@ import type { Nav } from "../nav";
 // Timer-sync casino games (PRD §6.2): Dragon Tiger and Andar Bahar. Lucky 7 has its own board (LuckySeven.tsx). In production the round clock, deal and result all come from the
 // server; here a local loop simulates it: 15 s betting → deal → result → payout → next round.
 
-const BET_SECS = 15;
+// Betting window: Dragon Tiger runs fast rounds with a 3-second count, Andar Bahar keeps 15 s.
+const betSecsOf = (g: GameId) => (g === "dragon-tiger" ? 3 : 15);
 // Dragon Tiger: the Tiger card opens this long after the Dragon card, for suspense.
 const DT_TIGER_DELAY_MS = 5000;
 const CHIPS: { v: number; c: string }[] = [
@@ -128,6 +129,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const { total, showToast, applyBalance, holdWinnings } = useStore();
   const release = useRef<() => void>(() => {});
   const payout = useRef(0); // this round's payout, as settled by the server
+  const BET_SECS = betSecsOf(gameId);
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
   const [now, setNow] = useState(() => Date.now());
@@ -279,6 +281,14 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             )}
             {gameId === "andar-bahar" && <AndarBaharTable round={round} phase={phase} />}
           </div>
+          {/* Standard countdown over the table for the last three seconds of betting */}
+          {phase === "betting" && secs <= 3 && secs > 0 && (
+            <div key={secs} className="absolute inset-0 grid place-items-center pointer-events-none">
+              <div className="pop w-20 h-20 rounded-full grid place-items-center bg-black/55 border-2 border-white/80 shadow-[0_0_30px_rgba(0,0,0,.6)]">
+                <span className="text-5xl font-black text-white tabular-nums leading-none">{secs}</span>
+              </div>
+            </div>
+          )}
           {phase === "result" && round && (
             <div className="absolute inset-x-0 bottom-3 flex justify-center pop">
               <div className="pill px-4 py-1.5 text-sm font-semibold" style={{ background: sides.find((s) => s.id === round.winner)!.color }}>
