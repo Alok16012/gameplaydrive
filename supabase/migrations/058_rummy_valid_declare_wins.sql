@@ -1,39 +1,9 @@
--- 058: a valid rummy declaration always wins.
--- 049 rejected a declaration as a wrong show whenever get_outcome_mode() returned 'force_loss'. That function is
--- probabilistic: in plain "fair" mode it returns 'force_loss' about 60% of the time (and 85% under a game/global
--- force-loss setting), so most correct declarations were thrown out as "Wrong show (80)".
--- Now only an account the Super Admin targeted by name (player, or its agent / admin) in Win / Loss Control is
--- affected; everyone else's hand is scored as it is.
--- Safe to run more than once. Run after 049. Run it in the Supabase SQL Editor.
-
--- True when the account, or the nearest account above it with a setting, is set to force_loss in outcome_control
--- (the same direct-target lookup get_outcome_mode starts with, without the random part).
-create or replace function public.rm_targeted_loss(p_uid uuid) returns boolean
-language plpgsql stable security definer set search_path = public as $$
-declare
-  ctrl jsonb;
-  m text;
-begin
-  if p_uid is null then return false; end if;
-  select value into ctrl from app_settings where key = 'outcome_control';
-  if ctrl is null then return false; end if;
-  with recursive up as (
-    select id, parent_id, 1 as depth from profiles where id = p_uid
-    union all
-    select p.id, p.parent_id, up.depth + 1 from profiles p join up on p.id = up.parent_id
-  )
-  select coalesce(ctrl -> 'players' ->> up.id::text, ctrl -> 'agents' ->> up.id::text,
-                  ctrl -> 'admins' ->> up.id::text, ctrl -> 'accounts' ->> up.id::text)
-    into m
-  from up
-  where coalesce(ctrl -> 'players' ->> up.id::text, ctrl -> 'agents' ->> up.id::text,
-                 ctrl -> 'admins' ->> up.id::text, ctrl -> 'accounts' ->> up.id::text) in ('force_win', 'force_loss', 'fair')
-  order by depth asc
-  limit 1;
-  return m = 'force_loss';
-end;
-$$;
-revoke execute on function public.rm_targeted_loss(uuid) from public, anon, authenticated;
+-- 058: a correct rummy declaration is never turned into a wrong show.
+-- 049 rejected a declaration as "Wrong show (80)" — dropping the player from the deal — whenever
+-- get_outcome_mode() said force_loss. That function is random (about 60% force_loss even in plain fair mode), so
+-- most correct declarations were thrown out. Now every declaration is scored on the cards. Win / Loss Control
+-- (Force Loss etc.) is unchanged everywhere else, including when the deal is settled (rm_end_deal).
+-- Safe to run more than once (also if an earlier version of 058 was run). Run after 049 in the Supabase SQL Editor.
 
 create or replace function public.rm_declare(t public.rm_tables, seat int, card_id int, p_groups jsonb) returns public.rm_tables
 language plpgsql volatile security definer set search_path = public as $$
@@ -43,7 +13,6 @@ declare
   sc jsonb;
   ids int[];
   want int[];
-  p_uid uuid;
 begin
   if t.phase <> 'discard' then raise exception 'Draw a card before declaring'; end if;
   t := public.rm_throw(t, seat, card_id);
@@ -54,28 +23,15 @@ begin
   groups := (select jsonb_agg((select jsonb_agg(c) from jsonb_array_elements(cards) c where (c ->> 'id')::int in (select (y #>> '{}')::int from jsonb_array_elements(g) y))) from jsonb_array_elements(p_groups) g);
   update rm_hands set groups = p_groups where table_id = t.id and rm_hands.seat = rm_declare.seat;
 
-  -- Check outcome mode for human player
-  if not (t.seats -> seat ->> 'bot')::boolean then
-    p_uid := (t.seats -> seat ->> 'uid')::uuid;
-    if public.rm_targeted_loss(p_uid) then
-      -- Reject declaration for force_loss player
-      sc := '{"valid": false, "points": 80}';
-    else
-      sc := public.rm_score_groups(groups, public.rm_wk(t));
-    end if;
-  else
-    sc := public.rm_score_groups(groups, public.rm_wk(t));
-  end if;
+  -- Scored as it is for everyone: outcome control (Force Loss) never turns a correct show into a wrong one.
+  -- It still applies when the deal is settled (rm_end_deal).
+  sc := public.rm_score_groups(groups, public.rm_wk(t));
 
   -- 21 cards: 3 tunnelas or 8 doubles in hand is a rummy however they are arranged.
   if not (sc ->> 'valid')::boolean and t.cards = 21 and public.rm_special21(cards) is not null then
-    if not (t.seats -> seat ->> 'bot')::boolean and public.rm_targeted_loss((t.seats -> seat ->> 'uid')::uuid) then
-      sc := '{"valid": false, "points": 120}';
-    else
-      update rm_hands set groups = (select jsonb_agg((select jsonb_agg(y -> 'id') from jsonb_array_elements(g) y)) from jsonb_array_elements(public.rm_special21(cards)) g)
-        where table_id = t.id and rm_hands.seat = rm_declare.seat;
-      sc := '{"valid": true, "points": 0}';
-    end if;
+    update rm_hands set groups = (select jsonb_agg((select jsonb_agg(y -> 'id') from jsonb_array_elements(g) y)) from jsonb_array_elements(public.rm_special21(cards)) g)
+      where table_id = t.id and rm_hands.seat = rm_declare.seat;
+    sc := '{"valid": true, "points": 0}';
   end if;
 
   if (sc ->> 'valid')::boolean then
@@ -88,3 +44,6 @@ begin
   return public.rm_pass(t, seat);
 end;
 $$;
+
+-- Helper from the earlier version of this migration, no longer used.
+drop function if exists public.rm_targeted_loss(uuid);
