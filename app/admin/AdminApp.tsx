@@ -1695,6 +1695,16 @@ function AuditView({ me, accounts }: Ctx) {
   }, [q]);
 
   const people = useMemo(() => [me, ...accounts.filter((a) => a.id !== me.id && a.role !== "player")].sort((a, b) => (a.id === me.id ? -1 : b.id === me.id ? 1 : a.name.localeCompare(b.name))), [me, accounts]);
+  // Coin movements ("Coins to X" / "Coins from X") log the receiver's balance before and after; the amount moved
+  // is the difference. Other entries have no amount.
+  const coinsMoved = (a: { action: string; before: string | null; after: string | null }): number | null => {
+    if (!/^Coins (to|from) /.test(a.action) || !/^-?\d+$/.test(a.before ?? "") || !/^-?\d+$/.test(a.after ?? "")) return null;
+    return Number(a.after) - Number(a.before);
+  };
+  const movedTotal = useMemo(() => {
+    const amts = (rows ?? []).map(coinsMoved).filter((x): x is number => x !== null);
+    return amts.length ? amts.reduce((a, b) => a + b, 0) : null;
+  }, [rows]);
 
   const load = async (offset: number) => {
     setBusy(true);
@@ -1766,19 +1776,30 @@ function AuditView({ me, accounts }: Ctx) {
       </div>
       <div className="card overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
-          <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["When", "By", "Action", "Before", "After"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
+          <thead><tr className="text-left text-[11px] text-white/50 border-b border-white/5">{["When", "By", "Action", "Amount", "Their balance before", "Their balance after"].map((h) => <th key={h} className="px-4 py-3 font-medium">{h}</th>)}</tr></thead>
           <tbody>
-            {(rows ?? []).map((a) => (
-              <tr key={a.id} className="border-b border-white/5 last:border-0">
-                <td className="px-4 py-3 text-white/60 whitespace-nowrap">{new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
-                <td className="px-4 py-3">{a.actor_name}</td>
-                <td className="px-4 py-3">{a.action}</td>
-                <td className="px-4 py-3 text-rose-300">{a.before}</td>
-                <td className="px-4 py-3 text-neon-400">{a.after}</td>
+            {(rows ?? []).map((a) => {
+              const amt = coinsMoved(a);
+              return (
+                <tr key={a.id} className="border-b border-white/5 last:border-0">
+                  <td className="px-4 py-3 text-white/60 whitespace-nowrap">{new Date(a.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                  <td className="px-4 py-3">{a.actor_name}</td>
+                  <td className="px-4 py-3">{a.action}</td>
+                  <td className={`px-4 py-3 font-semibold tabular-nums whitespace-nowrap ${amt === null ? "text-white/30" : amt >= 0 ? "text-neon-400" : "text-rose-300"}`}>{amt === null ? "—" : `${amt >= 0 ? "+" : "−"}${Math.abs(amt).toLocaleString("en-IN")}`}</td>
+                  <td className="px-4 py-3 text-white/60 tabular-nums">{a.before}</td>
+                  <td className="px-4 py-3 text-white/80 tabular-nums">{a.after}</td>
+                </tr>
+              );
+            })}
+            {rows && rows.length > 0 && movedTotal !== null && (
+              <tr className="bg-white/[0.03]">
+                <td colSpan={3} className="px-4 py-3 text-xs text-white/60">Coins moved in the {rows.length.toLocaleString("en-IN")} entries shown (Amount column; the balance columns are the receiver&apos;s, not the sender&apos;s)</td>
+                <td className={`px-4 py-3 font-bold tabular-nums whitespace-nowrap ${movedTotal >= 0 ? "text-neon-400" : "text-rose-300"}`}>{movedTotal >= 0 ? "+" : "−"}{Math.abs(movedTotal).toLocaleString("en-IN")}</td>
+                <td colSpan={2} />
               </tr>
-            ))}
-            {rows && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">{filtered ? "No entries match these filters." : "Nothing yet."}</td></tr>}
-            {!rows && !err && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Loading…</td></tr>}
+            )}
+            {rows && rows.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/50">{filtered ? "No entries match these filters." : "Nothing yet."}</td></tr>}
+            {!rows && !err && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/50">Loading…</td></tr>}
           </tbody>
         </table>
       </div>
