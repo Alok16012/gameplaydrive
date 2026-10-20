@@ -21,6 +21,7 @@ import { Casino } from "./games/Casino";
 import { LuckySeven } from "./games/LuckySeven";
 import { CardTable } from "./games/CardTable";
 import { TeenPattiClassic } from "./games/TeenPattiClassic";
+import { PokerOnline } from "./games/PokerOnline";
 import { RummyOnline } from "./games/RummyOnline";
 import { BoardGame } from "./games/Board";
 import { Aviator } from "./games/Aviator";
@@ -66,10 +67,11 @@ function Shell() {
   );
 
   // Rejoin: server tables keep your seat when the screen closes, so remember the one you're at and offer it on
-  // Home. (Ludo, Chess, Poker and Blackjack mark themselves when a game is actually under way.)
+  // Home. (Ludo, Chess and Blackjack mark themselves when a game is actually under way.)
   useEffect(() => {
     if (route.name === "rummy") markActive(route, `${route.cards === 21 ? "21 Card Rummy" : "Rummy"} • Table #${route.table}`, REJOIN_MS.rummy);
     else if (route.name === "cardtable" && route.game === "teen-patti") markActive(route, `Teen Patti • Boot 🪙 ${route.buyIn}`, REJOIN_MS.teenPatti);
+    else if (route.name === "cardtable" && route.game === "poker") markActive(route, `Poker • Boot 🪙 ${route.buyIn}`, REJOIN_MS.poker);
     // While the table is open the rejoin window keeps resetting; it starts counting once you leave the screen.
     const t = setInterval(() => touchActive(route), 5000);
     return () => { touchActive(route); clearInterval(t); };
@@ -151,6 +153,8 @@ function Shell() {
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"
       ? <TeenPattiAuto key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
+      : route.game === "poker"
+      ? <PokerOnline key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
       : <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
     case "rummy": screen = <RummyOnline key={route.table + route.mode + route.buyIn + (route.cards ?? 13)} nav={nav} mode={route.mode} stake={route.buyIn} deals={route.deals ?? 2} cards={route.cards ?? 13} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} avoid={route.avoid} />; break;
     case "board": screen = route.game === "ludo" && route.table.startsWith("P-")

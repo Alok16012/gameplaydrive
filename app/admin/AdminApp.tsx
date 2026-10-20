@@ -1518,7 +1518,7 @@ const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "blackjack", fields: ["bets"], note: "Limits apply to each hand (double / split too)" },
   { id: "ludo", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "chess", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
-  { id: "poker", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table boot" },
+  { id: "poker", fields: ["bets", "rake", "turn"], note: "Limits apply to the table boot. Fee comes off every pot; turn time applies to every table" },
 ];
 
 export function ConfigView() {

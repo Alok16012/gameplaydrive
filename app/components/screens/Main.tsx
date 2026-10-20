@@ -11,7 +11,7 @@ import { Avatar, Header, Money, Sheet } from "../ui";
 import { isClosed, latestSettings, useGameSettings } from "../../lib/gameConfig";
 import type { Nav, RummyMode } from "../nav";
 
-const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21"];
+const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21", "poker"];
 
 export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
@@ -49,9 +49,20 @@ async function tpLobby(): Promise<Record<string, number>> {
   }
 }
 
-async function createClassicTeenPattiPrivate(boot: number): Promise<string> {
+/** Real players at online Poker tables right now, per boot (see /api/poker/lobby). */
+async function pokerLobby(): Promise<Record<string, number>> {
+  try {
+    const r = await fetch("/api/poker/lobby", { cache: "no-store" });
+    return r.ok ? ((await r.json()) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Open a private table on our own server (Teen Patti or Poker) and get back its invite code. */
+async function createServerPrivate(game: "teenpatti" | "poker", boot: number): Promise<string> {
   const { data } = await supabase().auth.getSession();
-  const r = await fetch("/api/teenpatti/private", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` }, body: JSON.stringify({ boot }) });
+  const r = await fetch(`/api/${game}/private`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` }, body: JSON.stringify({ boot }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error ?? "Could not create the table");
   return String(j.code);
@@ -260,9 +271,11 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     const load = () =>
       gameId === "teen-patti"
         ? tpLobby().then(setCounts)
+        : gameId === "poker"
+        ? pokerLobby().then(setCounts)
         : supabase().rpc("lobby_counts").then(({ data }) => data && setCounts((data as Record<string, Record<string, number>>)[rummy ? "rummy" : gameId] ?? {}));
     load();
-    const t = setInterval(load, gameId === "teen-patti" ? 5000 : 10000);
+    const t = setInterval(load, gameId === "teen-patti" || gameId === "poker" ? 5000 : 10000);
     return () => clearInterval(t);
   }, [online, gameId]);
 
@@ -286,8 +299,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     else nav.push({ name: "cardtable", game: game.id, table, buyIn });
   };
 
-  // Private tables: create one (you get an invite code) or join a friend's by code. Teen Patti tables are
-  // created on the game server (Railway); Rummy still goes through Supabase until it moves over too.
+  // Private tables: create one (you get an invite code) or join a friend's by code. Teen Patti and Poker tables are
+  // created on our own server (/api/teenpatti, /api/poker); Rummy and Ludo go through Supabase functions.
   const createPrivate = async () => {
     if (!Number.isInteger(privStake) || privStake < privMin) {
       return showToast(`Min amount is ${inr(privMin)}${rummy && mode === "points" ? " per point" : ""}`);
@@ -296,8 +309,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     try {
       const code = gameId === "ludo"
         ? await supabase().rpc("ld_create_private", { p_entry: privStake, p_players: ludoN }).then(({ data, error }) => { if (error) throw error; return data as string; })
-        : gameId === "teen-patti"
-        ? await createClassicTeenPattiPrivate(privStake)
+        : gameId === "teen-patti" || gameId === "poker"
+        ? await createServerPrivate(gameId === "poker" ? "poker" : "teenpatti", privStake)
         : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privStake, p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
       setPriv(false);
       join(`P-${code}`, privStake, mode === "deals" ? 2 : 0);

@@ -20,7 +20,7 @@ export const REJOIN_MS = {
   rummy: 90_000,      // 3 × 30 s turns; the server also seats only players seen in the last 90 s
   teenPatti: 60_000,  // the game server drops a player who has been away 60 s
   ludo: 60_000,       // 3 × 20 s turns
-  poker: 45_000,      // 3 × 15 s turns
+  poker: 60_000,      // the server drops a player who has been away 60 s
   blackjack: MAX_AGE_HOURS(3), // a dealt hand waits on the server until you finish it
 };
 function MAX_AGE_HOURS(h: number) { return h * 60 * 60 * 1000; }
