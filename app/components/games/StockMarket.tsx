@@ -270,7 +270,8 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const shown = phase === "betting" ? lastPath.current?.path ?? [] : (v?.path ?? []).slice(0, Math.floor(drawTick) + 1).concat(drawTick % 1 ? [price] : []);
   const head = phase === "betting" ? shown.length - 1 : drawTick;
   const lo = Math.min(0.75, ...shown) - 0.04, hi = Math.max(1.25, ...shown) + 0.04;
-  const X = (t: number) => (t / TICKS) * (W - 46) + 4;
+  // The line runs the full width: the close (tick 80) sits at the right edge of the chart.
+  const X = (t: number) => (t / TICKS) * (W - 8) + 4;
   const Y = (p: number) => H - ((p - lo) / (hi - lo)) * H;
   const xs = shown.map((_, i) => (i === shown.length - 1 && phase !== "betting" ? X(head) : X(i)));
   const line = shown.map((p, i) => `${i ? "L" : "M"}${xs[i].toFixed(1)},${Y(p).toFixed(1)}`).join(" ");
@@ -278,6 +279,8 @@ export function StockMarket({ nav }: { nav: Nav }) {
   const upNow = lastP >= 1;
   const col = upNow ? "#2ee6a6" : "#ff4f8b";
   const hx = xs[xs.length - 1] ?? X(0), hy = Y(lastP);
+  // Near the right edge the move label hangs to the left of the head so it stays inside the chart.
+  const headRight = hx > W * 0.82;
   const grid = [-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1].map((g) => 1 + g).filter((p) => p > lo && p < hi);
 
   if (err && !v) {
@@ -325,7 +328,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
             {grid.map((g) => (
               <g key={g}>
                 <line x1="0" x2={W} y1={Y(g)} y2={Y(g)} stroke={g === 1 ? "rgba(255,255,255,.45)" : "rgba(255,255,255,.07)"} strokeDasharray={g === 1 ? "4 4" : undefined} vectorEffect="non-scaling-stroke" />
-                <text x={W - 2} y={Y(g) - 2} textAnchor="end" fontSize="8" fill="rgba(255,255,255,.35)">{pctOf(g) > 0 ? "+" : ""}{pctOf(g)}%</text>
+                <text x={W - 2} y={Y(g) - 2} textAnchor="end" fontSize="8" fill="rgba(255,255,255,.45)" stroke="rgba(6,10,28,.8)" strokeWidth="2" paintOrder="stroke">{pctOf(g) > 0 ? "+" : ""}{pctOf(g)}%</text>
               </g>
             ))}
             {shown.length > 1 && (
@@ -340,7 +343,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
           {shown.length > 0 && phase !== "betting" && (
             <div className="absolute z-20 pointer-events-none" style={{ left: `${(hx / W) * 100}%`, top: `calc(24px + (100% - 52px) * ${(hy / H).toFixed(4)})`, transform: "translate(-50%,-50%)" }}>
               <div className="w-3 h-3 rounded-full border-2 border-white" style={{ background: col, boxShadow: `0 0 12px ${col}` }} />
-              <div className="absolute left-1/2 -translate-x-1/2 -top-7 rounded-md px-1.5 py-0.5 text-[12px] font-extrabold text-white whitespace-nowrap tabular-nums" style={{ background: col }}>
+              <div className={`absolute -top-7 rounded-md px-1.5 py-0.5 text-[12px] font-extrabold text-white whitespace-nowrap tabular-nums ${headRight ? "right-0" : "left-1/2 -translate-x-1/2"}`} style={{ background: col }}>
                 {pct >= 0 ? "▲" : "▼"} {Math.abs(pct)}%
               </div>
             </div>
