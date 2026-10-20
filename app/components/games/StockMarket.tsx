@@ -1,6 +1,6 @@
 "use client";
 
-import { sfx, vibrate } from "../../lib/sound";
+import { sfx } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { inr } from "../../lib/data";
@@ -163,7 +163,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
     const staked = v.mine.reduce((a, b) => a + b.amount, 0);
     const won = paid > staked;
     setResult({ round: v.id, won, text: `Market closed ${pctOf(v.path[v.path.length - 1] ?? 1) >= 0 ? "▲" : "▼"} ${Math.abs(pctOf(v.path[v.path.length - 1] ?? 1))}% • ${paid > 0 ? `you got ${inr(paid)}` : "you lost your stake"}` });
-    if (won) { sfx.win(); vibrate(50); } else sfx.lose();
+    if (won) sfx.win(); else sfx.lose();
   }, [v]);
   useEffect(() => { if (result && v && v.id !== result.round && phase === "live") setResult(null); }, [result, v, phase]);
 
@@ -220,7 +220,7 @@ export function StockMarket({ nav }: { nav: Nav }) {
     const r = await call("sm_cashout");
     if (r?.cashed) {
       const p = r.path[r.cashed.tick] ?? 1;
-      sfx.win(); vibrate(50);
+      sfx.win();
       showToast(`Cashed out at ${pctOf(p) >= 0 ? "▲" : "▼"} ${Math.abs(pctOf(p))}% • ${inr(r.cashed.payout)}`);
     }
   };

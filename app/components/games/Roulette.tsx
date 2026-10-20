@@ -1,6 +1,6 @@
 "use client";
 
-import { sfx, vibrate } from "../../lib/sound";
+import { sfx } from "../../lib/sound";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from "lucide-react";
 import { gameById, inr } from "../../lib/data";
@@ -168,7 +168,7 @@ export function Roulette({ nav }: { nav: Nav }) {
         spinTo(n);
         window.setTimeout(() => {
           setResult({ n, payout, stake });
-          if (payout > 0) { sfx.win(); vibrate(50); } else if (stake > 0) sfx.lose();
+          if (payout > 0) sfx.win(); else if (stake > 0) sfx.lose();
           setHist((h) => [n, ...h].slice(0, 20));
           release(); // winnings appear only now that the ball has stopped
           setPhase("result");

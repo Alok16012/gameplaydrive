@@ -72,7 +72,7 @@ function Shell() {
     return () => { touchActive(route); clearInterval(t); };
   }, [route]);
 
-  // Sound: phones only allow audio after a touch, so wake the engine (and the music) on the first tap; every
+  // Sound: phones only allow audio after a touch, so wake the engine on the first tap; every
   // button gives a soft click unless it plays its own sound (data-sfx="off").
   useEffect(() => {
     const onDown = (e: PointerEvent) => {

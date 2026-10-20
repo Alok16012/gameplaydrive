@@ -1,7 +1,7 @@
 "use client";
 
 import { clearActive } from "../../lib/rejoin";
-import { dealSound, sfx, useSoundOnRise, vibrate } from "../../lib/sound";
+import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, LogOut, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
@@ -346,15 +346,6 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const sc = scoreGroups(cardGroups, wild);
   const serverNow = now + offset.current;
   const secsTo = (iso: string | null) => (iso ? Math.max(0, (new Date(iso).getTime() - serverNow) / 1000) : 0);
-
-  // Buzz the phone once when your turn comes round (the turn starts on the draw phase).
-  const turnKey = v && v.status === "playing" && v.me !== null && v.turn === v.me && v.phase === "draw" ? `${v.match_no}:${v.deal_no}:${v.round}` : null;
-  const buzzed = useRef<string | null>(null);
-  useEffect(() => {
-    if (!turnKey || buzzed.current === turnKey) return;
-    buzzed.current = turnKey;
-    vibrate([120, 80, 120]);
-  }, [turnKey]);
 
   if (err && !v) {
     return (

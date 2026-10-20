@@ -211,9 +211,9 @@ export function Settings({ nav }: { nav: Nav }) {
   const [changePwOpen, setChangePwOpen] = useState(false);
   const [n, setN] = useState({ push: true, whatsapp: true });
   const s = { ...snd, ...n };
-  const rows: [keyof typeof s, string][] = [["sound", "Sound effects"], ["music", "Background music"], ["vibration", "Vibration"], ["push", "Push notifications"], ["whatsapp", "WhatsApp updates"]];
+  const rows: [keyof typeof s, string][] = [["sound", "Sound effects"], ["push", "Push notifications"], ["whatsapp", "WhatsApp updates"]];
   const setS = (next: typeof s) => {
-    for (const k of ["sound", "music", "vibration"] as const) if (next[k] !== snd[k]) setPref(k, next[k]);
+    if (next.sound !== snd.sound) setPref("sound", next.sound);
     setN({ push: next.push, whatsapp: next.whatsapp });
   };
   return (

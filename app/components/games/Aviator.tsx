@@ -1,6 +1,6 @@
 "use client";
 
-import { engine, sfx, vibrate } from "../../lib/sound";
+import { engine, sfx } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Minus, Plus } from "lucide-react";
 import { inr } from "../../lib/data";
@@ -125,7 +125,7 @@ export function Aviator({ nav }: { nav: Nav }) {
     take(data as View);
     if (fn === "av_cashout") {
       const b = (data as View).mine.find((x) => x.slot === slot);
-      if (b?.cash_mult) { sfx.win(); vibrate(50); showToast(`Cashed out at ${b.cash_mult.toFixed(2)}x • +${inr(b.payout)}`); }
+      if (b?.cash_mult) { sfx.win(); showToast(`Cashed out at ${b.cash_mult.toFixed(2)}x • +${inr(b.payout)}`); }
     }
   };
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LogOut, Trophy } from "lucide-react";
 import { Avatar, Sheet } from "../ui";
-import { sfx, vibrate } from "../../lib/sound";
+import { sfx } from "../../lib/sound";
 
 // Shared "human-like" opponent helpers for the card tables. Each seat gets a 15 s turn; bots take a
 // varied amount of it (some act at once, some think, a few run the clock out) so the table feels live.
@@ -113,7 +113,7 @@ export function ResultSheet({ open, won, title, sub, left, nextLabel, onLeave, o
 }) {
   useEffect(() => {
     if (!open) return;
-    if (won) { sfx.bigWin(); vibrate([60, 40, 60]); } else sfx.lose();
+    if (won) sfx.bigWin(); else sfx.lose();
   }, [open, won]);
   return (
     <Sheet open={open} onClose={onClose}>

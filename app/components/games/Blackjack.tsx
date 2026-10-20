@@ -1,7 +1,7 @@
 "use client";
 
 import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
-import { sfx, vibrate } from "../../lib/sound";
+import { sfx } from "../../lib/sound";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { inr, type Card } from "../../lib/data";
 import { useStore } from "../../lib/store";
@@ -141,7 +141,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
         release();
         if (view.status === "done") {
           const st = (view.hands ?? []).reduce((a, h) => a + h.bet, 0), pay = view.payout ?? 0;
-          if (pay > st) { (view.hands ?? []).some((h) => h.result === "blackjack") ? sfx.bigWin() : sfx.win(); vibrate(50); }
+          if (pay > st) { (view.hands ?? []).some((h) => h.result === "blackjack") ? sfx.bigWin() : sfx.win(); }
           else if (pay < st) sfx.lose();
         }
         return;
@@ -212,7 +212,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
   useEffect(() => {
     if (!sideKey || sideSeen.current === sideKey || !side) return;
     sideSeen.current = sideKey;
-    if ((side.pp?.pay ?? 0) + (side.t3?.pay ?? 0) > 0) { sfx.win(); vibrate(40); }
+    if ((side.pp?.pay ?? 0) + (side.t3?.pay ?? 0) > 0) sfx.win();
   }, [sideKey, side]);
 
   const shown = (spot: Spot): number =>

@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
 
-// Game sounds and background music, synthesised with the Web Audio API, so there are no audio files to load.
-// Phones only allow audio after the first touch, so unlockAudio() runs on the first tap (see GameHubApp).
-// The player's choices (Settings → Sound effects / Background music / Vibration) are kept on the device.
+// Game sounds, synthesised with the Web Audio API, so there are no audio files to load. There is no background
+// music and no vibration. Phones only allow audio after the first touch, so unlockAudio() runs on the first tap
+// (see GameHubApp). The player's choice (Settings → Sound effects) is kept on the device.
 
-export interface SoundPrefs { sound: boolean; music: boolean; vibration: boolean }
+export interface SoundPrefs { sound: boolean }
 const KEY = "gamehub-sound";
-const DEFAULTS: SoundPrefs = { sound: true, music: true, vibration: true };
+const DEFAULTS: SoundPrefs = { sound: true };
 
 let prefs: SoundPrefs = DEFAULTS;
 let loaded = false;
@@ -19,7 +19,7 @@ function load() {
   loaded = true;
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (raw) prefs = { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) prefs = { sound: JSON.parse(raw)?.sound ?? DEFAULTS.sound };
   } catch { /* private mode: keep the defaults */ }
 }
 
@@ -32,7 +32,6 @@ export function setPref(k: keyof SoundPrefs, v: boolean) {
   load();
   prefs = { ...prefs, [k]: v };
   try { window.localStorage.setItem(KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
-  if (k === "music") (v ? startMusic() : stopMusic());
   if (k === "sound" && v) sfx.click();
   subs.forEach((f) => f());
 }
@@ -49,7 +48,6 @@ export function useSoundPrefs(): SoundPrefs {
 
 let ctx: AudioContext | null = null;
 let sfxBus: GainNode;
-let musicBus: GainNode;
 let noiseBuf: AudioBuffer;
 
 function ac(): AudioContext | null {
@@ -65,9 +63,6 @@ function ac(): AudioContext | null {
     sfxBus = ctx.createGain();
     sfxBus.gain.value = 0.8;
     sfxBus.connect(comp);
-    musicBus = ctx.createGain();
-    musicBus.gain.value = 0;
-    musicBus.connect(comp);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -81,11 +76,9 @@ function ac(): AudioContext | null {
   return ctx;
 }
 
-/** Call from a user gesture: wakes the audio engine and starts the music if it is on. */
+/** Call from a user gesture: wakes the audio engine. */
 export function unlockAudio() {
-  load();
-  if (!ac()) return;
-  if (prefs.music) startMusic();
+  ac();
 }
 
 interface ToneOpts { type?: OscillatorType; vol?: number; at?: number; attack?: number; slide?: number; bus?: AudioNode }
@@ -133,13 +126,6 @@ const play = (fn: () => void) => () => {
   if (!prefs.sound || !ac()) return;
   try { fn(); } catch { /* never let a sound break the game */ }
 };
-
-export function vibrate(ms: number | number[]) {
-  load();
-  if (prefs.vibration && typeof navigator !== "undefined" && "vibrate" in navigator) {
-    try { navigator.vibrate(ms); } catch { /* ignore */ }
-  }
-}
 
 const NOTE = (n: number) => 440 * Math.pow(2, (n - 69) / 12); // MIDI note → Hz
 
@@ -290,94 +276,6 @@ export function engine() {
   };
 }
 
-/* ------------------------------------------------------------------ music */
-
-// A relaxed casino-lounge loop: Am9 – Fmaj7 – Cmaj7 – G6 at 92 bpm. Soft pad, walking bass, a light shaker
-// and an electric-piano figure, scheduled a little ahead of time so it never stutters.
-const BPM = 92;
-const EIGHTH = 60 / BPM / 2;
-const CHORDS = [
-  { root: 45, notes: [57, 60, 64, 67, 71] }, // Am9
-  { root: 41, notes: [57, 60, 64, 65] },     // Fmaj7
-  { root: 48, notes: [55, 59, 60, 64] },     // Cmaj7
-  { root: 43, notes: [55, 59, 62, 64] },     // G6
-];
-const BASS = [0, -1, -1, 7, 0, -1, 12, 7]; // per eighth; −1 = rest
-const KEYS = [-1, 2, -1, 3, 1, -1, 4, -1, -1, 2, -1, 1, 3, -1, 2, -1]; // chord-tone index per eighth over 2 bars
-
-let timer: number | null = null;
-let step = 0;
-let nextAt = 0;
-
-function scheduleStep(s: number, t: number) {
-  const c = ctx!;
-  const bar = Math.floor(s / 8);
-  const chord = CHORDS[Math.floor(bar / 2) % CHORDS.length];
-  const e = s % 8;
-  const rel = t - c.currentTime;
-  // Pad on the first beat of every second bar.
-  if (s % 16 === 0) {
-    for (const n of chord.notes.slice(0, 4)) {
-      for (const det of [-4, 4]) {
-        const osc = c.createOscillator();
-        const g = c.createGain();
-        const f = c.createBiquadFilter();
-        osc.type = "triangle";
-        osc.frequency.value = NOTE(n);
-        osc.detune.value = det;
-        f.type = "lowpass";
-        f.frequency.value = 1400;
-        const len = EIGHTH * 16;
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.035, t + 0.8);
-        g.gain.setValueAtTime(0.035, t + len - 0.6);
-        g.gain.linearRampToValueAtTime(0.0001, t + len + 0.2);
-        osc.connect(f).connect(g).connect(musicBus);
-        osc.start(t);
-        osc.stop(t + len + 0.3);
-      }
-    }
-  }
-  const b = BASS[e];
-  if (b >= 0) tone(NOTE(chord.root + b - 12 + 12), EIGHTH * 1.6, { vol: 0.22, at: rel, bus: musicBus });
-  const k = KEYS[s % 16];
-  if (k >= 0) {
-    const n = chord.notes[k % chord.notes.length] + 12;
-    tone(NOTE(n), 0.6, { vol: 0.07, at: rel, bus: musicBus, type: "sine" });
-    tone(NOTE(n) * 2, 0.25, { vol: 0.018, at: rel, bus: musicBus, type: "sine" });
-  }
-  // shaker: soft on the off-beats, a touch louder on the beat
-  noise(0.05, { filter: "highpass", freq: 7000, vol: e % 2 ? 0.05 : 0.025, at: rel, bus: musicBus });
-  if (e === 2 || e === 6) noise(0.12, { filter: "bandpass", freq: 1800, q: 0.8, vol: 0.05, at: rel, bus: musicBus }); // brush snare
-}
-
-export function startMusic() {
-  load();
-  if (!prefs.music || timer !== null) return;
-  const c = ac();
-  if (!c) return;
-  musicBus.gain.cancelScheduledValues(c.currentTime);
-  musicBus.gain.setValueAtTime(musicBus.gain.value, c.currentTime);
-  musicBus.gain.linearRampToValueAtTime(0.55, c.currentTime + 2);
-  nextAt = c.currentTime + 0.1;
-  timer = window.setInterval(() => {
-    if (!ctx) return;
-    while (nextAt < ctx.currentTime + 0.35) {
-      scheduleStep(step++, nextAt);
-      nextAt += EIGHTH;
-    }
-  }, 90);
-}
-
-export function stopMusic() {
-  if (timer !== null) { window.clearInterval(timer); timer = null; }
-  if (ctx) {
-    musicBus.gain.cancelScheduledValues(ctx.currentTime);
-    musicBus.gain.setValueAtTime(musicBus.gain.value, ctx.currentTime);
-    musicBus.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.4);
-  }
-}
-
 /** Play `fn` whenever `value` goes up after the first render (cards on the table, the pot, …). */
 export function useSoundOnRise(value: number, fn: () => void) {
   const last = useRef<number | null>(null);
@@ -397,6 +295,6 @@ export function dealSound(n: number, gapMs = 140) {
 export function useResultSound(phaseIsResult: boolean, won: number | null) {
   useEffect(() => {
     if (!phaseIsResult || won === null) return;
-    if (won > 0) { sfx.win(); vibrate(50); } else sfx.lose();
+    if (won > 0) sfx.win(); else sfx.lose();
   }, [phaseIsResult, won]);
 }

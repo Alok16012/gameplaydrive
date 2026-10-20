@@ -1,7 +1,7 @@
 "use client";
 
 import { REJOIN_MS, clearActive, dropSnap, loadSnap, markActive, saveSnap, snapAge } from "../../lib/rejoin";
-import { sfx, vibrate } from "../../lib/sound";
+import { sfx } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { LogOut, Star } from "lucide-react";
 import { inr, type GameId } from "../../lib/data";
@@ -504,7 +504,6 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
       if (hit) {
         bonus = true;
         sfx.capture();
-        if (p !== 0 && t[0].some((x, j) => x === -1 && tokRef.current[0][j] !== -1)) vibrate(120);
         setT(t);
         await sleep(380); // let the captured token slide back to its yard
       }

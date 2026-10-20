@@ -6,7 +6,7 @@ import { inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, joinOnce, supabase } from "../../lib/supabase";
 import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
-import { sfx, vibrate } from "../../lib/sound";
+import { sfx } from "../../lib/sound";
 import { Avatar, Header, Money } from "../ui";
 import { DiceFace, LPLAYERS, LUDO_STEP_MS, LUDO_TURN_SECS, LudoBoardSurface, ludoColourAt, ludoTurns } from "./Board";
 import type { Nav } from "../nav";
@@ -125,7 +125,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       });
       window.setTimeout(() => {
         if (walking.current !== run) return;
-        if (L.caught?.length) { sfx.capture(); if (L.caught.some((c) => c.seat === v.me)) vibrate(120); }
+        if (L.caught?.length) sfx.capture();
         setShown(target);
       }, steps.length * STEP_MS + 60);
     } else {
@@ -133,7 +133,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       setShown(target);
     }
     if (!first && L?.seat !== v.me && (L?.kind === "roll" || L?.kind === "nomove" || L?.kind === "skip")) sfx.dice();
-    if (v.status === "done" && v.winner !== null) { if (v.winner === v.me) { sfx.bigWin(); vibrate([60, 40, 60]); } else sfx.lose(); }
+    if (v.status === "done" && v.winner !== null) { if (v.winner === v.me) sfx.bigWin(); else sfx.lose(); }
   }, [v]);
 
   const act = async (action: "roll" | "move", token?: number) => {
@@ -174,12 +174,6 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
   const me = v?.me ?? null;
   const mySeat = me !== null && v ? v.seats[me] : null;
   const myTurn = !!v && v.status === "playing" && v.turn === me && me !== null;
-  // Buzz the phone when the turn passes to you (not again for the extra roll after a 6).
-  const hadTurn = useRef(false);
-  useEffect(() => {
-    if (myTurn && !hadTurn.current) vibrate([120, 80, 120]);
-    hadTurn.current = myTurn;
-  }, [myTurn]);
   const myColour = mySeat?.colour ?? 0;
   const turns = ludoTurns(myColour); // your yard always at the bottom-left, next to your dice
   const movable = myTurn && v?.phase === "move" && v.dice && mySeat
