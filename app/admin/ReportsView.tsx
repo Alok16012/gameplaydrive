@@ -42,6 +42,7 @@ import {
 import { type Account, type Role, ROLE_LABEL, coins, fmtPhone } from "../lib/hierarchy";
 import { supabase, errText } from "../lib/supabase";
 import { GAMES } from "../lib/data";
+import { RoundLookup } from "./RoundLookup";
 import type { SportBetRow } from "../lib/cricketApi";
 
 export type ReportSubTab =
@@ -1611,6 +1612,7 @@ export function ReportsView({
                 {activeTab === "our_casino_result" ? "Card and board tables (Teen Patti, Rummy, Ludo, Poker…)" : "Casino and instant games (Aviator, Roulette, Andar Bahar…)"} in the selected period
               </p>
             </div>
+            <RoundLookup />
             <div className="overflow-x-auto rounded-xl border border-white/10">
               <table className="w-full text-sm text-left">
                 <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
