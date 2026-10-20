@@ -23,7 +23,8 @@ const SUIT: Record<Card["s"], UiCard["s"]> = { S: "♠", H: "♥", D: "♦", C: 
 const RANK: Record<number, UiCard["r"]> = { 14: "A", 13: "K", 12: "Q", 11: "J" };
 const ui = (c: Card): UiCard => ({ r: RANK[c.r] ?? (String(c.r) as UiCard["r"]), s: SUIT[c.s] });
 
-// Other seats around the oval from your left; you sit at the bottom centre.
+// Other seats around the oval; you sit at the bottom centre. Play moves anti-clockwise on screen: the player who
+// acts after you is on your right, then the top seats from right to left, and the one before you on your left.
 const SEAT_BOX: { style: React.CSSProperties; reverse?: boolean }[] = [
   { style: { left: "1%", top: "52%", transform: "translateY(-50%)" } },
   { style: { left: "13%", top: "2%" } },
@@ -229,7 +230,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
           {/* Other players */}
           {others.map((s, k) => {
             const p = inHand(s.playerId);
-            const box = SEAT_BOX[k] ?? SEAT_BOX[0];
+            const box = SEAT_BOX[4 - k] ?? SEAT_BOX[4]; // k = 0 is the next to act → right-hand seat
             const turn = liveHand && v!.turnId === s.playerId;
             const won = !!settled && settled.winners.some((w) => w.playerId === s.playerId);
             const tagText = p ? lastAction(s.playerId) : null;
