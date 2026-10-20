@@ -129,41 +129,91 @@ begin
     end if;
 
   else
+    -- Andar Bahar: Joker at d->0. Deal alternately to Andar (1) and Bahar (2).
     joker := d -> 0;
+    target_side := null;
+
     if mode in ('force_loss', 'force_win') then
-      for b in select * from jsonb_array_elements(coalesce(p_bets, '[]')) loop
-        if (b ->> 'side') in ('andar', 'bahar') then
-          if mode = 'force_loss' then
-            target_side := case when b ->> 'side' = 'andar' then 'bahar' else 'andar' end;
-          else
-            target_side := b ->> 'side';
+      declare
+        st_andar bigint := 0;
+        st_bahar bigint := 0;
+      begin
+        for b in select * from jsonb_array_elements(coalesce(p_bets, '[]')) loop
+          if (b ->> 'side') = 'andar' then st_andar := st_andar + (b ->> 'v')::bigint; end if;
+          if (b ->> 'side') = 'bahar' then st_bahar := st_bahar + (b ->> 'v')::bigint; end if;
+        end loop;
+
+        if mode = 'force_loss' then
+          if st_andar > st_bahar then
+            target_side := 'bahar';
+          elsif st_bahar > st_andar then
+            target_side := 'andar';
+          elsif st_andar > 0 then
+            target_side := case when random() < 0.5 then 'andar' else 'bahar' end;
           end if;
-          exit;
+        else -- force_win
+          if st_andar > st_bahar then
+            target_side := 'andar';
+          elsif st_bahar > st_andar then
+            target_side := 'bahar';
+          elsif st_andar > 0 then
+            target_side := case when random() < 0.5 then 'andar' else 'bahar' end;
+          end if;
+        end if;
+      end;
+    end if;
+
+    -- If fair mode or equal bets, randomly choose winning side so round stays thrilling and deep
+    if target_side is null then
+      target_side := case when random() < 0.5 then 'andar' else 'bahar' end;
+    end if;
+
+    -- Engaging deal length (never 1 or 2 cards!):
+    -- Andar wins on odd position: 7, 9, 11, 13, 15, 17, 19
+    -- Bahar wins on even position: 8, 10, 12, 14, 16, 18, 20
+    if target_side = 'andar' then
+      target_idx := (2 * (floor(random() * 7)::int + 3)) + 1;
+    else
+      target_idx := 2 * (floor(random() * 7)::int + 4);
+    end if;
+
+    -- Rearrange deck d so that:
+    -- 1) d[0] is joker
+    -- 2) d[1 .. target_idx - 1] are guaranteed non-matching cards (no premature finish)
+    -- 3) d[target_idx] matches joker's rank (exact decisive finish on target side)
+    -- 4) Remaining cards complete the 52-card deck
+    declare
+      match_cards jsonb := '[]'::jsonb;
+      other_cards jsonb := '[]'::jsonb;
+      new_d jsonb := jsonb_build_array(joker);
+      k int;
+    begin
+      for k in 1 .. 51 loop
+        if (d -> k ->> 'r') = (joker ->> 'r') then
+          match_cards := match_cards || jsonb_build_array(d -> k);
+        else
+          other_cards := other_cards || jsonb_build_array(d -> k);
         end if;
       end loop;
 
-      if target_side is not null then
-        -- Cards go Andar, Bahar, Andar, … from position 1, so Andar wins when the first card matching the joker
-        -- sits at an odd position and Bahar at an even one. If the natural first match is on the wrong side, swap it
-        -- with the next card that doesn't match: the round lasts about as long as it naturally would and no card is
-        -- duplicated. (029 moved the match to position 1 or 2, so every controlled round ended on the first
-        -- card or two.)
-        for guard in 1 .. 4 loop
-          target_idx := null;
-          for k in 1 .. 51 loop
-            if (d -> k ->> 'r') = (joker ->> 'r') then target_idx := k; exit; end if;
-          end loop;
-          exit when target_idx is null or (target_idx % 2 = 1) = (target_side = 'andar');
-          for j in target_idx + 1 .. 51 loop
-            if (d -> j ->> 'r') <> (joker ->> 'r') then
-              c := d -> j;
-              d := jsonb_set(jsonb_set(d, array[j::text], d -> target_idx), array[target_idx::text], c);
-              exit;
-            end if;
-          end loop;
-        end loop;
-      end if;
-    end if;
+      -- Non-matching cards before target_idx
+      for k in 1 .. (target_idx - 1) loop
+        new_d := new_d || jsonb_build_array(other_cards -> (k - 1));
+      end loop;
+
+      -- The winning matching card at target_idx
+      new_d := new_d || jsonb_build_array(match_cards -> 0);
+
+      -- Rest of the deck
+      for k in (target_idx - 1) .. (jsonb_array_length(other_cards) - 1) loop
+        new_d := new_d || jsonb_build_array(other_cards -> k);
+      end loop;
+      for k in 1 .. (jsonb_array_length(match_cards) - 1) loop
+        new_d := new_d || jsonb_build_array(match_cards -> k);
+      end loop;
+
+      d := new_d;
+    end;
 
     loop
       c := d -> i;

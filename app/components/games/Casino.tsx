@@ -57,12 +57,26 @@ function playRound(game: GameId): Round {
     return { cards: { dragon: d, tiger: t }, winner: w };
   }
   // Andar Bahar: centre joker, deal alternately (Andar first) until a card matches the joker's rank.
+  // Ensure the deal goes 7 to 17 cards for suspense and engagement (never ends on card 1 or 2).
   const dk = deck();
   const joker = dk.pop()!;
   const andar: Card[] = [], bahar: Card[] = [];
   let side: "andar" | "bahar" = "andar";
+  const minCards = 6 + Math.floor(Math.random() * 8); // at least 6 to 13 cards before a match
+  let dealtCount = 0;
   for (;;) {
     const c = dk.pop()!;
+    dealtCount++;
+    if (c.r === joker.r && dealtCount < minCards) {
+      const nextIdx = dk.findIndex((card) => card.r !== joker.r);
+      if (nextIdx !== -1) {
+        const nonMatch = dk.splice(nextIdx, 1)[0];
+        dk.push(c);
+        (side === "andar" ? andar : bahar).push(nonMatch);
+        side = side === "andar" ? "bahar" : "andar";
+        continue;
+      }
+    }
     (side === "andar" ? andar : bahar).push(c);
     if (c.r === joker.r) break;
     side = side === "andar" ? "bahar" : "andar";
