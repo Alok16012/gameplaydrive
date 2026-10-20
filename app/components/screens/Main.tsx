@@ -425,8 +425,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             <button disabled={busy} onClick={createPrivate} className="btn-green w-full py-3.5 rounded-2xl mt-4">{busy ? "Creating…" : "Create & get invite code"}</button>
             <div className="flex items-center gap-3 my-5 text-xs text-white/40"><div className="flex-1 h-px bg-white/10" />or join a friend<div className="flex-1 h-px bg-white/10" /></div>
             <div className="flex gap-2">
-              <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="INVITE CODE" className="flex-1 card px-4 py-3 bg-transparent outline-none tracking-[0.3em] font-semibold placeholder:tracking-normal placeholder:font-normal" />
-              <button onClick={joinPrivate} className="btn-ghost rounded-2xl px-5 text-sm">Join</button>
+              <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="INVITE CODE" className="flex-1 min-w-0 w-full card px-4 py-3 bg-transparent outline-none tracking-[0.3em] font-semibold placeholder:tracking-normal placeholder:font-normal" />
+              <button onClick={joinPrivate} className="btn-ghost rounded-2xl px-5 text-sm shrink-0">Join</button>
             </div>
           </>
         ) : (
