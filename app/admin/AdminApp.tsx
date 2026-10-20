@@ -1,7 +1,7 @@
 "use client";
 
 import { SupportCard } from "./SupportCard";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownLeft, BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
@@ -1074,29 +1074,98 @@ function CoinsModal({ target, me, reload, onClose }: Ctx & { target: Account; on
   );
 }
 
-function NetworkNode({ a, depth, accounts }: { a: Account; depth: number; accounts: Account[] }) {
-  const kids = accounts.filter((x) => x.parentId === a.id);
-  const [open, setOpen] = useState(depth < 2);
-  const tone = a.role === "admin" ? "amber" : a.role === "agent" ? "gray" : "green";
-  return (
-    <div>
-      <button onClick={() => setOpen(!open)} disabled={!kids.length} className="w-full flex items-center gap-2 py-2 text-left text-sm hover:bg-white/[.03] rounded-lg" style={{ paddingLeft: depth * 22 + 8 }}>
-        <ChevronRight size={14} className={`shrink-0 transition-transform ${open ? "rotate-90" : ""} ${kids.length ? "text-white/50" : "opacity-0"}`} />
-        <span className={`font-medium ${a.status === "Frozen" ? "text-white/40 line-through" : ""}`}>{a.name}</span>
-        <span className="text-[11px] text-white/40">{a.code}</span>
-        {a.role !== "superadmin" && <Pill tone={tone}>{ROLE_LABEL[a.role]}</Pill>}
-        {kids.length > 0 && <span className="text-[11px] text-white/40 ml-auto pr-2">{kids.length} direct</span>}
-      </button>
-      {open && kids.map((k) => <NetworkNode key={k.id} a={k} depth={depth + 1} accounts={accounts} />)}
-    </div>
-  );
-}
+const NET_ORDER: Role[] = ["admin", "agent", "player"];
+const NET_PLURAL: Record<Role, string> = { superadmin: "Super Admins", admin: "Admins", agent: "Agents", player: "Players" };
 
+// Drill-down network: the open account's direct children, one role at a time. Tapping an admin or agent opens
+// its own children (Super Admin → Admins, Admin → Agents, Agent → Players); the breadcrumb walks back up.
 function NetworkView({ me, accounts }: Ctx) {
+  const kidsOf = useMemo(() => {
+    const m = new Map<string, Account[]>();
+    for (const a of accounts) if (a.parentId) m.set(a.parentId, [...(m.get(a.parentId) ?? []), a]);
+    return m;
+  }, [accounts]);
+  const [path, setPath] = useState<string[]>([me.id]);
+  const [role, setRole] = useState<Role | null>(null);
+  const [q, setQ] = useState("");
+  const byId = (id: string) => (id === me.id ? me : accounts.find((a) => a.id === id));
+  const trail = path.map(byId).filter((a): a is Account => !!a);
+  const cur = trail[trail.length - 1] ?? me;
+  const kids = kidsOf.get(cur.id) ?? [];
+  const roles = NET_ORDER.filter((r) => kids.some((k) => k.role === r));
+  const shown = role && roles.includes(role) ? role : CREATES[cur.role].find((r) => roles.includes(r)) ?? roles[0];
+  const needle = q.trim().toLowerCase();
+  const list = kids
+    .filter((k) => k.role === shown)
+    .filter((k) => !needle || k.name.toLowerCase().includes(needle) || k.code.toLowerCase().includes(needle) || (k.phone ?? "").includes(needle))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const go = (ids: string[]) => { setPath(ids); setRole(null); setQ(""); };
+  const summary = (a: Account) => {
+    const ks = kidsOf.get(a.id) ?? [];
+    return NET_ORDER.map((r) => [r, ks.filter((k) => k.role === r).length] as const).filter(([, n]) => n).map(([r, n]) => `${n} ${(n === 1 ? ROLE_LABEL[r] : NET_PLURAL[r]).toLowerCase()}`).join(" · ");
+  };
   return (
     <>
-      <Title t="Network" s="Who created whom — Super Admin → Admin → Agent → Player" />
-      <div className="card p-3"><NetworkNode a={me} depth={0} accounts={accounts} /></div>
+      <Title t="Network" s="Tap an Admin to see its Agents, tap an Agent to see its Players" />
+      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar text-sm mb-3 -mx-1 px-1">
+        {trail.map((a, i) => (
+          <span key={a.id} className="flex items-center gap-1 shrink-0">
+            {i > 0 && <ChevronRight size={14} className="text-white/30" />}
+            <button onClick={() => go(path.slice(0, i + 1))} disabled={i === trail.length - 1} className={`pill px-3 py-1 ${i === trail.length - 1 ? "bg-neon-400/15 text-neon-400 font-medium" : "bg-white/5 text-white/70 hover:bg-white/10"}`}>
+              {a.name}
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="card p-3">
+        <div className="flex items-center gap-2 px-1 pb-3 border-b border-white/5">
+          {trail.length > 1 && (
+            <button onClick={() => go(path.slice(0, -1))} className="shrink-0 rounded-lg bg-white/5 p-1.5 hover:bg-white/10" aria-label="Back">
+              <ChevronRight size={16} className="rotate-180" />
+            </button>
+          )}
+          <div className="min-w-0">
+            <div className="font-semibold truncate">{cur.name} <span className="text-[11px] font-normal text-white/40">{cur.code}</span></div>
+            <div className="text-[11px] text-white/50">{ROLE_LABEL[cur.role]}{kids.length ? ` • ${summary(cur)}` : ""}</div>
+          </div>
+        </div>
+        {roles.length > 1 && (
+          <div className="flex gap-2 pt-3 overflow-x-auto no-scrollbar">
+            {roles.map((r) => (
+              <button key={r} onClick={() => setRole(r)} className={`pill shrink-0 px-3 py-1 text-xs font-medium ${shown === r ? "btn-green" : "bg-white/5 text-white/70"}`}>
+                {NET_PLURAL[r]} ({kids.filter((k) => k.role === r).length})
+              </button>
+            ))}
+          </div>
+        )}
+        {kids.filter((k) => k.role === shown).length > 8 && (
+          <div className="relative mt-3">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${NET_PLURAL[shown ?? "player"].toLowerCase()}`} className={`${inputCls} pl-8 text-sm`} />
+          </div>
+        )}
+        <div className="mt-2">
+          {!kids.length && <div className="py-8 text-center text-sm text-white/40">{cur.name} hasn&apos;t created anyone yet</div>}
+          {kids.length > 0 && !list.length && <div className="py-8 text-center text-sm text-white/40">No match</div>}
+          {list.map((k) => {
+            const open = k.role !== "player";
+            const sub = open ? summary(k) : "";
+            return (
+              <button key={k.id} onClick={() => open && go([...path, k.id])} disabled={!open} className={`w-full flex items-center gap-2 px-2 py-2.5 text-left rounded-lg ${open ? "hover:bg-white/[.04] active:bg-white/[.06]" : "cursor-default"}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium truncate ${k.status === "Frozen" ? "text-white/40 line-through" : ""}`}>{k.name}</span>
+                    <span className="text-[11px] text-white/40 shrink-0">{k.code}</span>
+                  </div>
+                  <div className="text-[11px] text-white/45 truncate">{open ? sub || "No one created yet" : coins(k.coins)}</div>
+                </div>
+                <Pill tone={k.role === "admin" ? "amber" : k.role === "agent" ? "gray" : "green"}>{ROLE_LABEL[k.role]}</Pill>
+                {open && <ChevronRight size={16} className="shrink-0 text-white/40" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </>
   );
 }
