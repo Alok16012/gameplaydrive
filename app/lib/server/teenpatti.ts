@@ -22,17 +22,32 @@ const fromRow = (r: Row): TableState & { version: number } => ({
   handNo: r.hand_no, hand: r.hand, nextHandAt: r.next_hand_at ? new Date(r.next_hand_at).getTime() : null, version: Number(r.version),
 });
 
+/** The table row, with the admin's current settings (fee, turn time, blind limit) laid over the rules saved with
+ *  it — so a change in Game Config applies to every table from its next hand, not only to new tables. */
 export async function loadTable(id: string) {
   const r = await selectOne<Row>("tp2_tables", `select=*&id=eq.${id}`);
-  return r ? fromRow(r) : null;
+  if (!r) return null;
+  const t = fromRow(r);
+  const live = await rulesFor(t.boot);
+  return { ...t, rules: { ...t.rules, turnTimeoutMs: live.turnTimeoutMs, blindLimit: live.blindLimit, rakePct: live.rakePct } };
 }
 
-/** Table rules from the Admin → Game Config settings for Teen Patti. */
+/** Admin → Game Config for Teen Patti, refreshed every 30 s (one lookup serves every poll in that window). */
+let cfgCache: { at: number; cfg: Record<string, unknown> } | null = null;
+async function gameCfg(): Promise<Record<string, unknown>> {
+  if (cfgCache && Date.now() - cfgCache.at < 30000) return cfgCache.cfg;
+  const cfg = await rpc<Record<string, unknown>>("game_cfg", { p_game: "teen-patti" }).catch(() => cfgCache?.cfg ?? ({} as Record<string, unknown>));
+  cfgCache = { at: Date.now(), cfg: cfg ?? {} };
+  return cfgCache.cfg;
+}
+
+/** Table rules from the Admin → Game Config settings for Teen Patti (fee, turn time, blind limit). */
 export async function rulesFor(boot: number): Promise<Rules> {
-  const cfg = await rpc<Record<string, unknown>>("game_cfg", { p_game: "teen-patti" }).catch(() => ({} as Record<string, unknown>));
+  const cfg = await gameCfg();
   const turn = Number(cfg?.turn) || 15;
   const blindLimit = Math.max(1, Number(cfg?.blind_limit) || 3);
-  return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit };
+  const rakePct = cfg?.rake === undefined || cfg?.rake === null ? 5 : Math.min(25, Math.max(0, Number(cfg.rake) || 0));
+  return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit, rakePct };
 }
 
 async function balancesFor(t: TableState, extra: string[] = []): Promise<Record<string, number>> {

@@ -591,3 +591,19 @@ test("the default rules are 1 blind minimum and 3 blind maximum", () => {
   assert.equal(viewFor(g.s, "p0", 1e9).blindLimit, 3);
   bad(act(g, "p0", "SEE_CARDS"), "BLIND_FIRST");
 });
+
+test("platform fee: the pot minus the fee is shared; no fee by default", () => {
+  const g = game(3, [], { rules: { rakePct: 10 } });
+  ok(act(g, "p0", "BET_DOUBLE"));
+  ok(act(g, "p1", "PACK"));
+  ok(act(g, "p2", "PACK"));
+  assert.equal(g.s.phase, "COMPLETED");
+  assert.equal(g.s.pot, 50);
+  assert.equal(g.s.settlement!.rake, 5);
+  assert.equal(g.s.settlement!.winners[0].amount, 45);
+  const h = game(2);
+  ok(act(h, "p0", "BET_MIN"));
+  ok(act(h, "p1", "PACK"));
+  assert.equal(h.s.settlement!.rake, 0);
+  assert.equal(h.s.settlement!.winners[0].amount, h.s.pot);
+});

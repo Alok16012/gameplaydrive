@@ -24,7 +24,10 @@ export interface Rules {
   minBlind?: number;
   /** After this many blind chaals a player is seen automatically when their turn comes (default 3). */
   blindLimit?: number;
+  /** Platform fee taken off the pot before the payout, in percent (default 0). Admin → Game Config. */
+  rakePct?: number;
 }
+export const rakePctOf = (r: Rules) => Math.min(25, Math.max(0, r.rakePct ?? 0));
 export const DEFAULT_MIN_BLIND = 1;
 export const DEFAULT_BLIND_LIMIT = 3;
 export const minBlindOf = (r: Rules) => r.minBlind ?? DEFAULT_MIN_BLIND;
@@ -39,6 +42,7 @@ export function validateRules(r: Rules, maxPlayers = MAX_SEATS): string | null {
   if (r.potCap !== null && (!posInt(r.potCap) || r.potCap <= r.boot * maxPlayers)) return "Pot cap must exceed the largest starting pot";
   if (!posInt(r.turnTimeoutMs) || !posInt(r.sideshowTimeoutMs)) return "Timeouts must be positive";
   if (r.maxTurnActions !== null && !posInt(r.maxTurnActions)) return "Max turn actions must be positive";
+  if (r.rakePct !== undefined && (typeof r.rakePct !== "number" || r.rakePct < 0 || r.rakePct > 25)) return "Platform fee must be 0–25%";
   const mb = minBlindOf(r), bl = blindLimitOf(r);
   if (!Number.isInteger(mb) || mb < 0 || !posInt(bl) || bl < mb) return "Blind limit must be at least the minimum blind count";
   return null;
@@ -77,6 +81,8 @@ export interface Settlement {
   /** Players whose cards are public. */
   reveal: string[];
   requesterId?: string;
+  /** Platform fee kept from the pot. */
+  rake: number;
   at: number;
 }
 
@@ -298,7 +304,7 @@ export function startHand(inp: StartInput): Result | null {
   } catch {
     // An invalid or duplicated deck never reaches the table: the hand is void before anyone pays.
     s.phase = "VOIDED";
-    s.settlement = { reason: "VOID", winners: [], reveal: [], at: inp.now };
+    s.settlement = { reason: "VOID", winners: [], reveal: [], rake: 0, at: inp.now };
     event(s, inp.now, { type: "VOIDED", note: "Invalid deck" });
     return { state: s, ledger: [], ok: false, message: "Invalid deck", changed: true };
   }
@@ -315,8 +321,11 @@ export function startHand(inp: StartInput): Result | null {
 
 function settle(s: HandState, out: LedgerEntry[], now: number, reason: Settlement["reason"], winners: string[], reveal: string[], requesterId?: string) {
   s.phase = "SETTLING";
-  const share = Math.floor(s.pot / winners.length);
-  let rest = s.pot - share * winners.length;
+  // The platform fee comes off the pot first; the winners share what is left.
+  const rake = Math.floor((s.pot * rakePctOf(s.rules)) / 100);
+  const pool = s.pot - rake;
+  const share = Math.floor(pool / winners.length);
+  let rest = pool - share * winners.length;
   const amounts = new Map(winners.map((w) => [w, share]));
   // Odd chips one at a time to the tied winners, clockwise after the dealer (s.order already starts there).
   for (const id of s.order) {
@@ -324,7 +333,7 @@ function settle(s: HandState, out: LedgerEntry[], now: number, reason: Settlemen
     if (amounts.has(id)) { amounts.set(id, amounts.get(id)! + 1); rest--; }
   }
   for (const [id, amt] of amounts) credit(s, out, id, "PAYOUT", amt);
-  s.settlement = { reason, winners: [...amounts].map(([playerId, amount]) => ({ playerId, amount })), reveal, requesterId, at: now };
+  s.settlement = { reason, winners: [...amounts].map(([playerId, amount]) => ({ playerId, amount })), reveal, requesterId, rake, at: now };
   s.phase = "COMPLETED";
   s.turnId = null;
   s.turnDeadline = null;
@@ -358,7 +367,7 @@ export function voidHand(state: HandState, now: number, note: string): Result {
   const out: LedgerEntry[] = [];
   for (const id of s.order) credit(s, out, id, "REFUND", s.players[id].contributed);
   s.phase = "VOIDED";
-  s.settlement = { reason: "VOID", winners: [], reveal: [], at: now };
+  s.settlement = { reason: "VOID", winners: [], reveal: [], rake: 0, at: now };
   s.turnId = null; s.turnDeadline = null; s.botActAt = null; s.pending = null;
   event(s, now, { type: "VOIDED", note });
   s.version++;
@@ -675,7 +684,7 @@ export function checkInvariants(s: HandState) {
   if (keys.size !== s.ledger.length) throw new Error("duplicate ledger key");
   const payouts = s.ledger.filter((e) => e.kind === "PAYOUT").reduce((t, e) => t + e.amount, 0);
   const refunds = s.ledger.filter((e) => e.kind === "REFUND").reduce((t, e) => t + e.amount, 0);
-  if (s.phase === "COMPLETED" && payouts !== s.pot) throw new Error(`payouts ${payouts} != pot ${s.pot}`);
+  if (s.phase === "COMPLETED" && payouts + (s.settlement?.rake ?? 0) !== s.pot) throw new Error(`payouts ${payouts} + fee != pot ${s.pot}`);
   if (s.phase === "VOIDED" && refunds !== s.pot) throw new Error(`refunds ${refunds} != pot ${s.pot}`);
   if (s.phase !== "COMPLETED" && payouts) throw new Error("payout before settlement");
 }

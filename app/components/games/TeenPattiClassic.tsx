@@ -354,7 +354,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               ))}
             </div>
           )}
-          <div className="text-[12px] text-white/40 mt-3">Pot {inr(v.pot)} • No platform fee</div>
+          <div className="text-[12px] text-white/40 mt-3">Pot {inr(v.pot)} • {settled.rake > 0 ? `Platform fee ${v.rules.rakePct ?? 0}% (${inr(settled.rake)})` : "No platform fee"}</div>
         </ResultSheet>
       )}
 
