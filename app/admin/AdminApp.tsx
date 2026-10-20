@@ -3,7 +3,7 @@
 import { SupportCard } from "./SupportCard";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowDownLeft, BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, QrCode, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -11,8 +11,6 @@ import { BOT_AVATARS, randomBal, randomName, useBotConfig, type BotProfile } fro
 import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, updateAccount, useAccounts, type Account, type Role } from "../lib/hierarchy";
 import { staffEmail } from "../lib/loginEmail";
 import { errText, supabase } from "../lib/supabase";
-import { AgentPaymentView } from "./AgentPaymentView";
-import { PaymentRequestsView } from "./PaymentRequestsView";
 import { OutcomeControlView } from "./OutcomeControlView";
 import { CricketResultsView } from "./CricketResultsView";
 import { UserDetailsModal } from "./UserDetailsModal";
@@ -23,7 +21,7 @@ import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePassword
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "outcome" | "cricket" | "payment" | "requests" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "whatsapp" | "audit";
+type Section = "dashboard" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "whatsapp" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -47,8 +45,6 @@ export default function AdminApp() {
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "outcome", label: "Win / Loss Control", icon: <Sliders size={18} />, roles: ["superadmin"] },
     { id: "cricket", label: "Cricket Results", icon: <Trophy size={18} />, roles: ["superadmin"] },
-    { id: "requests", label: "Payment Requests", icon: <ArrowDownLeft size={18} />, roles: [] },
-    { id: "payment", label: "UPI & QR Code", icon: <QrCode size={18} />, roles: [] },
     { id: "whatsapp", label: "Contact for ID (WhatsApp)", icon: <MessageCircle size={18} className="text-[#25d366]" />, roles: ["superadmin", "admin"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
     { id: "agents", label: "Agents", icon: <Briefcase size={18} />, roles: ["superadmin", "admin"] },
@@ -175,8 +171,6 @@ export default function AdminApp() {
           {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
           {sec === "outcome" && <OutcomeControlView me={me} accounts={accounts} />}
           {sec === "cricket" && <CricketResultsView me={me} accounts={accounts} />}
-          {sec === "requests" && <PaymentRequestsView me={me} />}
-          {sec === "payment" && <AgentPaymentView me={me} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
           {sec === "agents" && <AccountsView key="agent" role="agent" {...ctx} />}
           {sec === "players" && <AccountsView key="player" role="player" {...ctx} />}
