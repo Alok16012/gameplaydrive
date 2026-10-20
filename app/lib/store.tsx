@@ -58,6 +58,7 @@ const toTxn = (r: LedgerRow): Txn => ({
   sub: `${r.note ?? ""} • ${new Date(r.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`,
   amount: r.amount,
   status: "Success",
+  at: r.created_at,
 });
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -84,7 +85,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!uid) return;
     const [{ data: w }, { data: l }] = await Promise.all([
       sb.from("wallets").select("coins").eq("user_id", uid).maybeSingle(),
-      sb.from("ledger").select("id, amount, kind, note, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(100),
+      sb.from("ledger").select("id, amount, kind, note, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(300),
     ]);
     if (w) setBal(Math.max(0, w.coins - held.current));
     setTxns(((l ?? []) as LedgerRow[]).map(toTxn));

@@ -125,6 +125,7 @@ export interface Txn {
   sub: string;
   amount: number; // signed
   status?: "Success" | "Pending" | "Failed";
+  at?: string; // ISO time, for rows from the ledger
 }
 
 export const START_TXNS: Txn[] = [

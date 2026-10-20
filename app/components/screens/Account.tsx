@@ -65,7 +65,7 @@ export function More({ nav }: { nav: Nav }) {
 /** Rounds from the coin ledger, oldest first: each bet and payout joins its game's current round. A new round starts at
  *  an Entry / Boot / Buy-in, at a different hand number, or at a bet after the round already paid out. */
 function groupRounds(txns: Txn[]) {
-  type Round = { id: string; game: string; desc: string; when: string; hand?: string; staked: number; paid: number; paidOut: boolean };
+  type Round = { id: string; game: string; desc: string; when: string; hand?: string; staked: number; paid: number; paidOut: boolean; lastAt: number; settled: boolean };
   const rounds: Round[] = [];
   const open: Record<string, Round> = {};
   for (const t of [...txns].reverse()) {
@@ -77,7 +77,9 @@ function groupRounds(txns: Txn[]) {
     let r = open[game];
     const start = /\b(entry|boot|buy-in)\b/i.test(desc);
     if (!r || (t.amount < 0 && (start || r.paidOut)) || (hand && r.hand && hand !== r.hand)) {
-      r = { id: t.id, game, desc, when, hand, staked: 0, paid: 0, paidOut: false };
+      // A new round of the same game means the previous one is over, paid or not.
+      if (r) r.settled = true;
+      r = { id: t.id, game, desc: desc.replace(/(^| • )(Buy-in \(max loss\)|Entry|Buy-in returned)$/i, ""), when, hand, staked: 0, paid: 0, paidOut: false, lastAt: 0, settled: false };
       open[game] = r;
       rounds.push(r);
     }
@@ -85,7 +87,12 @@ function groupRounds(txns: Txn[]) {
     if (t.amount < 0) r.staked -= t.amount;
     else { r.paid += t.amount; r.paidOut = true; }
     r.when = when;
+    r.lastAt = t.at ? new Date(t.at).getTime() : 0;
   }
+  // A round with no payout is lost once a newer round of that game exists, or it has been quiet for a while
+  // (a Rummy deal or Pool match pays nothing back to a player who loses everything they put in).
+  const quiet = Date.now() - 20 * 60 * 1000;
+  for (const r of rounds) if (!r.settled && r.lastAt && r.lastAt < quiet) r.settled = true;
   return rounds.reverse();
 }
 
@@ -99,8 +106,9 @@ export function GameHistory({ nav }: { nav: Nav }) {
       <div className="px-4 space-y-2.5">
         {rows.map(({ r, g }) => {
           const net = r.paid - r.staked;
-          const tag = !r.paidOut ? "Bet" : net > 0 ? "Won" : net === 0 ? "Returned" : "Lost";
-          const good = r.paidOut && net >= 0;
+          const done = r.paidOut || r.settled;
+          const tag = !done ? "Playing" : net > 0 ? "Won" : net === 0 ? "Returned" : "Lost";
+          const good = done && net >= 0;
           return (
             <div key={r.id} className="card p-2.5 flex items-center gap-3">
               {g ? <GameThumb game={g} className="w-14 h-14 shrink-0 [&>*]:scale-[.55]" /> : <div className="w-14 h-14 rounded-xl bg-white/5 shrink-0" />}
@@ -110,8 +118,8 @@ export function GameHistory({ nav }: { nav: Nav }) {
                 <div className="text-[11px] text-white/45 truncate">Bet {inr(r.staked)}{r.paidOut ? ` • Got ${inr(r.paid)}` : ""}</div>
               </div>
               <div className="text-right pr-1">
-                <div className={`text-[10px] pill px-2 py-0.5 inline-block ${good ? "bg-neon-400/15 text-neon-400" : "bg-rose-500/15 text-rose-400"}`}>{tag}</div>
-                <div className={`text-sm font-semibold mt-1 ${good ? "text-neon-400" : "text-rose-400"}`}>{r.paidOut ? (net >= 0 ? "+" : "-") : "-"}{inr(Math.abs(r.paidOut ? net : r.staked))}</div>
+                <div className={`text-[10px] pill px-2 py-0.5 inline-block ${!done ? "bg-white/10 text-white/70" : good ? "bg-neon-400/15 text-neon-400" : "bg-rose-500/15 text-rose-400"}`}>{tag}</div>
+                <div className={`text-sm font-semibold mt-1 ${!done ? "text-white/70" : good ? "text-neon-400" : "text-rose-400"}`}>{done ? (net > 0 ? "+" : net < 0 ? "-" : "") : "-"}{inr(Math.abs(done ? net : r.staked))}</div>
               </div>
             </div>
           );
