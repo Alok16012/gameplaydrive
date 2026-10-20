@@ -18,7 +18,8 @@ function seeded(seed = 1): Rng {
 const R: Record<string, Rank> = { A: 14, K: 13, Q: 12, J: 11, T: 10, "9": 9, "8": 8, "7": 7, "6": 6, "5": 5, "4": 4, "3": 3, "2": 2 };
 const h = (s: string): Card[] => s.trim().split(/\s+/).map((t) => ({ r: R[t.slice(0, -1)], s: t.slice(-1) as Suit }));
 
-const RULES: Rules = { boot: 10, maxBaseStake: 1280, potCap: null, turnTimeoutMs: 30000, sideshowTimeoutMs: 10000, maxTurnActions: null };
+// Most tests use minBlind 0 so they can see at once; the blind rules get their own tests below.
+const RULES: Rules = { boot: 10, maxBaseStake: 1280, potCap: null, turnTimeoutMs: 30000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 0, blindLimit: 99 };
 
 /** Deck that deals `hands[i]` to the i-th player in turn order, then the rest of the deck. */
 function deckFor(hands: string[]): Card[] {
@@ -554,4 +555,39 @@ test("bots play fair hands to the end and the books always balance (fuzz)", () =
     const total = g.balances.b0 + ids.slice(1).reduce((t, id) => t + g.s.botBalances[id], 0);
     assert.equal(total, startTotal, `seed ${seed}: chips were created or lost`);
   }
+});
+
+// ------------------------------------------------------------------ blind rules
+
+test("at least one blind chaal before seeing; after the limit you are seen automatically on your next turn", () => {
+  const g = game(3, [], { rules: { minBlind: 1, blindLimit: 3 } });
+  bad(act(g, "p0", "SEE_CARDS"), "BLIND_FIRST");
+  assert.equal(viewFor(g.s, "p0", 1e9).me!.canSee.reason, "Play 1 blind chaal first");
+  ok(act(g, "p0", "BET_MIN")); // blind 1
+  ok(act(g, "p1", "BET_MIN"));
+  ok(act(g, "p2", "BET_MIN"));
+  assert.equal(g.s.players.p0.blinds, 1);
+  assert.equal(viewFor(g.s, "p0", 1e9).me!.canSee.ok, true);
+  ok(act(g, "p0", "BET_MIN")); // blind 2
+  ok(act(g, "p1", "BET_MIN"));
+  ok(act(g, "p2", "BET_MIN"));
+  ok(act(g, "p0", "BET_DOUBLE")); // blind 3 (a double counts as one blind chaal)
+  assert.equal(g.s.players.p0.blinds, 3);
+  assert.equal(g.s.players.p0.seen, false); // still blind until the turn comes back
+  ok(act(g, "p1", "BET_MIN"));
+  ok(act(g, "p2", "BET_MIN"));
+  assert.equal(g.s.turnId, "p0");
+  assert.equal(g.s.players.p0.seen, true); // blind limit reached: seen as the turn arrives
+  assert.ok(g.s.events.some((e) => e.type === "SEE" && e.playerId === "p0" && e.note === "Blind limit"));
+  assert.equal(viewFor(g.s, "p0", 1e9).me!.min.amount, 2 * g.s.baseStake); // now bets seen
+  // seen bets don't add to the blind count
+  ok(act(g, "p0", "BET_MIN"));
+  assert.equal(g.s.players.p0.blinds, 3);
+});
+
+test("the default rules are 1 blind minimum and 3 blind maximum", () => {
+  const g = game(2, [], { rules: { minBlind: undefined, blindLimit: undefined } });
+  assert.equal(viewFor(g.s, "p0", 1e9).minBlind, 1);
+  assert.equal(viewFor(g.s, "p0", 1e9).blindLimit, 3);
+  bad(act(g, "p0", "SEE_CARDS"), "BLIND_FIRST");
 });

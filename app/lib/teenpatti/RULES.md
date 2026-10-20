@@ -35,7 +35,9 @@ is a game rule (below), not a card rule.
   spend your exact remaining balance. A zero balance does not fold you — you can still win.
 
 ## See, pack, show, side show
-- **See cards** only on your own turn; it doesn't end the turn or add time. Once seen, always seen.
+- **See cards** only on your own turn, and only after at least **1 blind chaal** (table setting `minBlind`); it
+  doesn't end the turn or add time. Once seen, always seen. After **3 blind chaals** (`blindLimit`, from
+  Admin → Game Config) a player is seen automatically when their next turn comes.
 - **Pack** only on your turn. Packed players' money stays in the pot and their cards stay private.
   If one player is left, they win at once with no fee and no reveal.
 - **Show** — exactly two players left, on your turn:

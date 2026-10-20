@@ -253,7 +253,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
                   ) : tagText ? (
                     <div className={`mt-1 text-[10px] pill px-1.5 py-0.5 whitespace-nowrap ${p?.status === "PACKED" ? "bg-rose-500/30 text-rose-200" : "bg-black/50"}`}>{tagText}</div>
                   ) : p && liveHand ? (
-                    <div className="mt-1 text-[10px] text-white/70">{p.seen ? "Seen" : "Blind"}</div>
+                    <div className="mt-1 text-[10px] text-white/70">{p.seen ? "Seen" : `Blind ${p.blinds}/${v!.blindLimit}`}</div>
                   ) : null}
                 </div>
               </div>
@@ -266,7 +266,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               <TimerAvatar emoji={seats.find((s) => s.playerId === myId)?.emoji} size={50} active={!!liveHand && v!.turnId === myId} left={liveHand && v!.turnId === myId ? secsTo(v!.turnDeadline) : 0} dim={meInHand?.status === "PACKED"} total={turnSecs} dealer={meInHand?.isDealer} />
               <div className="mt-0.5 px-2 py-0.5 rounded-md bg-black/65 text-center">
                 <div className="text-[11px] font-medium leading-tight">
-                  You{meInHand && liveHand && (meInHand.status === "PACKED" ? <span className="text-rose-300"> • Packed</span> : <span className="text-white/60"> • {meInHand.seen ? "Seen" : "Blind"}</span>)}
+                  You{meInHand && liveHand && (meInHand.status === "PACKED" ? <span className="text-rose-300"> • Packed</span> : <span className="text-white/60"> • {meInHand.seen ? "Seen" : `Blind ${meInHand.blinds}/${v!.blindLimit}`}</span>)}
                 </div>
                 <div className="text-[11px] text-gold-300 leading-tight">{inr(total)}</div>
               </div>
@@ -286,7 +286,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
                   ))}
                 </div>
                 <div className="mt-1 text-[12px] text-white/85 bg-black/45 rounded px-2">
-                  {me?.handName ? <>Your hand: <b className="text-gold-300">{me.handName}</b></> : meInHand.status === "PACKED" ? "Packed without looking" : "Blind — tap See on your turn"}
+                  {me?.handName ? <>Your hand: <b className="text-gold-300">{me.handName}</b></> : meInHand.status === "PACKED" ? "Packed without looking" : meInHand.blinds < v!.minBlind ? `Play ${v!.minBlind} blind chaal, then you can See` : `Blind ${meInHand.blinds}/${v!.blindLimit} — tap See on your turn`}
                 </div>
               </div>
             ) : null}
@@ -319,7 +319,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               <Btn opt={me.sideshow} label={`Side Show${me.sideshow.ok ? ` • ${inr(me.sideshow.amount)}` : ""}`} className="bg-fuchsia-700 border-fuchsia-300/30" onClick={() => act("SIDESHOW_REQUEST")} />
               <Btn opt={me.show} label={`Show${me.show.ok ? ` • ${inr(me.show.amount)}` : ""}`} className="bg-[#8b1d2c] border-white/15 px-5 py-2.5 text-sm" onClick={() => act("SHOW")} />
               <div className="flex-1 flex justify-center">
-                <button disabled={!me.canSee.ok || busy} title={me.canSee.reason ?? undefined} onClick={() => act("SEE_CARDS")} className="rounded-full px-6 py-2 text-sm font-bold bg-sky-500 disabled:opacity-40">{me.seen ? "Seen ✓" : "See"}</button>
+                <button disabled={busy} title={me.canSee.reason ?? undefined} onClick={() => (me.canSee.ok ? act("SEE_CARDS") : me.canSee.reason && showToast(me.canSee.reason))} className={`rounded-full px-6 py-2 text-sm font-bold bg-sky-500 ${me.canSee.ok ? "" : "opacity-40"}`}>{me.seen ? "Seen ✓" : "See"}</button>
               </div>
               <Btn opt={me.double} label={`${me.seen ? "Chaal" : "Blind"} 2x`} amount={me.double.amount} className="bg-[#3d7a1f] border-lime-300/30" onClick={() => act("BET_DOUBLE")} />
               <Btn opt={me.min} label={me.seen ? "Chaal" : "Blind"} amount={me.min.amount} className="bg-[#b8231f] border-white/20 px-5" onClick={() => act("BET_MIN")} />
@@ -377,7 +377,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
           </div>
           <div>
             <div className="font-semibold text-white mb-1">Betting</div>
-            <div className="text-[12px]">Blind: min = stake, double = 2×; after it the stake becomes what you paid. Seen: min = 2× stake, double = 4×; after it the stake becomes half of what you paid. Show with two left (a seen player can&apos;t ask a blind one); equal hands — whoever asked loses. Side show with three or more left: ask the last bettor (both seen), 2× stake; equal hands — whoever asked packs.</div>
+            <div className="text-[12px]">Everyone plays at least 1 blind chaal before seeing; after 3 blind chaals you are seen automatically. Blind: min = stake, double = 2×; after it the stake becomes what you paid. Seen: min = 2× stake, double = 4×; after it the stake becomes half of what you paid. Show with two left (a seen player can&apos;t ask a blind one); equal hands — whoever asked loses. Side show with three or more left: ask the last bettor (both seen), 2× stake; equal hands — whoever asked packs.</div>
           </div>
         </div>
       </Sheet>

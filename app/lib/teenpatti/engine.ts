@@ -20,7 +20,15 @@ export interface Rules {
   sideshowTimeoutMs: number;
   /** Forced showdown after this many bets + sideshow requests + packs. null = off. */
   maxTurnActions: number | null;
+  /** Blind chaals a player must play before they may see their cards (default 1). */
+  minBlind?: number;
+  /** After this many blind chaals a player is seen automatically when their turn comes (default 3). */
+  blindLimit?: number;
 }
+export const DEFAULT_MIN_BLIND = 1;
+export const DEFAULT_BLIND_LIMIT = 3;
+export const minBlindOf = (r: Rules) => r.minBlind ?? DEFAULT_MIN_BLIND;
+export const blindLimitOf = (r: Rules) => r.blindLimit ?? DEFAULT_BLIND_LIMIT;
 
 export const MAX_SEATS = 6;
 
@@ -31,6 +39,8 @@ export function validateRules(r: Rules, maxPlayers = MAX_SEATS): string | null {
   if (r.potCap !== null && (!posInt(r.potCap) || r.potCap <= r.boot * maxPlayers)) return "Pot cap must exceed the largest starting pot";
   if (!posInt(r.turnTimeoutMs) || !posInt(r.sideshowTimeoutMs)) return "Timeouts must be positive";
   if (r.maxTurnActions !== null && !posInt(r.maxTurnActions)) return "Max turn actions must be positive";
+  const mb = minBlindOf(r), bl = blindLimitOf(r);
+  if (!Number.isInteger(mb) || mb < 0 || !posInt(bl) || bl < mb) return "Blind limit must be at least the minimum blind count";
   return null;
 }
 
@@ -42,6 +52,8 @@ export interface HandPlayer extends Seat {
   /** Participation in this hand. Packed players stay participants (their money is in the pot). */
   status: "ACTIVE" | "PACKED";
   seen: boolean;
+  /** Blind chaals played this hand. */
+  blinds: number;
   contributed: number;
   packReason: "PACK" | "TIMEOUT" | "LEFT" | "SIDESHOW" | null;
 }
@@ -144,7 +156,7 @@ export interface Ctx {
 
 export type ErrorCode =
   | "ACTION_ID_REUSED" | "STALE_HAND" | "STALE_VERSION" | "HAND_OVER" | "NOT_IN_HAND" | "NOT_YOUR_TURN" | "SIDESHOW_PENDING"
-  | "INSUFFICIENT_CHIPS" | "MAX_STAKE" | "SHOW_NOT_ALLOWED" | "SIDESHOW_NOT_ALLOWED" | "NO_SIDESHOW" | "UNKNOWN_ACTION";
+  | "INSUFFICIENT_CHIPS" | "MAX_STAKE" | "SHOW_NOT_ALLOWED" | "SIDESHOW_NOT_ALLOWED" | "NO_SIDESHOW" | "UNKNOWN_ACTION" | "BLIND_FIRST";
 
 export interface Result {
   state: HandState;
@@ -216,6 +228,11 @@ function credit(s: HandState, out: LedgerEntry[], id: string, kind: "PAYOUT" | "
 }
 
 function setTurn(s: HandState, id: string | null, now: number, rng: Rng) {
+  // Blind limit: a player who has played all their blind chaals sees their cards as their turn comes round.
+  if (id && !s.players[id].seen && s.players[id].blinds >= blindLimitOf(s.rules)) {
+    s.players[id].seen = true;
+    event(s, now, { type: "SEE", playerId: id, note: "Blind limit" });
+  }
   s.turnId = id;
   s.turnDeadline = id ? now + s.rules.turnTimeoutMs : null;
   s.botActAt = id && s.players[id].bot ? now + botDelay(s, rng) : null;
@@ -271,7 +288,7 @@ export function startHand(inp: StartInput): Result | null {
     actionCount: 0, ledger: [], events: [], sideshows: [], processed: {}, settlement: null,
     botBalances: { ...inp.botBalances }, createdAt: inp.now,
   };
-  for (const x of orderSeats) s.players[x.playerId] = { ...x, status: "ACTIVE", seen: false, contributed: 0, packReason: null };
+  for (const x of orderSeats) s.players[x.playerId] = { ...x, status: "ACTIVE", seen: false, blinds: 0, contributed: 0, packReason: null };
 
   const deck = inp.deck ?? shuffle(fullDeck(), inp.rng);
   orderSeats.forEach((x, i) => { s.cards[x.playerId] = deck.slice(i * 3, i * 3 + 3); });
@@ -541,6 +558,7 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
   switch (cmd.type) {
     case "SEE_CARDS":
       if (p.seen) return { state: s, ledger: [], ok: true, changed: false }; // repeat: no change, no extra time
+      if (p.blinds < minBlindOf(s.rules)) return reject(s, "BLIND_FIRST", `Play ${minBlindOf(s.rules)} blind chaal${minBlindOf(s.rules) === 1 ? "" : "s"} first`);
       return internal(s, ctx, (x) => {
         x.players[id].seen = true;
         event(x, ctx.now, { type: "SEE", playerId: id });
@@ -553,6 +571,7 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
       if (balanceOf(s, ctx, id) < amount) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins for that bet");
       return internal(s, ctx, (x, out) => {
         pay(x, out, id, "BET", amount);
+        if (!x.players[id].seen) x.players[id].blinds++;
         x.baseStake = newBase;
         x.lastBettorId = id;
         x.actionCount++;

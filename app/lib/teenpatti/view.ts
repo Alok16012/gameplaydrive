@@ -4,13 +4,13 @@
 //   * packed players' cards: never; side show: the two players learn who lost, not each other's cards.
 
 import { evaluate, type Card } from "./evaluator.ts";
-import { betAmount, showCheck, sideshowCheck, type HandEvent, type HandState, type Phase, type Rules, type Settlement } from "./engine.ts";
+import { betAmount, blindLimitOf, minBlindOf, showCheck, sideshowCheck, type HandEvent, type HandState, type Phase, type Rules, type Settlement } from "./engine.ts";
 
 export interface OptionView { amount: number; ok: boolean; reason: string | null }
 
 export interface PlayerView {
   playerId: string; name: string; seat: number; bot: boolean;
-  status: "ACTIVE" | "PACKED"; packReason: string | null; seen: boolean; contributed: number;
+  status: "ACTIVE" | "PACKED"; packReason: string | null; seen: boolean; blinds: number; contributed: number;
   isTurn: boolean; isDealer: boolean;
   /** Only at a permitted reveal. */
   cards: Card[] | null;
@@ -35,6 +35,8 @@ export interface HandView {
   mySideshows: { opponentId: string; youLost: boolean }[];
   settlement: (Omit<Settlement, "reveal"> & { reveal: { playerId: string; cards: Card[]; handName: string }[] }) | null;
   events: HandEvent[];
+  minBlind: number;
+  blindLimit: number;
 }
 
 export function viewFor(s: HandState, viewerId: string | null, balance: number): HandView {
@@ -46,7 +48,7 @@ export function viewFor(s: HandState, viewerId: string | null, balance: number):
     const p = s.players[id];
     const shown = reveal.has(id);
     return {
-      playerId: id, name: p.name, seat: p.seat, bot: p.bot, status: p.status, packReason: p.packReason, seen: p.seen,
+      playerId: id, name: p.name, seat: p.seat, bot: p.bot, status: p.status, packReason: p.packReason, seen: p.seen, blinds: p.blinds,
       contributed: p.contributed, isTurn: s.turnId === id, isDealer: p.seat === s.dealerSeat,
       cards: shown ? s.cards[id] : null, handName: shown ? evaluate(s.cards[id]).name : null,
     };
@@ -70,7 +72,11 @@ export function viewFor(s: HandState, viewerId: string | null, balance: number):
     me = {
       playerId: viewerId, inHand: true, status: meP.status, seen: meP.seen,
       cards: myCards, handName: myCards ? evaluate(myCards).name : null,
-      canSee: { amount: 0, ok: myTurn && !meP.seen, reason: meP.seen ? "Already seen" : turnReason },
+      canSee: {
+        amount: 0,
+        ok: myTurn && !meP.seen && meP.blinds >= minBlindOf(s.rules),
+        reason: meP.seen ? "Already seen" : turnReason ?? (meP.blinds < minBlindOf(s.rules) ? `Play ${minBlindOf(s.rules)} blind chaal first` : null),
+      },
       min: opt(bmin.amount, bmin.newBase > s.rules.maxBaseStake ? "Above the table maximum" : null),
       double: opt(bdbl.amount, bdbl.newBase > s.rules.maxBaseStake ? "Above the table maximum" : null),
       pack: { amount: 0, ok: myTurn, reason: turnReason },
@@ -99,5 +105,7 @@ export function viewFor(s: HandState, viewerId: string | null, balance: number):
       ? { ...s.settlement, reveal: s.settlement.reveal.map((id) => ({ playerId: id, cards: s.cards[id], handName: evaluate(s.cards[id]).name })) }
       : null,
     events: s.events.slice(-30),
+    minBlind: minBlindOf(s.rules),
+    blindLimit: blindLimitOf(s.rules),
   };
 }

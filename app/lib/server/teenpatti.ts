@@ -31,7 +31,8 @@ export async function loadTable(id: string) {
 export async function rulesFor(boot: number): Promise<Rules> {
   const cfg = await rpc<Record<string, unknown>>("game_cfg", { p_game: "teen-patti" }).catch(() => ({} as Record<string, unknown>));
   const turn = Number(cfg?.turn) || 15;
-  return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null };
+  const blindLimit = Math.max(1, Number(cfg?.blind_limit) || 3);
+  return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit };
 }
 
 async function balancesFor(t: TableState): Promise<Record<string, number>> {
