@@ -1503,7 +1503,6 @@ export function ConfigView() {
   return (
     <>
       <Title t="Game Config" s="Lock or unlock each game with its switch. Same rules for every player. Changes are written to the audit log." />
-      <SupportCard />
       <div className="grid md:grid-cols-2 gap-4">
         {CONFIG_GAMES.map(({ id, fields, note }) => {
           const g = GAMES.find((x) => x.id === id)!;
