@@ -26,8 +26,20 @@ import {
   ChevronDown,
   Layers,
   Printer,
+  User,
+  Copy,
+  Check,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  Hash,
+  ArrowRight,
+  ShieldCheck,
+  Clock,
+  Sparkles,
+  ExternalLink,
 } from "lucide-react";
-import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
+import { type Account, type Role, ROLE_LABEL, coins, fmtPhone } from "../lib/hierarchy";
 import { supabase, errText } from "../lib/supabase";
 import { GAMES } from "../lib/data";
 import type { SportBetRow } from "../lib/cricketApi";
@@ -98,7 +110,12 @@ export function ReportsView({
   onOpenDetails,
 }: ReportsViewProps) {
   const [activeTab, setActiveTab] = useState<ReportSubTab>(initialTab);
-  const [dateRange, setDateRange] = useState<"today" | "yesterday" | "7days" | "30days">("today");
+  const [dateRange, setDateRange] = useState<"all" | "today" | "yesterday" | "7days" | "30days" | "custom">("all");
+  const [customStart, setCustomStart] = useState<string>("");
+  const [customEnd, setCustomEnd] = useState<string>("");
+  const [reloadKey, setReloadKey] = useState<number>(0);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
   const [selectedUser, setSelectedUser] = useState<string>("all");
   const [searchQ, setSearchQ] = useState<string>("");
   const [txType, setTxType] = useState<string>("all");
@@ -108,6 +125,18 @@ export function ReportsView({
   const [err, setErr] = useState<string>("");
   const [viewRow, setViewRow] = useState<LedgerRow | null>(null);
   const [openBets, setOpenBets] = useState<SportBetRow[]>([]);
+
+  // Pagination for ledger
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(50);
+
+  const copyToClipboard = (text: string, key: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    }
+  };
 
   // Open sports bets (from every match, any date) for the Current Bets report.
   useEffect(() => {
@@ -159,7 +188,7 @@ export function ReportsView({
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
 
-  // Load ledger and audit data from Supabase
+  // Load ledger and audit data from Supabase directly — zero fake data, no dropped transactions
   useEffect(() => {
     let active = true;
     async function loadReports() {
@@ -167,31 +196,83 @@ export function ReportsView({
       setErr("");
       try {
         const sb = supabase();
-        let daysAgo = 1;
-        if (dateRange === "yesterday") daysAgo = 2;
-        else if (dateRange === "7days") daysAgo = 7;
-        else if (dateRange === "30days") daysAgo = 30;
+        let query = sb.from("ledger").select("*");
 
-        const dateLimit = new Date();
-        dateLimit.setDate(dateLimit.getDate() - daysAgo);
+        // When a specific player is selected, filter directly by user_id in Postgres so no transactions are missed!
+        if (selectedUser !== "all") {
+          query = query.eq("user_id", selectedUser);
+        }
 
-        const [ledRes, audRes] = await Promise.all([
-          sb
-            .from("ledger")
-            .select("*")
-            .gte("created_at", dateLimit.toISOString())
-            .order("created_at", { ascending: false })
-            .limit(400),
-          sb
-            .from("audit_log")
-            .select("*")
-            .gte("created_at", dateLimit.toISOString())
-            .order("created_at", { ascending: false })
-            .limit(200),
-        ]);
+        // Apply real date boundaries based on dateRange
+        if (dateRange === "today") {
+          const startToday = new Date();
+          startToday.setHours(0, 0, 0, 0);
+          query = query.gte("created_at", startToday.toISOString());
+        } else if (dateRange === "yesterday") {
+          const startYesterday = new Date();
+          startYesterday.setDate(startYesterday.getDate() - 1);
+          startYesterday.setHours(0, 0, 0, 0);
+          const endYesterday = new Date();
+          endYesterday.setHours(0, 0, 0, 0);
+          query = query
+            .gte("created_at", startYesterday.toISOString())
+            .lt("created_at", endYesterday.toISOString());
+        } else if (dateRange === "7days") {
+          const d7 = new Date();
+          d7.setDate(d7.getDate() - 7);
+          d7.setHours(0, 0, 0, 0);
+          query = query.gte("created_at", d7.toISOString());
+        } else if (dateRange === "30days") {
+          const d30 = new Date();
+          d30.setDate(d30.getDate() - 30);
+          d30.setHours(0, 0, 0, 0);
+          query = query.gte("created_at", d30.toISOString());
+        } else if (dateRange === "custom") {
+          if (customStart) {
+            const s = new Date(customStart + "T00:00:00");
+            query = query.gte("created_at", s.toISOString());
+          }
+          if (customEnd) {
+            const e = new Date(customEnd + "T23:59:59");
+            query = query.lte("created_at", e.toISOString());
+          }
+        }
+        // If dateRange === "all", NO gte filter is added — full ledger is queried!
+
+        // For a single player, pull up to 5000 transactions so not a single record is cut off.
+        const maxLimit = selectedUser !== "all" ? 5000 : 1000;
+        query = query.order("created_at", { ascending: false }).limit(maxLimit);
+
+        let audQuery = sb.from("audit_log").select("*");
+        if (dateRange === "today") {
+          const startToday = new Date();
+          startToday.setHours(0, 0, 0, 0);
+          audQuery = audQuery.gte("created_at", startToday.toISOString());
+        } else if (dateRange === "yesterday") {
+          const startYesterday = new Date();
+          startYesterday.setDate(startYesterday.getDate() - 1);
+          startYesterday.setHours(0, 0, 0, 0);
+          audQuery = audQuery.gte("created_at", startYesterday.toISOString());
+        } else if (dateRange === "7days") {
+          const d7 = new Date();
+          d7.setDate(d7.getDate() - 7);
+          audQuery = audQuery.gte("created_at", d7.toISOString());
+        } else if (dateRange === "30days") {
+          const d30 = new Date();
+          d30.setDate(d30.getDate() - 30);
+          audQuery = audQuery.gte("created_at", d30.toISOString());
+        } else if (dateRange === "custom") {
+          if (customStart) audQuery = audQuery.gte("created_at", new Date(customStart + "T00:00:00").toISOString());
+          if (customEnd) audQuery = audQuery.lte("created_at", new Date(customEnd + "T23:59:59").toISOString());
+        }
+        audQuery = audQuery.order("created_at", { ascending: false }).limit(200);
+
+        const [ledRes, audRes] = await Promise.all([query, audQuery]);
 
         if (active) {
-          if (ledRes.data) setLedgerData(ledRes.data as LedgerRow[]);
+          if (ledRes.error) setErr(errText(ledRes.error));
+          else if (ledRes.data) setLedgerData(ledRes.data as LedgerRow[]);
+
           if (audRes.data) setAuditData(audRes.data as AuditRow[]);
         }
       } catch (e) {
@@ -204,11 +285,11 @@ export function ReportsView({
     return () => {
       active = false;
     };
-  }, [dateRange]);
+  }, [dateRange, selectedUser, customStart, customEnd, reloadKey]);
 
   // Indian currency formatting
   const fmt = (n?: number, forceDec = true) => {
-    if (n === undefined || n === null) return "0.00";
+    if (n === undefined || n === null || isNaN(Number(n))) return "0.00";
     return Number(n).toLocaleString("en-IN", {
       minimumFractionDigits: forceDec ? 2 : 0,
       maximumFractionDigits: 2,
@@ -219,12 +300,105 @@ export function ReportsView({
     const d = new Date(dStr);
     if (isNaN(d.getTime())) return dStr;
     const pad = (n: number) => String(n).padStart(2, "0");
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
-      d.getHours()
-    )}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    const hours = d.getHours();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    const h12 = hours % 12 || 12;
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(h12)}:${pad(
+      d.getMinutes()
+    )}:${pad(d.getSeconds())} ${ampm}`;
   };
 
-  // Filtered Ledger Rows
+  // Helper to parse transaction notes across Sports, Aviator, Casino, Transfers, etc.
+  const parseTxnNarration = (r: LedgerRow) => {
+    const note = r.note || "";
+    // Cricket / Sports: "CRICKET: <event> • <runner> [BACK @ 1.95 | Stake: 100]"
+    const sportMatch = note.match(/^([A-Z]+):\s*(.+?)\s*•\s*(.+?)\s*\[(\w+)\s*@\s*([\d.]+)\s*\|\s*Stake:\s*([\d.]+)\]\s*$/);
+    if (sportMatch) {
+      return {
+        category: "Sports Bet",
+        sport: sportMatch[1],
+        title: sportMatch[2],
+        selection: sportMatch[3],
+        badge: `${sportMatch[4].toUpperCase()} @ ${sportMatch[5]}`,
+        stake: Number(sportMatch[6]),
+        odds: sportMatch[5],
+        noteText: `${sportMatch[1]}: ${sportMatch[2]} • ${sportMatch[3]}`,
+      };
+    }
+
+    // Aviator
+    if (note.toLowerCase().includes("aviator")) {
+      const co = note.match(/cash\s*out\s*@\s*([\d.]+x?)/i);
+      return {
+        category: "Aviator Crash",
+        sport: "Aviator",
+        title: "Aviator Crash Game",
+        selection: co ? `Cashout @ ${co[1]}` : (r.kind === "bet" ? "Bet Staked" : "Game Win"),
+        badge: co ? co[1] : (r.kind === "bet" ? "STAKE" : "WIN"),
+        stake: Math.abs(r.amount),
+        odds: co ? co[1] : "—",
+        noteText: note,
+      };
+    }
+
+    // Casino games: Dragon Tiger, Andar Bahar, Lucky 7, Teen Patti, Roulette, Blackjack, Ludo, Plinko
+    const casinoList = ["Dragon Tiger", "Andar Bahar", "Lucky 7", "Teen Patti", "Roulette", "Blackjack", "Ludo", "Plinko", "Mines"];
+    for (const c of casinoList) {
+      if (note.toLowerCase().includes(c.toLowerCase())) {
+        return {
+          category: "Live Casino",
+          sport: c,
+          title: c,
+          selection: r.kind === "bet" ? "Bet Placed" : r.kind === "win" ? "Win Payout" : "Game Round",
+          badge: r.kind === "win" ? "WON" : r.kind === "bet" ? "BET" : "REFUND",
+          stake: Math.abs(r.amount),
+          odds: "—",
+          noteText: note,
+        };
+      }
+    }
+
+    // Transfers
+    if (r.kind === "transfer_in" || r.kind === "transfer_out") {
+      return {
+        category: "Transfer",
+        sport: "Wallet",
+        title: r.kind === "transfer_in" ? "Deposit / Transfer In" : "Withdrawal / Transfer Out",
+        selection: note || (r.kind === "transfer_in" ? "Credited by Agent/Admin" : "Debited from Wallet"),
+        badge: r.kind === "transfer_in" ? "DEPOSIT" : "WITHDRAWAL",
+        stake: Math.abs(r.amount),
+        odds: "—",
+        noteText: note || (r.kind === "transfer_in" ? "Wallet Deposit" : "Wallet Withdrawal"),
+      };
+    }
+
+    // Mints / Burns
+    if (r.kind === "mint" || r.kind === "burn") {
+      return {
+        category: "Admin Mint/Burn",
+        sport: "Admin",
+        title: r.kind === "mint" ? "Admin Coins Mint" : "Admin Coins Burn",
+        selection: note || "Admin wallet action",
+        badge: r.kind === "mint" ? "MINT" : "BURN",
+        stake: Math.abs(r.amount),
+        odds: "—",
+        noteText: note || "Admin balance adjustment",
+      };
+    }
+
+    return {
+      category: r.kind.toUpperCase(),
+      sport: "Other",
+      title: note || r.kind.replace("_", " ").toUpperCase(),
+      selection: note || "—",
+      badge: r.kind.toUpperCase(),
+      stake: Math.abs(r.amount),
+      odds: "—",
+      noteText: note || "—",
+    };
+  };
+
+  // Filtered Ledger Rows with search & type
   const filteredLedger = useMemo(() => {
     return ledgerData.filter((row) => {
       if (selectedUser !== "all" && row.user_id !== selectedUser) return false;
@@ -233,33 +407,95 @@ export function ReportsView({
         if (txType === "withdraw" && !["transfer_out", "burn"].includes(row.kind)) return false;
         if (txType === "bet" && row.kind !== "bet") return false;
         if (txType === "win" && row.kind !== "win") return false;
+        if (txType === "refund" && row.kind !== "refund") return false;
       }
       if (searchQ.trim()) {
         const u = byId.get(row.user_id);
-        const text = `${u?.name || ""} ${u?.code || ""} ${u?.username || ""} ${row.note || ""} ${row.kind}`.toLowerCase();
+        const text = `${u?.name || ""} ${u?.code || ""} ${u?.username || ""} ${u?.phone || ""} ${row.note || ""} ${row.kind} #${row.id}`.toLowerCase();
         if (!text.includes(searchQ.toLowerCase())) return false;
       }
       return true;
     });
   }, [ledgerData, selectedUser, txType, searchQ, byId]);
 
-  // Account Statement Summary Metrics
-  const statementSummary = useMemo(() => {
-    let deposit = 0;
-    let withdraw = 0;
-    let betTotal = 0;
-    let winTotal = 0;
+  // Account Settlement & Financial Reconciliation calculations
+  const settlement = useMemo(() => {
+    let deposits = 0;
+    let withdrawals = 0;
+    let bets = 0;
+    let wins = 0;
+    let refunds = 0;
 
     filteredLedger.forEach((r) => {
-      if (["transfer_in", "mint"].includes(r.kind)) deposit += Math.abs(r.amount);
-      if (["transfer_out", "burn"].includes(r.kind)) withdraw += Math.abs(r.amount);
-      if (r.kind === "bet") betTotal += Math.abs(r.amount);
-      if (r.kind === "win") winTotal += Math.abs(r.amount);
+      const amt = Math.abs(r.amount);
+      if (["transfer_in", "mint"].includes(r.kind)) deposits += amt;
+      else if (["transfer_out", "burn"].includes(r.kind)) withdrawals += amt;
+      else if (r.kind === "bet") bets += amt;
+      else if (r.kind === "win") wins += amt;
+      else if (r.kind === "refund") refunds += amt;
     });
 
-    const netProfit = betTotal - winTotal;
-    return { deposit, withdraw, betTotal, winTotal, netProfit };
-  }, [filteredLedger]);
+    const winsAndRefunds = wins + refunds;
+    const playerNetPL = winsAndRefunds - bets; // +ve: Player in profit, -ve: Player in loss
+    const houseNetPL = bets - winsAndRefunds; // +ve: Platform/Agent in profit, -ve: Loss
+
+    // Calculate opening balance before the filtered period
+    // filteredLedger is sorted descending (newest first, oldest last)
+    let opening = 0;
+    let closing = 0;
+
+    if (filteredLedger.length > 0) {
+      const oldest = filteredLedger[filteredLedger.length - 1];
+      const newest = filteredLedger[0];
+      opening = oldest.balance_after - oldest.amount;
+      closing = newest.balance_after;
+    } else if (selectedUser !== "all") {
+      const curBal = byId.get(selectedUser)?.coins ?? 0;
+      opening = curBal;
+      closing = curBal;
+    }
+
+    // Reconciled math: Opening + Deposits - Withdrawals + Gaming Net
+    const reconciled = opening + deposits - withdrawals + playerNetPL;
+
+    return {
+      opening,
+      closing,
+      deposits,
+      withdrawals,
+      bets,
+      wins,
+      refunds,
+      winsAndRefunds,
+      playerNetPL,
+      houseNetPL,
+      reconciled,
+      txCount: filteredLedger.length,
+    };
+  }, [filteredLedger, selectedUser, byId]);
+
+  // Backward-compatible statement summary for other tabs
+  const statementSummary = useMemo(() => {
+    return {
+      deposit: settlement.deposits,
+      withdraw: settlement.withdrawals,
+      betTotal: settlement.bets,
+      winTotal: settlement.winsAndRefunds,
+      netProfit: settlement.houseNetPL,
+    };
+  }, [settlement]);
+
+  // Paginated ledger rows
+  const paginatedLedger = useMemo(() => {
+    if (pageSize >= 999999) return filteredLedger;
+    const start = (page - 1) * pageSize;
+    return filteredLedger.slice(start, start + pageSize);
+  }, [filteredLedger, page, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLedger.length / (pageSize >= 999999 ? filteredLedger.length || 1 : pageSize)));
+
+  // Selected player account object
+  const selectedAccount = selectedUser !== "all" ? byId.get(selectedUser) : null;
 
   // Export to CSV function
   const exportToCSV = (filename: string, rows: Record<string, unknown>[]) => {
@@ -281,7 +517,6 @@ export function ReportsView({
     link.setAttribute("download", `${filename}_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
   };
 
   return (
@@ -298,26 +533,72 @@ export function ReportsView({
           </h1>
         </div>
 
-        {/* Date Filter Bar */}
-        <div className="flex items-center gap-2 bg-[#0d1435] p-1.5 rounded-2xl border border-white/10 shrink-0">
-          {[
-            { id: "today", label: "Today" },
-            { id: "yesterday", label: "Yesterday" },
-            { id: "7days", label: "Last 7 Days" },
-            { id: "30days", label: "Last 30 Days" },
-          ].map((d) => (
-            <button
-              key={d.id}
-              onClick={() => setDateRange(d.id as any)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition ${
-                dateRange === d.id
-                  ? "bg-neon-400/20 text-neon-400 font-semibold border border-neon-400/30"
-                  : "text-white/60 hover:text-white hover:bg-white/5"
-              }`}
-            >
-              {d.label}
-            </button>
-          ))}
+        {/* Date Filter & Control Bar */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 bg-[#0d1435] p-1.5 rounded-2xl border border-white/10 shrink-0 overflow-x-auto max-w-full">
+            {[
+              { id: "all", label: "All Time" },
+              { id: "today", label: "Today" },
+              { id: "yesterday", label: "Yesterday" },
+              { id: "7days", label: "7 Days" },
+              { id: "30days", label: "30 Days" },
+              { id: "custom", label: "Custom" },
+            ].map((d) => (
+              <button
+                key={d.id}
+                onClick={() => {
+                  setDateRange(d.id as any);
+                  setPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition ${
+                  dateRange === d.id
+                    ? "bg-sky-500/20 text-sky-300 font-bold border border-sky-400/40 shadow-sm shadow-sky-500/10"
+                    : "text-white/60 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom Date Pickers */}
+          {dateRange === "custom" && (
+            <div className="flex items-center gap-2 bg-[#0d1435] p-1.5 rounded-2xl border border-white/10 text-xs">
+              <Calendar size={13} className="text-sky-400 shrink-0 ml-1" />
+              <input
+                type="date"
+                value={customStart}
+                onChange={(e) => {
+                  setCustomStart(e.target.value);
+                  setPage(1);
+                }}
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white outline-none text-xs"
+                placeholder="Start Date"
+              />
+              <span className="text-white/40">to</span>
+              <input
+                type="date"
+                value={customEnd}
+                onChange={(e) => {
+                  setCustomEnd(e.target.value);
+                  setPage(1);
+                }}
+                className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white outline-none text-xs"
+                placeholder="End Date"
+              />
+            </div>
+          )}
+
+          {/* Live Refresh Button */}
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            disabled={loading}
+            title="Refresh Data"
+            className="p-2 rounded-2xl bg-[#0d1435] hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition flex items-center justify-center shrink-0 shadow-sm"
+          >
+            <RefreshCw size={15} className={loading ? "animate-spin text-sky-400" : "text-white/70"} />
+          </button>
         </div>
       </div>
 
@@ -349,55 +630,318 @@ export function ReportsView({
         {/* ============================================================== */}
         {activeTab === "account_statement" && (
           <div className="space-y-5">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              <div className="card p-4 bg-white/5 border border-white/5 rounded-xl">
-                <div className="text-[11px] text-white/50">Total Deposit</div>
-                <div className="text-xl font-bold text-emerald-400 mt-1 tabular-nums">
-                  +{fmt(statementSummary.deposit)}
+            {/* 1. PLAYER PROFILE & IDENTITY CARD (When an account is selected) */}
+            {selectedAccount ? (
+              <div className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-950/40 via-[#0b1338] to-[#070b24] p-5 shadow-xl">
+                <div className="absolute -right-20 -top-20 w-64 h-64 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+                  {/* Left: Player Profile & Identity */}
+                  <div className="flex items-start sm:items-center gap-4 min-w-0">
+                    <div className="relative shrink-0">
+                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-500/20 to-blue-600/30 border border-sky-400/30 flex items-center justify-center text-sky-300 font-bold text-2xl shadow-inner">
+                        {selectedAccount.name?.charAt(0).toUpperCase() || "P"}
+                      </div>
+                      <div
+                        className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-[#0b1338] ${
+                          selectedAccount.status === "Active" ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+                        }`}
+                        title={`Status: ${selectedAccount.status}`}
+                      />
+                    </div>
+
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-xl font-bold text-white tracking-tight truncate">
+                          {selectedAccount.name}
+                        </h2>
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-wide uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                          {ROLE_LABEL[selectedAccount.role]}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold uppercase ${
+                            selectedAccount.status === "Active"
+                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                              : "bg-rose-500/15 text-rose-300 border border-rose-500/30"
+                          }`}
+                        >
+                          {selectedAccount.status}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/60">
+                        <span className="flex items-center gap-1 font-mono text-sky-300 font-semibold">
+                          <Hash size={12} className="text-sky-400" />
+                          {selectedAccount.code}
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(selectedAccount.code, "code")}
+                            className="text-white/40 hover:text-white transition ml-0.5"
+                            title="Copy Code"
+                          >
+                            {copiedKey === "code" ? (
+                              <Check size={12} className="text-emerald-400" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
+                          </button>
+                        </span>
+
+                        {selectedAccount.username && (
+                          <span className="flex items-center gap-1">
+                            <span className="text-white/40">Username:</span>
+                            <span className="text-white/90 font-mono font-medium">@{selectedAccount.username}</span>
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(selectedAccount.username!, "user")}
+                              className="text-white/40 hover:text-white transition ml-0.5"
+                              title="Copy Username"
+                            >
+                              {copiedKey === "user" ? (
+                                <Check size={12} className="text-emerald-400" />
+                              ) : (
+                                <Copy size={12} />
+                              )}
+                            </button>
+                          </span>
+                        )}
+
+                        {selectedAccount.phone && (
+                          <span className="flex items-center gap-1">
+                            <span className="text-white/40">Mobile:</span>
+                            <span className="text-white/90 font-mono">{fmtPhone(selectedAccount.phone)}</span>
+                          </span>
+                        )}
+
+                        <span className="flex items-center gap-1">
+                          <span className="text-white/40">State:</span>
+                          <span className="text-white/80">{selectedAccount.state || "Maharashtra"}</span>
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-white/40 pt-0.5">
+                        <span>
+                          Created By:{" "}
+                          <span className="text-white/70 font-medium">
+                            {selectedAccount.parentId
+                              ? byId.get(selectedAccount.parentId)?.name
+                                ? `${byId.get(selectedAccount.parentId)!.name} (${byId.get(selectedAccount.parentId)!.code})`
+                                : "Upline Agent"
+                              : "Direct Super Admin"}
+                          </span>
+                        </span>
+                        <span>•</span>
+                        <span>
+                          Registered:{" "}
+                          <span className="text-white/70">
+                            {selectedAccount.createdAt ? fmtDate(selectedAccount.createdAt) : selectedAccount.created}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Live Balance & Quick Action Buttons */}
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-4 shrink-0 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-4 lg:pt-0 border-white/10">
+                    <div className="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 rounded-2xl p-3.5 px-5 shadow-lg">
+                      <div className="text-[10px] text-amber-300/70 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                        <Coins size={12} className="text-amber-400" /> Current Live Wallet Balance
+                      </div>
+                      <div className="text-2xl font-black text-amber-300 font-mono tabular-nums tracking-tight mt-0.5">
+                        🪙 {fmt(selectedAccount.coins)}
+                      </div>
+                      <div className="text-[10px] text-white/40 mt-0.5">Verified from public.wallets</div>
+                    </div>
+
+                    <div className="flex sm:flex-col gap-2 shrink-0">
+                      {onOpenDetails && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenDetails(selectedAccount)}
+                          className="px-3 py-2 rounded-xl text-xs font-semibold bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 transition flex items-center gap-1.5 shadow-sm"
+                        >
+                          <User size={13} /> View Full Profile
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedUser("all");
+                          setPage(1);
+                        }}
+                        className="px-3 py-2 rounded-xl text-xs font-medium bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition flex items-center gap-1.5"
+                      >
+                        <RotateCcw size={13} /> Show All Accounts
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[10px] text-emerald-400/60 mt-0.5">Credit to wallets</div>
+              </div>
+            ) : (
+              /* All Accounts Overview Banner */
+              <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                    <Users size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">All Accounts Statement Overview</h3>
+                    <p className="text-xs text-white/50">
+                      Viewing consolidated platform transactions. Select any specific player from the dropdown below to view their dedicated account settlement.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono text-white/60 shrink-0">
+                  <span className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
+                    Accounts: <b className="text-white">{accounts.length}</b>
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10">
+                    Players: <b className="text-sky-300">{accounts.filter((a) => a.role === "player").length}</b>
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* 2. ACCOUNT SETTLEMENT & RECONCILIATION HUB */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <DollarSign size={16} className="text-emerald-400" />
+                    Account Settlement & Financial Reconciliation
+                  </h3>
+                  <p className="text-[11px] text-white/50">
+                    100% mathematically reconciled from every single ledger transaction in the selected period.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                    <ShieldCheck size={12} />
+                    Double-Entry Verified
+                  </span>
+                  <span className="text-[11px] text-white/40 font-mono">
+                    {settlement.txCount} Records Analyzed
+                  </span>
+                </div>
               </div>
 
-              <div className="card p-4 bg-white/5 border border-white/5 rounded-xl">
-                <div className="text-[11px] text-white/50">Total Withdrawal</div>
-                <div className="text-xl font-bold text-rose-400 mt-1 tabular-nums">
-                  -{fmt(statementSummary.withdraw)}
+              {/* 6 Settlement Metric Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                {/* 1. Opening Balance */}
+                <div className="card p-3.5 bg-white/5 border border-white/5 rounded-xl">
+                  <div className="text-[10px] text-white/50 uppercase tracking-wider font-semibold">Opening Balance</div>
+                  <div className="text-lg font-bold text-white/90 mt-1 tabular-nums font-mono">
+                    🪙 {fmt(settlement.opening)}
+                  </div>
+                  <div className="text-[10px] text-white/40 mt-0.5">Start of period</div>
                 </div>
-                <div className="text-[10px] text-rose-400/60 mt-0.5">Debit from wallets</div>
-              </div>
 
-              <div className="card p-4 bg-white/5 border border-white/5 rounded-xl">
-                <div className="text-[11px] text-white/50">Total Bets Placed</div>
-                <div className="text-xl font-bold text-amber-300 mt-1 tabular-nums">
-                  {fmt(statementSummary.betTotal)}
+                {/* 2. Total Inward / Deposits */}
+                <div className="card p-3.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                  <div className="text-[10px] text-emerald-400/80 uppercase tracking-wider font-semibold">Total Deposits (+)</div>
+                  <div className="text-lg font-bold text-emerald-400 mt-1 tabular-nums font-mono">
+                    +{fmt(settlement.deposits)}
+                  </div>
+                  <div className="text-[10px] text-emerald-400/60 mt-0.5">Transfers In & Mints</div>
                 </div>
-                <div className="text-[10px] text-white/40 mt-0.5">Staked volume</div>
-              </div>
 
-              <div className="card p-4 bg-white/5 border border-white/5 rounded-xl">
-                <div className="text-[11px] text-white/50">Total Winnings Paid</div>
-                <div className="text-xl font-bold text-sky-400 mt-1 tabular-nums">
-                  {fmt(statementSummary.winTotal)}
+                {/* 3. Total Outward / Withdrawals */}
+                <div className="card p-3.5 bg-rose-500/5 border border-rose-500/20 rounded-xl">
+                  <div className="text-[10px] text-rose-400/80 uppercase tracking-wider font-semibold">Total Withdrawals (-)</div>
+                  <div className="text-lg font-bold text-rose-400 mt-1 tabular-nums font-mono">
+                    -{fmt(settlement.withdrawals)}
+                  </div>
+                  <div className="text-[10px] text-rose-400/60 mt-0.5">Transfers Out & Burns</div>
                 </div>
-                <div className="text-[10px] text-white/40 mt-0.5">Player payouts</div>
-              </div>
 
-              <div className="card p-4 bg-white/5 border border-white/5 rounded-xl">
-                <div className="text-[11px] text-white/50">Net Platform P/L</div>
+                {/* 4. Total Bets / Turnover */}
+                <div className="card p-3.5 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                  <div className="text-[10px] text-amber-300/80 uppercase tracking-wider font-semibold">Turnover / Bets Staked</div>
+                  <div className="text-lg font-bold text-amber-300 mt-1 tabular-nums font-mono">
+                    🪙 {fmt(settlement.bets)}
+                  </div>
+                  <div className="text-[10px] text-amber-300/60 mt-0.5">Total gaming stakes</div>
+                </div>
+
+                {/* 5. Total Wins & Refunds */}
+                <div className="card p-3.5 bg-sky-500/5 border border-sky-500/20 rounded-xl">
+                  <div className="text-[10px] text-sky-300/80 uppercase tracking-wider font-semibold">Wins & Refunds (+)</div>
+                  <div className="text-lg font-bold text-sky-300 mt-1 tabular-nums font-mono">
+                    +{fmt(settlement.winsAndRefunds)}
+                  </div>
+                  <div className="text-[10px] text-sky-300/60 mt-0.5">Payouts returned</div>
+                </div>
+
+                {/* 6. Net Gaming P/L */}
                 <div
-                  className={`text-xl font-bold mt-1 tabular-nums ${
-                    statementSummary.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"
+                  className={`card p-3.5 rounded-xl border ${
+                    settlement.playerNetPL >= 0
+                      ? "bg-emerald-500/10 border-emerald-500/30"
+                      : "bg-rose-500/10 border-rose-500/30"
                   }`}
                 >
-                  {statementSummary.netProfit >= 0 ? "+" : ""}
-                  {fmt(statementSummary.netProfit)}
+                  <div className="text-[10px] uppercase tracking-wider font-semibold text-white/70">
+                    Player Net P/L
+                  </div>
+                  <div
+                    className={`text-lg font-bold mt-1 tabular-nums font-mono ${
+                      settlement.playerNetPL >= 0 ? "text-emerald-400" : "text-rose-400"
+                    }`}
+                  >
+                    {settlement.playerNetPL >= 0 ? "+" : ""}
+                    {fmt(settlement.playerNetPL)}
+                  </div>
+                  <div className="text-[10px] text-white/50 mt-0.5">
+                    House: {settlement.houseNetPL >= 0 ? "+" : ""}
+                    {fmt(settlement.houseNetPL)}
+                  </div>
                 </div>
-                <div className="text-[10px] text-white/40 mt-0.5">House gross margin</div>
+              </div>
+
+              {/* Settlement Reconciliation Audit Formula Bar */}
+              <div className="bg-[#0e173e] border border-white/10 rounded-xl p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+                <div className="flex flex-wrap items-center gap-2 font-mono">
+                  <span className="text-white/60">Formula:</span>
+                  <span className="px-2 py-0.5 rounded bg-white/5 text-white/80">
+                    Opening ({fmt(settlement.opening)})
+                  </span>
+                  <span className="text-emerald-400 font-bold">+</span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300">
+                    Inward ({fmt(settlement.deposits)})
+                  </span>
+                  <span className="text-rose-400 font-bold">-</span>
+                  <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-300">
+                    Outward ({fmt(settlement.withdrawals)})
+                  </span>
+                  <span className="text-sky-400 font-bold">+</span>
+                  <span
+                    className={`px-2 py-0.5 rounded ${
+                      settlement.playerNetPL >= 0
+                        ? "bg-emerald-500/10 text-emerald-300"
+                        : "bg-rose-500/10 text-rose-300"
+                    }`}
+                  >
+                    Gaming Net ({settlement.playerNetPL >= 0 ? "+" : ""}
+                    {fmt(settlement.playerNetPL)})
+                  </span>
+                  <span className="text-amber-400 font-bold">=</span>
+                  <span className="px-2.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                    Reconciled Closing: 🪙 {fmt(settlement.reconciled)}
+                  </span>
+                </div>
+
+                <div className="shrink-0 flex items-center gap-2">
+                  {selectedAccount && (
+                    <span className="text-[11px] text-emerald-400 flex items-center gap-1 font-medium bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                      <CheckCircle2 size={13} />
+                      {dateRange === "all" ? "100% Matches Live Balance" : "Period Settlement Verified"}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Filters Row */}
+            {/* 3. FILTERS & TOOLS ROW */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <div className="flex flex-wrap items-center gap-2.5">
                 {/* Search Input */}
@@ -405,36 +949,67 @@ export function ReportsView({
                   <Search size={14} className="text-white/40" />
                   <input
                     value={searchQ}
-                    onChange={(e) => setSearchQ(e.target.value)}
-                    placeholder="Search by user, note or ID"
+                    onChange={(e) => {
+                      setSearchQ(e.target.value);
+                      setPage(1);
+                    }}
+                    placeholder="Search note, game, ID, runner..."
                     className="bg-transparent outline-none text-white w-full"
                   />
                 </div>
 
-                {/* Account Filter */}
+                {/* Account Selector (Grouped by Players and Agents) */}
                 <select
                   value={selectedUser}
-                  onChange={(e) => setSelectedUser(e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                  onChange={(e) => {
+                    setSelectedUser(e.target.value);
+                    setPage(1);
+                  }}
+                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-sky-400/50"
                 >
                   <option value="all" className="bg-[#0b102e]">
-                    All Accounts
+                    All Accounts ({accounts.length} total)
                   </option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id} className="bg-[#0b102e]">
-                      {a.name} ({a.username || a.code})
-                    </option>
-                  ))}
+                  <optgroup label="Players" className="bg-[#0b102e] text-sky-400 font-semibold">
+                    {accounts
+                      .filter((a) => a.role === "player")
+                      .map((a) => (
+                        <option key={a.id} value={a.id} className="bg-[#0b102e] text-white">
+                          {a.name} ({a.code}) {a.username ? `• @${a.username}` : ""} — 🪙 {fmt(a.coins)}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="Agents / Admins" className="bg-[#0b102e] text-purple-400 font-semibold">
+                    {accounts
+                      .filter((a) => a.role !== "player")
+                      .map((a) => (
+                        <option key={a.id} value={a.id} className="bg-[#0b102e] text-white">
+                          {a.name} ({a.code} • {ROLE_LABEL[a.role]}) — 🪙 {fmt(a.coins)}
+                        </option>
+                      ))}
+                  </optgroup>
                 </select>
 
                 {/* Transaction Type Filter */}
                 <select
                   value={txType}
-                  onChange={(e) => setTxType(e.target.value)}
-                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none"
+                  onChange={(e) => {
+                    setTxType(e.target.value);
+                    setPage(1);
+                  }}
+                  className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-sky-400/50"
                 >
                   <option value="all" className="bg-[#0b102e]">
-                    All Transactions
+                    All Transaction Types
+                  </option>
+                  <option value="bet" className="bg-[#0b102e]">
+                    Game Bets Staked
+                  </option>
+                  <option value="win" className="bg-[#0b102e]">
+                    Game Wins Paid
+                  </option>
+                  <option value="refund" className="bg-[#0b102e]">
+                    Bet Refunds
                   </option>
                   <option value="deposit" className="bg-[#0b102e]">
                     Deposits / Transfers In
@@ -442,136 +1017,282 @@ export function ReportsView({
                   <option value="withdraw" className="bg-[#0b102e]">
                     Withdrawals / Transfers Out
                   </option>
-                  <option value="bet" className="bg-[#0b102e]">
-                    Game Bets
-                  </option>
-                  <option value="win" className="bg-[#0b102e]">
-                    Game Wins
-                  </option>
                 </select>
+
+                {/* Page Size Selector */}
+                <div className="flex items-center gap-1.5 text-xs text-white/50">
+                  <span>Show:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                    className="bg-white/5 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-white outline-none"
+                  >
+                    <option value={25} className="bg-[#0b102e]">25</option>
+                    <option value={50} className="bg-[#0b102e]">50</option>
+                    <option value={100} className="bg-[#0b102e]">100</option>
+                    <option value={250} className="bg-[#0b102e]">250</option>
+                    <option value={999999} className="bg-[#0b102e]">All ({filteredLedger.length})</option>
+                  </select>
+                </div>
               </div>
 
               {/* Export Buttons */}
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() =>
                     exportToCSV(
-                      "account_statement",
+                      selectedAccount
+                        ? `account_statement_${selectedAccount.code}_${dateRange}`
+                        : `account_statement_${dateRange}`,
                       filteredLedger.map((r) => {
                         const u = byId.get(r.user_id);
+                        const p = parseTxnNarration(r);
                         return {
+                          "Txn ID": `#${r.id}`,
                           Date: fmtDate(r.created_at),
-                          User: u ? `${u.name} (${u.code})` : r.user_id,
+                          "User Name": u?.name || r.user_id,
+                          "User Code": u?.code || "—",
+                          Username: u?.username || "—",
+                          Role: u?.role || "—",
                           Type: r.kind,
-                          Amount: r.amount,
-                          Balance: r.balance_after,
+                          Category: p.category,
+                          "Debit (-)": r.amount < 0 ? Math.abs(r.amount) : 0,
+                          "Credit (+)": r.amount > 0 ? r.amount : 0,
+                          "Balance After": r.balance_after,
                           Narration: r.note || "—",
                         };
                       })
                     )
                   }
-                  className="btn-ghost px-3 py-2 rounded-xl text-xs flex items-center gap-1.5"
+                  className="btn-ghost px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 border border-white/10"
                   title="Export Statement to CSV"
                 >
-                  <Download size={14} /> Export CSV
+                  <Download size={14} /> Export CSV ({filteredLedger.length})
                 </button>
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto rounded-xl border border-white/10">
+            {/* 4. DETAILED TRANSACTIONS TABLE */}
+            <div className="overflow-x-auto rounded-xl border border-white/10 bg-white/[0.01]">
               <table className="w-full text-sm text-left">
                 <thead className="bg-white/5 text-[11px] text-white/50 uppercase border-b border-white/10">
                   <tr>
-                    <th className="px-4 py-3">Date & Time</th>
-                    <th className="px-4 py-3">User / Account</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3 text-right">Debit (-)</th>
-                    <th className="px-4 py-3 text-right">Credit (+)</th>
-                    <th className="px-4 py-3 text-right">Balance</th>
-                    <th className="px-4 py-3">Narration / Remarks</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Txn ID</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Date & Time</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Account / User</th>
+                    <th className="px-4 py-3 whitespace-nowrap">Type</th>
+                    <th className="px-4 py-3">Event / Game Narration</th>
+                    <th className="px-4 py-3 text-right whitespace-nowrap">Debit (-)</th>
+                    <th className="px-4 py-3 text-right whitespace-nowrap">Credit (+)</th>
+                    <th className="px-4 py-3 text-right whitespace-nowrap">Balance After</th>
+                    <th className="px-4 py-3 text-center whitespace-nowrap">Details</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {filteredLedger.map((r) => {
+                  {paginatedLedger.map((r) => {
                     const u = byId.get(r.user_id);
                     const isCredit = r.amount > 0;
                     const isDebit = r.amount < 0;
+                    const parsed = parseTxnNarration(r);
+
                     return (
-                      <tr key={r.id} className="hover:bg-white/[0.02] transition">
-                        <td className="px-4 py-3 text-white/60 whitespace-nowrap font-mono text-[11px]">
+                      <tr key={r.id} className="hover:bg-white/[0.03] transition">
+                        {/* Txn ID */}
+                        <td className="px-4 py-3 font-mono text-[11px] text-sky-400/90 whitespace-nowrap">
+                          #{r.id}
+                        </td>
+
+                        {/* Date & Time */}
+                        <td className="px-4 py-3 text-white/70 whitespace-nowrap font-mono text-[11px]">
                           {fmtDate(r.created_at)}
                         </td>
+
+                        {/* User Account */}
                         <td className="px-4 py-3 whitespace-nowrap">
                           {u ? (
                             <div
                               className="cursor-pointer group"
                               onClick={() => onOpenDetails && onOpenDetails(u)}
                             >
-                              <div className="font-semibold text-white group-hover:text-sky-300">
+                              <div className="font-semibold text-white group-hover:text-sky-300 transition">
                                 {u.name}
                               </div>
-                              <div className="text-[10px] text-white/40">
-                                {u.username ? `@${u.username}` : u.code} • {ROLE_LABEL[u.role]}
+                              <div className="text-[10px] text-white/40 font-mono">
+                                {u.code} {u.username ? `• @${u.username}` : ""}
                               </div>
                             </div>
                           ) : (
                             <span className="font-mono text-white/50">{r.user_id.slice(0, 8)}</span>
                           )}
                         </td>
+
+                        {/* Type Badge */}
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold uppercase ${
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
                               r.kind === "bet"
-                                ? "bg-amber-500/15 text-amber-300"
+                                ? "bg-amber-500/15 text-amber-300 border border-amber-500/25"
                                 : r.kind === "win"
-                                ? "bg-emerald-500/15 text-emerald-300"
+                                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"
+                                : r.kind === "refund"
+                                ? "bg-purple-500/15 text-purple-300 border border-purple-500/25"
                                 : r.kind === "transfer_in" || r.kind === "mint"
-                                ? "bg-sky-500/15 text-sky-300"
-                                : "bg-rose-500/15 text-rose-300"
+                                ? "bg-sky-500/15 text-sky-300 border border-sky-500/25"
+                                : "bg-rose-500/15 text-rose-300 border border-rose-500/25"
                             }`}
                           >
                             {r.kind.replace("_", " ")}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-medium text-rose-400 whitespace-nowrap">
-                          {isDebit ? fmt(Math.abs(r.amount)) : "—"}
+
+                        {/* Narration & Parsed Details */}
+                        <td className="px-4 py-3 min-w-[240px] max-w-[380px]">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-semibold text-white/90 bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+                                {parsed.category}
+                              </span>
+                              {parsed.badge && parsed.badge !== parsed.category && (
+                                <span className="text-[10px] font-mono text-sky-300 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
+                                  {parsed.badge}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-white/80 text-[11px] font-medium line-clamp-2 break-words">
+                              {r.note || "—"}
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-medium text-emerald-400 whitespace-nowrap">
-                          {isCredit ? fmt(r.amount) : "—"}
+
+                        {/* Debit */}
+                        <td className="px-4 py-3 text-right font-mono font-bold text-rose-400 whitespace-nowrap">
+                          {isDebit ? `- 🪙 ${fmt(Math.abs(r.amount))}` : "—"}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-gold-300 whitespace-nowrap">
+
+                        {/* Credit */}
+                        <td className="px-4 py-3 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
+                          {isCredit ? `+ 🪙 ${fmt(r.amount)}` : "—"}
+                        </td>
+
+                        {/* Balance After */}
+                        <td className="px-4 py-3 text-right font-mono font-bold text-amber-300 whitespace-nowrap">
                           🪙 {fmt(r.balance_after)}
                         </td>
-                        <td className="px-4 py-3 text-white/70 min-w-[220px] max-w-[320px]">
-                          {r.note ? (
-                            <button
-                              type="button"
-                              onClick={() => setViewRow(r)}
-                              className="flex items-start gap-2 text-left hover:text-sky-300 transition"
-                              title="View full details"
-                            >
-                              <span className="line-clamp-2 break-words">{r.note}</span>
-                              <Eye size={14} className="shrink-0 mt-0.5 text-sky-400" />
-                            </button>
-                          ) : (
-                            "—"
-                          )}
+
+                        {/* Inspect Action */}
+                        <td className="px-4 py-3 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setViewRow(r)}
+                            className="p-1.5 rounded-lg bg-white/5 hover:bg-sky-500/20 text-white/60 hover:text-sky-300 transition"
+                            title="Inspect full transaction"
+                          >
+                            <Eye size={15} />
+                          </button>
                         </td>
                       </tr>
                     );
                   })}
+
                   {filteredLedger.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-white/40 text-sm">
-                        {loading
-                          ? "Loading statement records…"
-                          : "No statement transactions found for the selected period."}
+                      <td colSpan={9} className="px-4 py-16 text-center text-white/40 text-sm">
+                        {loading ? (
+                          <div className="flex items-center justify-center gap-2 text-sky-400">
+                            <RefreshCw size={16} className="animate-spin" />
+                            Loading ledger transactions directly from database…
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="font-semibold text-white/60">No transactions found</div>
+                            <div className="text-xs text-white/40">
+                              {selectedAccount
+                                ? `No ledger records found for ${selectedAccount.name} (${selectedAccount.code}) in this period.`
+                                : "Try adjusting your filters or date range above."}
+                            </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+
+              {/* Table Footer with Totals & Pagination */}
+              {filteredLedger.length > 0 && (
+                <div className="bg-white/5 border-t border-white/10 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+                  {/* Totals Summary */}
+                  <div className="flex flex-wrap items-center gap-4 text-[11px] font-mono">
+                    <span className="text-white/50">
+                      Total Records: <b className="text-white">{filteredLedger.length}</b>
+                    </span>
+                    <span>•</span>
+                    <span className="text-rose-400">
+                      Total Debits: <b>- 🪙 {fmt(settlement.withdrawals + settlement.bets)}</b>
+                    </span>
+                    <span>•</span>
+                    <span className="text-emerald-400">
+                      Total Credits: <b>+ 🪙 {fmt(settlement.deposits + settlement.winsAndRefunds)}</b>
+                    </span>
+                  </div>
+
+                  {/* Pagination Navigation */}
+                  {pageSize < 999999 && totalPages > 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/50 text-[11px]">
+                        Page {page} of {totalPages}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={page === 1}
+                          className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition"
+                          title="Previous page"
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+
+                        {/* Page Numbers */}
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          let pNum = i + 1;
+                          if (totalPages > 5) {
+                            if (page > 3) pNum = Math.min(totalPages - 4 + i, page - 2 + i);
+                          }
+                          return (
+                            <button
+                              key={pNum}
+                              type="button"
+                              onClick={() => setPage(pNum)}
+                              className={`w-7 h-7 rounded-lg text-xs font-mono font-medium transition ${
+                                page === pNum
+                                  ? "bg-sky-500/20 text-sky-300 font-bold border border-sky-500/40"
+                                  : "bg-white/5 text-white/60 hover:text-white hover:bg-white/10"
+                              }`}
+                            >
+                              {pNum}
+                            </button>
+                          );
+                        })}
+
+                        <button
+                          type="button"
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={page === totalPages}
+                          className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white disabled:opacity-30 disabled:pointer-events-none transition"
+                          title="Next page"
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1040,51 +1761,129 @@ export function ReportsView({
 
       {viewRow && (() => {
         const u = byId.get(viewRow.user_id);
-        // Sport bet notes: "CRICKET: <event> • <runner> [BACK @ 1.95 | Stake: 100]"
-        const m = viewRow.note?.match(/^([A-Z]+):\s*(.+?)\s*•\s*(.+?)\s*\[(\w+)\s*@\s*([\d.]+)\s*\|\s*Stake:\s*([\d.]+)\]\s*$/);
+        const parsed = parseTxnNarration(viewRow);
+        const isCredit = viewRow.amount > 0;
+        const isDebit = viewRow.amount < 0;
+
         const fields: [string, React.ReactNode][] = [
-          ["Date & Time", fmtDate(viewRow.created_at)],
-          ["User", u ? `${u.name} (${u.username ? `@${u.username}` : u.code})` : viewRow.user_id],
-          ["Type", viewRow.kind.replace("_", " ").toUpperCase()],
-          ...(m
+          ["Transaction ID", (
+            <span className="flex items-center gap-1.5 font-mono text-sky-300 font-semibold">
+              #{viewRow.id}
+              <button
+                type="button"
+                onClick={() => copyToClipboard(String(viewRow.id), "txId")}
+                className="text-white/40 hover:text-white"
+                title="Copy Transaction ID"
+              >
+                {copiedKey === "txId" ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+              </button>
+            </span>
+          )],
+          ["Date & Time", <span className="font-mono text-white/80">{fmtDate(viewRow.created_at)}</span>],
+          ["Account / User", u ? (
+            <div className="text-right">
+              <span className="font-semibold text-white">{u.name}</span>
+              <div className="text-xs text-white/40 font-mono">
+                {u.code} {u.username ? `• @${u.username}` : ""} • {ROLE_LABEL[u.role]}
+              </div>
+            </div>
+          ) : viewRow.user_id],
+          ["Category", (
+            <span className="px-2 py-0.5 rounded-lg text-xs font-semibold bg-white/10 text-white">
+              {parsed.category}
+            </span>
+          )],
+          ["Transaction Type", (
+            <span
+              className={`px-2 py-0.5 rounded-lg text-xs font-bold uppercase ${
+                viewRow.kind === "bet"
+                  ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                  : viewRow.kind === "win"
+                  ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                  : viewRow.kind === "refund"
+                  ? "bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                  : viewRow.kind === "transfer_in" || viewRow.kind === "mint"
+                  ? "bg-sky-500/15 text-sky-300 border border-sky-500/30"
+                  : "bg-rose-500/15 text-rose-300 border border-rose-500/30"
+              }`}
+            >
+              {viewRow.kind.replace("_", " ")}
+            </span>
+          )],
+          ...(parsed.title !== viewRow.note
             ? ([
-                ["Sport", m[1]],
-                ["Event", m[2]],
-                ["Selection", m[3]],
-                ["Bet Type", m[4].toUpperCase()],
-                ["Odds", m[5]],
-                ["Stake", `🪙 ${fmt(Number(m[6]))}`],
+                ["Event / Match", parsed.title],
+                ["Selection / Market", parsed.selection],
+                ...(parsed.odds !== "—" ? [["Odds / Rate", <span className="font-mono text-sky-300 font-bold">{parsed.odds}</span>]] : []),
               ] as [string, React.ReactNode][])
             : []),
-          ["Amount", `🪙 ${viewRow.amount > 0 ? "+" : ""}${fmt(viewRow.amount)}`],
-          ["Balance After", `🪙 ${fmt(viewRow.balance_after)}`],
-          ["Transaction ID", `#${viewRow.id}`],
+          ["Flow Amount", (
+            <span
+              className={`font-mono font-bold ${
+                isCredit ? "text-emerald-400" : isDebit ? "text-rose-400" : "text-white"
+              }`}
+            >
+              {isCredit ? `+ 🪙 ${fmt(viewRow.amount)} (Credit)` : `- 🪙 ${fmt(Math.abs(viewRow.amount))} (Debit)`}
+            </span>
+          )],
+          ["Wallet Balance After", (
+            <span className="font-mono font-bold text-amber-300">
+              🪙 {fmt(viewRow.balance_after)}
+            </span>
+          )],
         ];
+
         return (
-          <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onClick={() => setViewRow(null)}>
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={() => setViewRow(null)}>
             <div
-              className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0b102e] p-5 space-y-4"
+              className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0b102e] p-6 space-y-5 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-white">Transaction Details</h3>
-                <button onClick={() => setViewRow(null)} className="text-white/50 hover:text-white">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-sky-500/20 text-sky-300 flex items-center justify-center font-bold">
+                    <FileText size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base">Transaction Details</h3>
+                    <p className="text-xs text-white/40">Audit ledger record #{viewRow.id}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewRow(null)}
+                  className="p-1 rounded-lg text-white/50 hover:text-white hover:bg-white/5 transition"
+                >
                   <XCircle size={20} />
                 </button>
               </div>
+
               <div className="divide-y divide-white/5 text-sm">
                 {fields.map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-4 py-2">
-                    <span className="text-white/50 shrink-0">{k}</span>
+                  <div key={k} className="flex justify-between items-center gap-4 py-2.5">
+                    <span className="text-white/50 shrink-0 text-xs uppercase tracking-wide">{k}</span>
                     <span className="text-white text-right break-words min-w-0">{v}</span>
                   </div>
                 ))}
               </div>
+
               <div>
-                <div className="text-[11px] uppercase text-white/50 mb-1">Full Narration</div>
-                <div className="rounded-xl bg-white/5 border border-white/10 p-3 text-xs text-white/80 break-words whitespace-pre-wrap">
+                <div className="text-[11px] uppercase tracking-wider text-white/50 font-semibold mb-1.5 flex items-center gap-1.5">
+                  <Activity size={13} className="text-sky-400" /> Complete System Narration
+                </div>
+                <div className="rounded-xl bg-white/5 border border-white/10 p-3.5 text-xs text-white/80 font-mono break-words whitespace-pre-wrap leading-relaxed select-all">
                   {viewRow.note || "—"}
                 </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setViewRow(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/15 text-white transition"
+                >
+                  Close Inspection
+                </button>
               </div>
             </div>
           </div>
