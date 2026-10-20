@@ -1,6 +1,7 @@
 "use client";
 
 import { LudoOnline } from "./games/LudoOnline";
+import { recordLogin } from "../lib/loginEvent";
 import { REJOIN_MS, markActive, touchActive } from "../lib/rejoin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
@@ -42,9 +43,10 @@ function Shell() {
   const enter = useCallback(async (p: Account) => {
     const { data: agent } = await supabase().from("profiles").select("name").eq("id", p.parentId ?? "").maybeSingle();
     await Promise.all([
-      signIn({ id: p.id, code: p.code, name: p.name, first: p.name.split(" ")[0], phone: `+91 ${fmtPhone(p.phone)}`, agent: agent?.name ?? null }),
+      signIn({ id: p.id, code: p.code, name: p.name, first: p.name.split(" ")[0], phone: p.phone ? `+91 ${fmtPhone(p.phone)}` : p.username ? `@${p.username}` : "", agent: agent?.name ?? null }),
       refreshBotConfig(),
     ]);
+    recordLogin();
     // If must_change_password flag is set, show the force-change modal before letting them play
     if (p.mustChangePassword) setForceChangePw(true);
     setAuth("in");

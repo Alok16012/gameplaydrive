@@ -1,6 +1,8 @@
 "use client";
 
 import { SupportCard } from "./SupportCard";
+import { IpAlertsBell } from "./IpAlerts";
+import { recordLogin } from "../lib/loginEvent";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
@@ -37,6 +39,11 @@ export default function AdminApp() {
       setForceChangePw(true);
     }
   }, [me?.mustChangePassword]);
+
+  // Record this console session's IP for the same-IP alerts.
+  useEffect(() => {
+    if (me?.id && me.role !== "player") recordLogin();
+  }, [me?.id, me?.role]);
 
   if (me === undefined) return <div className="min-h-dvh bg-[#070b22]" />;
   if (!me || me.role === "player" || me.status !== "Active") return <AdminLogin blocked={me ? (me.role === "player" ? "player" : "frozen") : null} />;
@@ -131,7 +138,10 @@ export default function AdminApp() {
           })}
         </nav>
         <div className="rounded-xl bg-white/5 px-3 py-2.5 mb-2 mt-2">
-          <div className="text-sm font-medium truncate">{me.name}</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-medium truncate">{me.name}</div>
+            <IpAlertsBell me={me} className="text-white/70 hover:text-white shrink-0" />
+          </div>
           <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.code}</div>
           <div className="text-xs text-gold-300 mt-1">{me.role === "superadmin" ? "Creates coins" : coins(me.coins)}</div>
         </div>
@@ -151,6 +161,7 @@ export default function AdminApp() {
           <div className="px-4 pt-4 flex items-center justify-between">
             <Brand role={me.role} />
             <div className="flex items-center gap-2">
+              <IpAlertsBell me={me} className="p-1.5 rounded-lg bg-white/5 text-white/70 hover:text-white" />
               <button
                 onClick={() => setChangeMyPwOpen(true)}
                 className="p-1.5 rounded-lg bg-white/5 text-white/70 hover:text-white"
