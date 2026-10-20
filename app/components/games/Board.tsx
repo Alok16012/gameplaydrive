@@ -54,6 +54,16 @@ function cellOf(p: number, prog: number, token: number): [number, number] {
   if (prog <= 55) return pl.home[prog - 51];
   return ([[7, 6.3], [6.3, 7], [7, 7.7], [7.7, 7]] as [number, number][])[p]; // centre triangle
 }
+/** Quarter turns (clockwise) that bring colour `me`'s yard to the bottom-left corner, where the player always sits. */
+export const ludoTurns = (me: number) => (7 - me) % 4;
+/** The colour whose yard shows in a screen corner (0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left) once the
+ *  board is turned. */
+export const ludoColourAt = (corner: number, turns: number) => (corner - turns + 4) % 4;
+/** Top-left of a size×size box at (r, c) after turning the board `turns` quarter turns clockwise. */
+function turnCell(r: number, c: number, turns: number, size = 1): [number, number] {
+  for (let k = 0; k < turns; k++) [r, c] = [c, 15 - r - size];
+  return [r, c];
+}
 const absIdx = (p: number, prog: number) => (prog >= 0 && prog <= 50 ? (LPLAYERS[p].start + prog) % 52 : -1);
 
 /**
@@ -280,20 +290,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling?: boolean }) {
   const spots: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  // While rolling the faces flash by quickly (never the same face twice in a row), then it lands on v.
+  const [face, setFace] = useState(v);
+  useEffect(() => {
+    if (!rolling) return;
+    const t = window.setInterval(() => setFace((f) => { let n = f; while (n === f) n = 1 + Math.floor(Math.random() * 6); return n; }), 55);
+    return () => window.clearInterval(t);
+  }, [rolling]);
+  const shown = rolling ? face : v;
   return (
-    <div className={`grid grid-cols-3 p-2 gap-0.5 rounded-xl bg-white ${rolling ? "roll" : ""}`} style={{ width: size, height: size, boxShadow: "inset -3px -3px 6px rgba(0,0,0,.2), 0 6px 14px rgba(0,0,0,.5)" }}>
+    <div key={rolling ? "r" : "s"} className={`grid grid-cols-3 p-2 gap-0.5 rounded-xl bg-white ${rolling ? "roll" : "dice-land"}`} style={{ width: size, height: size, boxShadow: "inset -3px -3px 6px rgba(0,0,0,.2), 0 6px 14px rgba(0,0,0,.5)" }}>
       {Array.from({ length: 9 }, (_, i) => (
-        <div key={i} className="grid place-items-center">{spots[v]?.includes(i) && <div className="w-2.5 h-2.5 rounded-full bg-slate-900" />}</div>
+        <div key={i} className="grid place-items-center">{spots[shown]?.includes(i) && <div className="w-2.5 h-2.5 rounded-full bg-slate-900" />}</div>
       ))}
     </div>
   );
 }
 
 // Animation pacing: tokens walk one square at a time so every move can be followed.
-const STEP_MS = 170;
+export const LUDO_STEP_MS = 200;
+const STEP_MS = LUDO_STEP_MS;
 export const LUDO_TURN_SECS = 20; // each player's turn; when yours runs out the game rolls and moves for you
 const BOT_STEP_MS = STEP_MS; // computer tokens walk at the same speed as yours
-const ROLL_MS = 560;
+const ROLL_MS = 750;
 /** A human-looking pause: usually between a and b ms, now and then a longer think. */
 /** Bot pacing from the admin's "bot speed" setting (1 = normal); set by each table on mount. */
 let PACE = 1;
@@ -303,6 +322,9 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   // Seats in play: all four colours, or (2 players) you on red against yellow, across the board.
   const SEATS = players === 2 ? [0, 2] : [0, 1, 2, 3];
   const inPlay = (p: number) => SEATS.includes(p);
+  // The board is turned so your (red) yard sits at the bottom-left, next to your dice.
+  const TURNS = ludoTurns(0);
+  const corner = (k: number, align: "left" | "right") => { const p = ludoColourAt(k, TURNS); return inPlay(p) ? badge(p, align) : <span />; };
   const gs = useGameSettings();
   const keep = 1 - feeOf(gs, "ludo", 10);
   PACE = botPace(gs, "ludo");
@@ -528,12 +550,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const roll = async (p: number) => {
     setRolling(true);
     sfx.dice();
-    // Tumble through faces, then settle on the result.
-    const end = Date.now() + ROLL_MS;
-    while (Date.now() < end) {
-      setDice(1 + Math.floor(Math.random() * 6));
-      await sleep(70);
-    }
+    await sleep(ROLL_MS); // the dice tumbles through its faces meanwhile (DiceFace), then settles on the result
     const d = pickOutcomeDice(p, tokRef.current, SEATS, outcomeRef.current);
     setDice(d);
     setRolling(false);
@@ -649,8 +666,8 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const nextIn = useAutoNext(winner !== null, NEXT_GAME_SECS, start);
   const myOpts = awaitMove ? movable(0, dice) : [];
 
-  // Player badges sit at the board corners next to their yards (red top-left, green top-right, blue bottom-left,
-  // yellow bottom-right); the one whose turn it is glows and shows the dice.
+  // Player badges sit at the board corners next to their yards (you bottom-left); the one whose turn it is glows
+  // and shows the dice.
   // (A plain render function, not a component: a component defined in here would be rebuilt on every render and
   // restart the timer ring.)
   const badge = (p: number, align: "left" | "right") => {
@@ -684,11 +701,12 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     <div className="min-h-dvh flex flex-col pb-5 fadein" style={{ background: "radial-gradient(120% 70% at 50% 35%, #1d3a8a 0%, #0b1438 60%, #070b22 100%)" }}>
       <Header title="Ludo" sub={`Table #${table} • ${players === 2 ? "1 vs 1" : "4 Players"} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(0, "left")}{inPlay(1) && badge(1, "right")}</div>
+        <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{corner(0, "left")}{corner(1, "right")}</div>
 
         <LudoBoardSurface
           tokens={tokens}
           inPlay={inPlay}
+          turns={TURNS}
           glowAt={(p, i) => p === 0 && myOpts.includes(i)}
           onTap={tapToken}
           overlay={!started && (
@@ -698,7 +716,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
           )}
         />
 
-        <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{inPlay(3) ? badge(3, "left") : <span />}{badge(2, "right")}</div>
+        <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{corner(3, "left")}{corner(2, "right")}</div>
 
         {/* Your dice */}
         <div className="mt-4 flex flex-col items-center">
@@ -754,47 +772,50 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 const CELL = 100 / 15;
 
 /** The Ludo board with its tokens (shared by the practice table and the online private table). */
-export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay }: {
+export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns = 0 }: {
   tokens: number[][]; inPlay: (p: number) => boolean; glowAt: (p: number, i: number) => boolean; onTap: (p: number, i: number) => void; overlay?: React.ReactNode;
+  turns?: number; // quarter turns clockwise, so the player's own yard can sit at the bottom-left (ludoTurns)
 }) {
+  const at = (r: number, c: number, size = 1) => turnCell(r, c, turns, size);
   return (
     <>
         {/* Board in a wooden frame */}
         <div className="rounded-[22px] p-[2.6%] shadow-[0_18px_40px_rgba(0,0,0,.55)]" style={{ background: "linear-gradient(145deg,#8a5a2b,#5a3416 55%,#3f2410)" }}>
         <div className="relative w-full aspect-square rounded-[14px] overflow-hidden bg-white shadow-[inset_0_0_0_2px_rgba(0,0,0,.25)]">
           {/* track cells */}
-          {TRACK.map(([r, c], i) => {
+          {TRACK.map(([r0, c0], i) => {
+            const [r, c] = at(r0, c0);
             const startOf = LPLAYERS.find((pl) => pl.start === i);
             const safeOwner = SAFE.has(i) && !startOf ? LPLAYERS[Math.floor(((i + 52 - 8) % 52) / 13)] : null;
             return (
               <div key={i} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: startOf ? startOf.color : "#fff", boxShadow: "inset 0 0 0 0.5px #b9c2d0" }}>
-                {startOf && <span className="text-white/90 text-[9px] font-black">▶</span>}
+                {startOf && <span className="text-white/90 text-[9px] font-black" style={{ transform: `rotate(${turns * 90}deg)` }}>▶</span>}
                 {safeOwner && <Star size={13} fill={safeOwner.color} color={safeOwner.dark} strokeWidth={1.2} />}
               </div>
             );
           })}
           {LPLAYERS.map((pl, p) => (
             <div key={p}>
-              {pl.home.map(([r, c], i) => (
+              {pl.home.map(([r0, c0], i) => { const [r, c] = at(r0, c0); return (
                 <div key={i} className="absolute" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: pl.color, boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.18)" }} />
-              ))}
+              ); })}
               {/* yard: coloured square, white panel, four token spots */}
-              <div className="absolute p-[0.9%]" style={{ top: `${(p === 0 || p === 1 ? 0 : 9) * CELL}%`, left: `${(p === 0 || p === 3 ? 0 : 9) * CELL}%`, width: `${6 * CELL}%`, height: `${6 * CELL}%`, background: `linear-gradient(145deg, ${pl.color}, ${pl.dark})` }}>
+              <div className="absolute p-[0.9%]" style={{ top: `${at(p === 0 || p === 1 ? 0 : 9, p === 0 || p === 3 ? 0 : 9, 6)[0] * CELL}%`, left: `${at(p === 0 || p === 1 ? 0 : 9, p === 0 || p === 3 ? 0 : 9, 6)[1] * CELL}%`, width: `${6 * CELL}%`, height: `${6 * CELL}%`, background: `linear-gradient(145deg, ${pl.color}, ${pl.dark})` }}>
                 <div className="w-full h-full rounded-[18%] bg-white/95 shadow-[inset_0_2px_6px_rgba(0,0,0,.18)]" />
               </div>
-              {pl.yard.map(([r, c], i) => (
+              {pl.yard.map(([r0, c0], i) => { const [r, c] = at(r0, c0); return (
                 <div key={`s${i}`} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%` }}>
                   <div className="w-[86%] h-[86%] rounded-full" style={{ background: `radial-gradient(circle at 50% 40%, ${pl.color}55, ${pl.color}22 60%)`, boxShadow: `inset 0 0 0 2px ${pl.color}` }} />
                 </div>
-              ))}
+              ); })}
             </div>
           ))}
           {/* centre: the four home triangles */}
-          <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from 45deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)`, boxShadow: "inset 0 0 10px rgba(0,0,0,.35)" }} />
+          <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from ${45 + turns * 90}deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)`, boxShadow: "inset 0 0 10px rgba(0,0,0,.35)" }} />
           {/* tokens: positioned with transforms (GPU) and a hop on every square they land on */}
           {tokens.map((row, p) =>
             !inPlay(p) ? null : row.map((prog, i) => {
-              const [r, c] = cellOf(p, prog, i);
+              const [r, c] = at(...cellOf(p, prog, i));
               const glow = glowAt(p, i);
               // Tokens sharing a square fan out a little so each stays visible.
               const same = prog >= 0 && prog < 56 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
@@ -810,11 +831,13 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay }: {
                     width: `${CELL}%`,
                     height: `${CELL}%`,
                     transform: `translate(${c * 100 + shift}%, ${r * 100}%)`,
-                    transition: prog < 0 ? "transform .38s cubic-bezier(.3,.7,.3,1)" : "transform .15s ease-out",
+                    // One square per step, gliding for the whole step so a walk looks continuous; leaving or going
+                    // back to the yard is a longer slide.
+                    transition: prog <= 0 ? "transform .38s cubic-bezier(.3,.7,.3,1)" : `transform ${LUDO_STEP_MS}ms cubic-bezier(.45,.05,.55,.95)`,
                     willChange: "transform",
                   }}
                 >
-                  <span key={prog} className={`relative block w-full h-full ${prog >= 0 ? "hop" : ""}`}>
+                  <span key={prog} className={`relative block w-full h-full ${prog >= 0 ? "hop" : ""}`} style={{ animationDuration: `${LUDO_STEP_MS}ms` }}>
                     {glow && <span className="absolute left-1/2 bottom-[8%] -translate-x-1/2 w-[80%] h-[34%] rounded-full pulse-ring" style={{ background: "rgba(255,255,255,.55)" }} />}
                     <svg viewBox="0 0 40 52" className="absolute left-1/2 bottom-[14%] drop-shadow-[0_3px_2px_rgba(0,0,0,.45)]" style={{ width: `${86 * small}%`, height: `${112 * small}%`, transform: `translateX(-50%) scale(${glow ? 1.1 : 1})`, transition: "transform .15s" }}>
                       <defs>

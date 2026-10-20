@@ -8,7 +8,7 @@ import { errText, joinOnce, supabase } from "../../lib/supabase";
 import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
 import { sfx, vibrate } from "../../lib/sound";
 import { Avatar, Header, Money } from "../ui";
-import { DiceFace, LPLAYERS, LUDO_TURN_SECS, LudoBoardSurface } from "./Board";
+import { DiceFace, LPLAYERS, LUDO_STEP_MS, LUDO_TURN_SECS, LudoBoardSurface, ludoColourAt, ludoTurns } from "./Board";
 import type { Nav } from "../nav";
 
 // Ludo with friends: a private table run by the database (supabase/migrations/028_ludo_private.sql). The host
@@ -24,7 +24,7 @@ interface View {
   winner: number | null; pot: number; prize: number; fee: number; last: Last | null; seq: number; server_now: string;
 }
 
-const STEP_MS = 190;
+const STEP_MS = LUDO_STEP_MS;
 const empty = () => [0, 1, 2, 3].map(() => [-1, -1, -1, -1]);
 const byColour = (v: View | null) => {
   const t = empty();
@@ -181,6 +181,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     hadTurn.current = myTurn;
   }, [myTurn]);
   const myColour = mySeat?.colour ?? 0;
+  const turns = ludoTurns(myColour); // your yard always at the bottom-left, next to your dice
   const movable = myTurn && v?.phase === "move" && v.dice && mySeat
     ? mySeat.tokens.map((p, i) => ((p === -1 && v.dice === 6) || (p >= 0 && p + v.dice! <= 56) ? i : -1)).filter((i) => i >= 0)
     : [];
@@ -297,14 +298,15 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
           </div>
         ) : (
           <>
-            <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(0, "left")}{badge(1, "right")}</div>
+            <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(ludoColourAt(0, turns), "left")}{badge(ludoColourAt(1, turns), "right")}</div>
             <LudoBoardSurface
               tokens={shown}
               inPlay={inPlay}
+              turns={turns}
               glowAt={(c, i) => c === myColour && movable.includes(i)}
               onTap={(c, i) => { if (c === myColour && movable.includes(i)) act("move", i); }}
             />
-            <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{badge(3, "left")}{badge(2, "right")}</div>
+            <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{badge(ludoColourAt(3, turns), "left")}{badge(ludoColourAt(2, turns), "right")}</div>
             <div className="mt-4 flex flex-col items-center">
               <button
                 onClick={() => act("roll")}
