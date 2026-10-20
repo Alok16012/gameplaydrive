@@ -3,6 +3,7 @@
 import { SupportCard } from "./SupportCard";
 import { IpAlertsBell } from "./IpAlerts";
 import { recordLogin } from "../lib/loginEvent";
+import { useAutoUpdate } from "../lib/autoUpdate";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
@@ -33,6 +34,7 @@ export default function AdminApp() {
   const [detailsForGlobal, setDetailsForGlobal] = useState<Account | null>(null);
   const [forceChangePw, setForceChangePw] = useState(false);
   const [changeMyPwOpen, setChangeMyPwOpen] = useState(false);
+  useAutoUpdate(false);
 
   useEffect(() => {
     if (me?.mustChangePassword) {

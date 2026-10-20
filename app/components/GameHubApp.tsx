@@ -2,6 +2,7 @@
 
 import { LudoOnline } from "./games/LudoOnline";
 import { recordLogin } from "../lib/loginEvent";
+import { useAutoUpdate } from "../lib/autoUpdate";
 import { REJOIN_MS, markActive, touchActive } from "../lib/rejoin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StoreProvider, useStore } from "../lib/store";
@@ -124,6 +125,9 @@ function Shell() {
     if (me) await supabase().auth.signOut();
     setAuth((a) => (a === "splash" ? "login" : a));
   }, [enter]);
+
+  // Reload onto a newer deploy — never while a game table is open.
+  useAutoUpdate(GAME_ROUTES.has(route.name) && route.name !== "lobby");
 
   if (auth === "splash") return <Splash onDone={splashDone} />;
   if (auth === "login") return <Login onDone={enter} />;
