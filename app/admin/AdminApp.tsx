@@ -367,7 +367,7 @@ function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
 function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
-  const [coinsFor, setCoinsFor] = useState<Account | null>(null);
+  const [coinsFor, setCoinsFor] = useState<{ u: Account; dir: "give" | "take" } | null>(null);
   const [limitFor, setLimitFor] = useState<Account | null>(null);
   const [editing, setEditing] = useState<Account | null>(null);
   const [resetPwFor, setResetPwFor] = useState<Account | null>(null);
@@ -433,14 +433,14 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                 <td className="px-4 py-3"><Pill tone={u.status === "Active" ? "green" : "red"}>{u.status}</Pill></td>
                 <td className="px-4 py-3 text-right whitespace-nowrap">
                   <button
-                    onClick={() => setCoinsFor(u)}
+                    onClick={() => setCoinsFor({ u, dir: "give" })}
                     className="w-7 h-7 rounded-lg text-xs font-bold inline-flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 text-white mr-1 shadow-sm transition active:scale-95"
                     title="Deposit Coins (D)"
                   >
                     D
                   </button>
                   <button
-                    onClick={() => setCoinsFor(u)}
+                    onClick={() => setCoinsFor({ u, dir: "take" })}
                     className="w-7 h-7 rounded-lg text-xs font-bold inline-flex items-center justify-center bg-rose-500 hover:bg-rose-600 text-white mr-1.5 shadow-sm transition active:scale-95"
                     title="Withdraw Coins (W)"
                   >
@@ -500,7 +500,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
         </table>
       </div>
       {creating && <CreateModal role={role} me={me} accounts={accounts} reload={reload} onClose={() => setCreating(false)} onShowDetails={(u) => setDetailsFor(u)} />}
-      {coinsFor && <CoinsModal target={coinsFor} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
+      {coinsFor && <CoinsModal target={coinsFor.u} initialDir={coinsFor.dir} me={me} accounts={accounts} reload={reload} onClose={() => setCoinsFor(null)} />}
       {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
       {outcomeFor && <PlayerOutcomeModal target={outcomeFor} onClose={() => setOutcomeFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
@@ -525,7 +525,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
           target={detailsFor}
           me={me}
           onClose={() => setDetailsFor(null)}
-          onOpenCoins={(u) => { setDetailsFor(null); setCoinsFor(u); }}
+          onOpenCoins={(u) => { setDetailsFor(null); setCoinsFor({ u, dir: "give" }); }}
           onOpenOutcome={(u) => { setDetailsFor(null); setOutcomeFor(u); }}
           onOpenResetPassword={(u) => { setDetailsFor(null); setResetPwFor(u); }}
           onReload={reload}
@@ -1184,9 +1184,10 @@ function CreateModal({
   );
 }
 
-function CoinsModal({ target, me, reload, onClose }: Ctx & { target: Account; onClose: () => void }) {
-  const [dir, setDir] = useState<"give" | "take">("give");
+function CoinsModal({ target, me, reload, onClose, initialDir = "give" }: Ctx & { target: Account; onClose: () => void; initialDir?: "give" | "take" }) {
+  const [dir, setDir] = useState<"give" | "take">(initialDir);
   const [amt, setAmt] = useState("");
+  const [remark, setRemark] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const sa = me.role === "superadmin";
@@ -1197,7 +1198,10 @@ function CoinsModal({ target, me, reload, onClose }: Ctx & { target: Account; on
     if (dir === "take" && n > target.coins) return setErr(`${target.name} only has ${coins(target.coins)}`);
     setBusy(true);
     try {
-      await transferCoins(target.id, dir === "give" ? n : -n);
+      // The same note goes on both ledger rows (theirs and, unless Super Admin, yours), so it names both sides.
+      const r = remark.trim();
+      const note = r ? `${dir === "give" ? "Deposit" : "Withdrawal"} • ${me.name} ${dir === "give" ? "→" : "←"} ${target.name} • ${r}` : undefined;
+      await transferCoins(target.id, dir === "give" ? n : -n, note);
       await reload();
       onClose();
     } catch (e) {
@@ -1219,6 +1223,7 @@ function CoinsModal({ target, me, reload, onClose }: Ctx & { target: Account; on
       <form onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <input autoFocus inputMode="numeric" value={amt} onChange={(e) => { setAmt(e.target.value.replace(/\D/g, "")); setErr(""); }} placeholder="Amount" className={`${inputCls} mt-3 text-lg`} />
         <div className="flex gap-2 mt-2">{[100, 500, 1000, 5000].map((v) => <button type="button" key={v} onClick={() => setAmt(String(v))} className="pill bg-white/5 px-3 py-1 text-xs">{v.toLocaleString("en-IN")}</button>)}</div>
+        <input value={remark} onChange={(e) => setRemark(e.target.value.slice(0, 120))} placeholder="Remark (optional) — e.g. UPI ref, cash, bonus" className={`${inputCls} mt-3`} />
         <div className="text-[11px] text-white/50 mt-3">
           {dir === "give" ? (sa ? "New coins are created and added to their balance." : "Coins move from your balance to theirs.") : sa ? "Coins are removed from their balance." : "Coins move from their balance back to yours."}
         </div>

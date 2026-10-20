@@ -114,8 +114,9 @@ export async function setStatus(id: string, status: "Active" | "Frozen", cascade
 }
 
 /** Positive: give coins; negative: take them back. Only the Super Admin creates new coins. */
-export async function transferCoins(id: string, amount: number) {
-  const { error } = await supabase().rpc("transfer_coins", { target: id, amount });
+export async function transferCoins(id: string, amount: number, note?: string) {
+  // Without a note the database writes its own ("Coins from …" / "Sent to …") on both ledger rows.
+  const { error } = await supabase().rpc("transfer_coins", { target: id, amount, ...(note ? { p_note: note } : {}) });
   if (error) throw new Error(errText(error));
 }
 
