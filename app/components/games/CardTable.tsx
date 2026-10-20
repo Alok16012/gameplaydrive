@@ -42,6 +42,7 @@ interface G {
   raises?: number; // poker: raises by the computer players this betting round (capped, so a round always ends)
   community: Card[];
   turn: "me" | number | null;
+  dealer?: "me" | number; // who dealt this hand (wears the DEALER chip); the next seat acts first
   timerEnd: number;
   busy: boolean;
   result: { me: boolean; who: string; hand: string; amount: number } | null;
@@ -212,11 +213,16 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
     next.pot = buyIn * (BOTS + 1);
     next.stake = buyIn;
     next.phase = "playing";
-    next.turn = "me";
+    // The dealer is picked at random each hand; the seat after the dealer opens (turn order: you → bot 0 → … → bot 4).
+    const d = Math.floor(Math.random() * (BOTS + 1)); // 0 = you, 1..BOTS = bot d-1
+    next.dealer = d === 0 ? "me" : d - 1;
+    const first: "me" | number = d === 0 ? 0 : d === BOTS ? "me" : d; // bot after the dealer, or you after the last bot
+    next.turn = first;
     next.timerEnd = Date.now() + TURN_SECS * 1000;
     g.current = next;
     markActive(route, `${game.name} • Table #${table}`, REJOIN_MS.poker);
     bump();
+    if (first !== "me") botsTurn(first);
   };
 
   const finish = (winner: "me" | number, hand: string) => {
@@ -515,7 +521,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
         <div className="relative mt-12 mx-4 felt" style={{ height: 350, borderRadius: "170px" }}>
           {s.bots.map((b, i) => (
             <div key={b.name} className={`absolute ${seatPos[i]} flex flex-col items-center z-10 w-[84px] ${reveal && winnerSeat === i ? "scale-110 transition-transform" : ""}`}>
-              <TimerAvatar emoji={b.emoji} size={40} active={s.phase === "playing" && s.turn === i} left={s.turn === i ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={b.packed} />
+              <TimerAvatar emoji={b.emoji} size={40} active={s.phase === "playing" && s.turn === i} left={s.turn === i ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={b.packed} dealer={s.phase !== "idle" && s.dealer === i} />
               <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
                 <div className="text-[10px] font-medium leading-tight">{b.name}<BotTag /></div>
                 <div className="text-[10px] text-gold-300 leading-tight">🪙 {b.bal.toLocaleString("en-IN")}</div>
@@ -574,7 +580,7 @@ export function CardTable({ nav, gameId, table, buyIn }: { nav: Nav; gameId: Gam
 
           {/* You */}
           <div className="absolute left-1/2 -translate-x-1/2 -bottom-7 flex flex-col items-center z-10">
-            <TimerAvatar size={48} active={myTurn} left={myTurn ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={s.me.packed} />
+            <TimerAvatar size={48} active={myTurn} left={myTurn ? Math.max(0, (s.timerEnd - Date.now()) / 1000) : 0} dim={s.me.packed} dealer={s.phase !== "idle" && s.dealer === "me"} />
             <div className="mt-1 px-2 py-0.5 rounded-lg bg-black/55 text-center">
               <div className="text-[10px] font-medium leading-tight">You {s.phase === "playing" && (s.me.packed ? <span className="text-rose-300">• {poker ? "Folded" : "Packed"}</span> : !poker && <span className="text-white/60">• {s.me.seen ? "Seen" : "Blind"}</span>)}</div>
               <div className="text-[10px] text-gold-300 leading-tight">🪙 {total.toLocaleString("en-IN")}</div>
