@@ -7,7 +7,7 @@ import { ChevronLeft, LogOut, Users } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
-import { Header, Money, PlayingCard } from "../ui";
+import { Header, HomeButton, Money, PlayingCard } from "../ui";
 import { LandscapeStage } from "./LandscapeStage";
 import { BotTag, ResultSheet, TimerAvatar, dealerSeat } from "./bots";
 import type { Nav } from "../nav";
@@ -258,6 +258,7 @@ export function TeenPattiSupabase({ nav, buyIn, code }: { nav: Nav; buyIn: numbe
         {/* Top bar */}
         <div className="h-11 shrink-0 flex items-center gap-2 px-3 bg-black/30">
           <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
+          <HomeButton className="w-8 h-8 grid place-items-center rounded-full bg-white/10" />
           <div className="leading-tight">
             <div className="text-sm font-semibold">Teen Patti</div>
             <div className="text-[11px] text-white/60">Boot {inr(v?.boot ?? buyIn)}{v?.hand_no ? ` • Hand #${v.hand_no}` : ""}</div>

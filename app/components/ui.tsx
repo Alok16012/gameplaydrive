@@ -1,7 +1,7 @@
 "use client";
 
 import { sfx } from "../lib/sound";
-import { Component } from "react";
+import { Component, createContext, useContext } from "react";
 
 import { ChevronLeft, Gamepad2, Home, Menu, Wallet as WalletIcon } from "lucide-react";
 import type { Card } from "../lib/data";
@@ -93,6 +93,20 @@ export function Chip({ value, color = "#e11d48", size = 36, active = false, onCl
   );
 }
 
+/** Set by the app shell while a game (or its lobby) is open: jumps straight back to Home. */
+export const GoHomeContext = createContext<(() => void) | null>(null);
+
+/** Home icon shown next to Back inside games; renders nothing elsewhere. */
+export function HomeButton({ className = "w-9 h-9 grid place-items-center rounded-full hover:bg-white/5" }: { className?: string }) {
+  const goHome = useContext(GoHomeContext);
+  if (!goHome) return null;
+  return (
+    <button onClick={goHome} className={className} aria-label="Home">
+      <Home size={20} />
+    </button>
+  );
+}
+
 export function Header({ title, sub, onBack, right, icon }: { title: string; sub?: string; onBack?: () => void; right?: React.ReactNode; icon?: React.ReactNode }) {
   return (
     <div className="sticky top-0 z-20 flex items-center gap-3 px-4 pt-5 pb-3 bg-[#0b1030]/85 backdrop-blur-md">
@@ -101,6 +115,7 @@ export function Header({ title, sub, onBack, right, icon }: { title: string; sub
           <ChevronLeft size={24} />
         </button>
       )}
+      {onBack && <HomeButton className="w-9 h-9 -ml-2 grid place-items-center rounded-full hover:bg-white/5" />}
       {icon}
       <div className="flex-1 min-w-0">
         <div className="text-lg font-semibold leading-tight truncate">{title}</div>

@@ -8,7 +8,7 @@ import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
-import { Header, Money, PlayingCard, Sheet } from "../ui";
+import { Header, HomeButton, Money, PlayingCard, Sheet } from "../ui";
 import { BotTag, DealerChip, ResultSheet, TimerAvatar, dealerSeat } from "./bots";
 import { LandscapeStage } from "./LandscapeStage";
 import type { Nav, RummyMode } from "../nav";
@@ -494,6 +494,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         {/* Top bar */}
         <div className="absolute left-[7%] right-[7%] top-2 z-30 h-12 rounded-2xl bg-[#121512]/95 border border-white/10 flex items-center px-3 gap-3">
           <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-9 h-9 grid place-items-center rounded-full hover:bg-white/10"><ChevronLeft size={24} /></button>
+          <HomeButton className="w-9 h-9 grid place-items-center rounded-full hover:bg-white/10" />
           <div className="flex-1 min-w-0 text-center leading-tight">
             <div className="text-[15px] font-semibold truncate">
               {cards === 21 ? "21 Card • " : ""}{mode === "pool101" ? "101 Pool" : mode === "pool201" ? "201 Pool" : mode === "deals" ? `Deals ×${deals}` : "Points"} • {mode === "points" ? `${inr(stake)}/pt` : inr(stake)}

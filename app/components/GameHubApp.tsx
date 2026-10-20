@@ -9,7 +9,7 @@ import { fmtPhone, loadMe, type Account } from "../lib/hierarchy";
 import { refreshBotConfig } from "../lib/botpool";
 import { supabase } from "../lib/supabase";
 import { sfx, unlockAudio } from "../lib/sound";
-import { BottomNav, ScreenBoundary, Toast, type Tab } from "./ui";
+import { BottomNav, GoHomeContext, ScreenBoundary, Toast, type Tab } from "./ui";
 import type { Nav, Route } from "./nav";
 import { Login, Splash } from "./screens/Auth";
 import { Games, Home, Lobby, Notifications } from "./screens/Main";
@@ -30,6 +30,9 @@ import { Plinko } from "./games/Plinko";
 import { StockMarket } from "./games/StockMarket";
 import { Cricket } from "./games/Cricket";
 import { ForceChangePasswordModal } from "./ChangePasswordModal";
+
+// Screens that show a Home icon next to Back: every game and game lobby.
+const GAME_ROUTES = new Set<Route["name"]>(["lobby", "casino", "cricket", "aviator", "roulette", "blackjack", "plinko", "stockmarket", "cardtable", "rummy", "board"]);
 
 const TAB_OF: Partial<Record<Route["name"], Tab>> = { home: "home", games: "games", wallet: "wallet", more: "more" };
 
@@ -128,6 +131,7 @@ function Shell() {
   if (auth === "login") return <Login onDone={enter} />;
 
   const tab = TAB_OF[route.name];
+  const goHome = () => nav.reset({ name: "home" });
   let screen: React.ReactNode;
   switch (route.name) {
     case "home": screen = <Home nav={nav} />; break;
@@ -161,7 +165,9 @@ function Shell() {
   return (
     <>
       {forceChangePw && <ForceChangePasswordModal onDone={() => setForceChangePw(false)} />}
-      <ScreenBoundary key={stack.length + route.name}><div>{screen}</div></ScreenBoundary>
+      <GoHomeContext.Provider value={GAME_ROUTES.has(route.name) ? goHome : null}>
+        <ScreenBoundary key={stack.length + route.name}><div>{screen}</div></ScreenBoundary>
+      </GoHomeContext.Provider>
       {tab && <BottomNav tab={tab} onTab={(t) => nav.reset({ name: t })} />}
     </>
   );

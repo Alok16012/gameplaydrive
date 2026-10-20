@@ -6,7 +6,7 @@ import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from 
 import { gameById, inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
-import { Avatar } from "../ui";
+import { Avatar, HomeButton } from "../ui";
 import { LandscapeStage } from "./LandscapeStage";
 import type { Nav } from "../nav";
 
@@ -246,6 +246,7 @@ export function Roulette({ nav }: { nav: Nav }) {
         {/* Top: back, last numbers, balance */}
         <div className="h-[13%] min-h-[44px] flex items-center gap-2 px-3 relative z-30">
           <button onClick={nav.back} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Back"><ChevronLeft size={20} /></button>
+          <HomeButton className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" />
           <button onClick={() => showToast("Bet before the timer runs out. Number 36x • Split (line between 2 numbers) 18x • Corner (4 numbers) 9x • Row / Dozen 3x • Red, Black, Even, Odd, 1-18, 19-36 2x")} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Rules"><Info size={18} /></button>
           <div className="flex-1 flex justify-center min-w-0">
             <div className="flex items-center gap-1 rounded-b-xl bg-[#1b2a22]/90 border border-[#c9a24a]/50 px-2 py-1 overflow-hidden max-w-full">
