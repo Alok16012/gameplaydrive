@@ -3,7 +3,7 @@
 import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise, vibrate } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, Menu, Plus } from "lucide-react";
+import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, LogOut, Menu, Plus } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
@@ -57,6 +57,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const [groups, setGroups] = useState<number[][]>([]);
   const [sel, setSel] = useState<number[]>([]);
   const [confirm, setConfirm] = useState<"declare" | "drop" | null>(null);
+  const [exitAsk, setExitAsk] = useState(false);
   const [sheetFor, setSheetFor] = useState("");
   const [peek, setPeek] = useState(false);
   const tableId = useRef<string | null>(null);
@@ -730,6 +731,10 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             </button>
           </div>
         )}
+        {/* Bottom-right: exit the table (asks first) */}
+        <button onClick={() => setExitAsk(true)} className="absolute z-20 bottom-2 right-[3%] rounded-full border-2 border-rose-300/80 px-3.5 py-1.5 text-[15px] font-bold flex items-center gap-1.5 bg-black/40 text-rose-200 shadow-md active:scale-95 transition-all">
+          <LogOut size={17} /> Exit
+        </button>
         {!inDeal && v && mode !== "points" && (
           <div className="absolute left-[3%] bottom-3 z-20 text-[11px] text-white/45 max-w-[30%]">Leaving mid-deal counts as a drop and forfeits the match</div>
         )}
@@ -832,6 +837,20 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </div>
           <div className="text-[11px] text-white/35 mt-3">
             Rummy uses {cards === 21 ? "three" : "two"} decks, so each card exists {cards === 21 ? "three" : "two"} times. A thrown card can also be picked up and thrown again, and when the closed deck runs out the open pile is reshuffled back in — so the same card can come round more than once.
+          </div>
+        </div>
+      </Sheet>
+
+      <Sheet open={exitAsk} onClose={() => setExitAsk(false)} title="Exit table?">
+        <div className="text-sm text-[var(--ink-soft)]">
+          {inDeal && mySeat?.playing && !mySeat.dropped
+            ? mode === "points"
+              ? "You're in a deal — leaving now counts as a drop."
+              : "Leaving mid-deal counts as a drop and forfeits the match — your entry is not returned."
+            : "You'll give up your seat at this table."}
+          <div className="grid grid-cols-2 gap-3 mt-5">
+            <button onClick={() => setExitAsk(false)} className="btn-ghost py-3 rounded-2xl">Stay</button>
+            <button onClick={() => { setExitAsk(false); leave(); }} className="rounded-2xl py-3 bg-rose-500 font-semibold">Exit</button>
           </div>
         </div>
       </Sheet>
