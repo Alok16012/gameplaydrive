@@ -35,8 +35,8 @@ export async function rulesFor(boot: number): Promise<Rules> {
   return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit };
 }
 
-async function balancesFor(t: TableState): Promise<Record<string, number>> {
-  const ids = t.seats.filter((s) => !s.bot).map((s) => s.playerId);
+async function balancesFor(t: TableState, extra: string[] = []): Promise<Record<string, number>> {
+  const ids = [...new Set([...t.seats.filter((s) => !s.bot).map((s) => s.playerId), ...extra])];
   if (!ids.length) return {};
   const rows = await selectAll<{ user_id: string; coins: number }>("wallets", `select=user_id,coins&user_id=in.(${ids.join(",")})`);
   return Object.fromEntries(rows.map((r) => [r.user_id, Number(r.coins)]));
@@ -62,11 +62,12 @@ type Step<T> = (t: TableState, ctx: Ctx) => { table: TableState; ledger: TableLe
  * Load → step → commit, retrying when another request got there first. The step must be pure (it is re-run on a
  * fresh load); ledger entries carry unique keys so a retry after a lost commit never pays twice.
  */
-export async function withTable<T>(id: string, step: Step<T>): Promise<{ table: TableState; balances: Record<string, number>; result: T; now: number }> {
+export async function withTable<T>(id: string, step: Step<T>, extraPlayers: string[] = []): Promise<{ table: TableState; balances: Record<string, number>; result: T; now: number }> {
   for (let attempt = 0; attempt < 6; attempt++) {
     const t = await loadTable(id);
     if (!t) throw new TableError("Table not found", 404);
-    const balances = await balancesFor(t);
+    // Balances of everyone seated, plus a player about to sit down (so they can be dealt into this hand).
+    const balances = await balancesFor(t, extraPlayers);
     const now = Date.now();
     const { version, ...state } = t;
     const r = step(state, { now, balances, rng });
@@ -109,7 +110,7 @@ export async function join(id: string, player: { playerId: string; name: string;
     if (!table.code) table = fillBots(table, ctx.rng, ctx.now);
     const adv = advanceTable(table, ctx);
     return { table: adv.table, ledger: adv.ledger, result: null };
-  });
+  }, [player.playerId]);
 }
 
 /** Presence + timers; returns the viewer's filtered view. */
