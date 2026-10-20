@@ -18,9 +18,7 @@ import { GameHistory, Help, More, ResponsibleGaming, Settings } from "./screens/
 import { Casino } from "./games/Casino";
 import { LuckySeven } from "./games/LuckySeven";
 import { CardTable } from "./games/CardTable";
-import { TeenPattiOnline } from "./games/TeenPattiOnline";
-import { TeenPattiSupabase } from "./games/TeenPattiSupabase";
-import { gameServerUp } from "../lib/gameServer";
+import { TeenPattiClassic } from "./games/TeenPattiClassic";
 import { RummyOnline } from "./games/RummyOnline";
 import { BoardGame } from "./games/Board";
 import { Aviator } from "./games/Aviator";
@@ -187,9 +185,7 @@ export default function GameHubApp() {
 }
 
 /** Teen Patti on the realtime game server when it's up; otherwise the Supabase engine, so the game never stops. */
+// Classic Teen Patti: dealt and settled by our own server (app/lib/teenpatti, /api/teenpatti).
 function TeenPattiAuto(props: { nav: Nav; buyIn: number; code?: string }) {
-  const [up, setUp] = useState<boolean | null>(null);
-  useEffect(() => { gameServerUp().then(setUp); }, []);
-  if (up === null) return <div className="min-h-dvh grid place-items-center text-sm text-white/60">Connecting to the table…</div>;
-  return up ? <TeenPattiOnline {...props} /> : <TeenPattiSupabase {...props} />;
+  return <TeenPattiClassic {...props} />;
 }

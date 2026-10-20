@@ -6,7 +6,6 @@ import { Bell, ChevronRight, Gamepad2, Plus, Search, Trophy, Users, X, Copy, Wal
 import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, TEEN_PATTI_TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
-import { createTeenPattiPrivate, gameServerUp, getTeenPattiLobby } from "../../lib/gameServer";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
 import { isClosed, latestSettings, useGameSettings } from "../../lib/gameConfig";
@@ -40,11 +39,22 @@ export function BalanceSummary() {
   );
 }
 
-/** Teen Patti lobby counts from whichever engine is live (realtime server, or the Supabase fallback). */
+/** Real players at Classic Teen Patti tables right now, per boot (see /api/teenpatti/lobby). */
 async function tpLobby(): Promise<Record<string, number>> {
-  if (await gameServerUp()) return getTeenPattiLobby();
-  const { data } = await supabase().rpc("lobby_counts");
-  return ((data as Record<string, Record<string, number>> | null)?.["teen-patti"]) ?? {};
+  try {
+    const r = await fetch("/api/teenpatti/lobby", { cache: "no-store" });
+    return r.ok ? ((await r.json()) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function createClassicTeenPattiPrivate(boot: number): Promise<string> {
+  const { data } = await supabase().auth.getSession();
+  const r = await fetch("/api/teenpatti/private", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` }, body: JSON.stringify({ boot }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error ?? "Could not create the table");
+  return String(j.code);
 }
 
 export function Home({ nav }: { nav: Nav }) {
@@ -287,9 +297,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
       const code = gameId === "ludo"
         ? await supabase().rpc("ld_create_private", { p_entry: privStake, p_players: ludoN }).then(({ data, error }) => { if (error) throw error; return data as string; })
         : gameId === "teen-patti"
-        ? (await gameServerUp())
-          ? await createTeenPattiPrivate(privStake)
-          : await supabase().rpc("tp_create_private", { p_boot: privStake }).then(({ data, error }) => { if (error) throw error; return data as string; })
+        ? await createClassicTeenPattiPrivate(privStake)
         : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privStake, p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
       setPriv(false);
       join(`P-${code}`, privStake, mode === "deals" ? 2 : 0);
