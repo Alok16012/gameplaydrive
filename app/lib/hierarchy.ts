@@ -23,6 +23,7 @@ export interface Account {
   state: string | null;
   coins: number;
   dailyLimit: number | null; // daily bet limit set by someone above them (migration 018)
+  mustChangePassword: boolean; // true → force password change on next login (migration 052)
 }
 
 export const ROLE_LABEL: Record<Role, string> = { superadmin: "Super Admin", admin: "Admin", agent: "Agent", player: "Player" };
@@ -34,11 +35,13 @@ export const CREATES: Record<Role, Role[]> = { superadmin: ["admin", "agent", "p
 interface Row {
   id: string; code: string; role: Role; name: string; phone: string | null; username: string | null; parent_id: string | null;
   status: "active" | "frozen"; created_at: string; state: string | null; wallets: { coins: number } | null; daily_bet_limit?: number | null;
+  must_change_password?: boolean;
 }
 
 const toAccount = (r: Row): Account => ({
   id: r.id, code: r.code, role: r.role, name: r.name, phone: r.phone, username: r.username, parentId: r.parent_id,
   status: r.status === "active" ? "Active" : "Frozen", state: r.state, coins: r.wallets?.coins ?? 0, dailyLimit: r.daily_bet_limit ?? null,
+  mustChangePassword: r.must_change_password ?? false,
   created: new Date(r.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
   createdAt: r.created_at,
 });
@@ -126,3 +129,27 @@ export function ownerOptions(accounts: Account[], me: Account, role: Role): Acco
 
 export const fmtPhone = (p: string | null) => (p ? `${p.slice(0, 5)} ${p.slice(5)}` : "—");
 export const coins = (n: number) => `🪙 ${Math.round(n).toLocaleString("en-IN")}`;
+
+/** Change the signed-in user's own password (old password required). */
+export async function changeMyPassword(oldPassword: string, newPassword: string): Promise<void> {
+  const { data: s } = await supabase().auth.getSession();
+  const r = await fetch("/api/change-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error ?? "Could not change password");
+}
+
+/** A superior resets a subordinate's password (hierarchy enforced server-side). */
+export async function resetSubordinatePassword(targetId: string, newPassword: string): Promise<void> {
+  const { data: s } = await supabase().auth.getSession();
+  const r = await fetch("/api/change-password", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    body: JSON.stringify({ targetId, newPassword }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error ?? "Could not reset password");
+}

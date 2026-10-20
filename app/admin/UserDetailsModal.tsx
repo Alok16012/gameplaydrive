@@ -13,9 +13,11 @@ import {
   Sliders,
   CheckCircle2,
   Save,
+  KeyRound,
 } from "lucide-react";
 import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
 import { supabase } from "../lib/supabase";
+import { ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 
 export interface UserExchangeMeta {
   partnershipName?: string;
@@ -46,6 +48,7 @@ interface UserDetailsModalProps {
   onClose: () => void;
   onOpenCoins?: (u: Account) => void;
   onOpenOutcome?: (u: Account) => void;
+  onOpenResetPassword?: (u: Account) => void;
   onReload?: () => Promise<void>;
 }
 
@@ -55,6 +58,7 @@ export function UserDetailsModal({
   onClose,
   onOpenCoins,
   onOpenOutcome,
+  onOpenResetPassword,
   onReload,
 }: UserDetailsModalProps) {
   const [meta, setMeta] = useState<UserExchangeMeta>({
@@ -79,6 +83,7 @@ export function UserDetailsModal({
   const [stats, setStats] = useState<AccountStats | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [showSportsExposure, setShowSportsExposure] = useState(false);
+  const [showResetPw, setShowResetPw] = useState(false);
 
   // Load saved metadata from app_settings or fallback
   useEffect(() => {
@@ -584,6 +589,16 @@ export function UserDetailsModal({
                 </button>
               )}
 
+              <button
+                type="button"
+                onClick={() => onOpenResetPassword ? onOpenResetPassword(target) : setShowResetPw(true)}
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-sky-500/10 border border-sky-500/30 text-sky-700 hover:bg-sky-500/20 flex items-center gap-1.5 transition"
+                title="Reset account password"
+              >
+                <KeyRound size={13} />
+                Password
+              </button>
+
               {onOpenOutcome && me.role === "superadmin" && (
                 <button
                   type="button"
@@ -609,6 +624,14 @@ export function UserDetailsModal({
 
       {showSportsExposure && (
         <LiveSportsExposureModal target={target} onClose={() => setShowSportsExposure(false)} />
+      )}
+
+      {showResetPw && (
+        <ResetSubordinatePasswordModal
+          target={target}
+          onClose={() => setShowResetPw(false)}
+          onSuccess={onReload}
+        />
       )}
     </div>
   );

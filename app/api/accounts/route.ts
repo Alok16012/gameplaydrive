@@ -64,6 +64,15 @@ export async function POST(req: Request) {
       }
     }
 
+    // Mark the new account for forced password change on first login
+    if (authId) {
+      try {
+        await patchRow("profiles", `id=eq.${authId}`, { must_change_password: true });
+      } catch {
+        // Non-critical: worst case the user isn't forced to change password
+      }
+    }
+
     return Response.json({ profile });
   } catch (e) {
     if (authId) await deleteAuthUser(authId).catch(() => {});
@@ -106,6 +115,9 @@ export async function PATCH(req: Request) {
   try {
     if ((after && after !== before) || password) {
       await updateAuthUser(id, { ...(after && after !== before ? { email: after } : {}), ...(password ? { password } : {}) });
+      if (password) {
+        await patchRow("profiles", `id=eq.${id}`, { must_change_password: true }).catch(() => {});
+      }
     }
   } catch (e) {
     // Put the details back so the account still matches its login.

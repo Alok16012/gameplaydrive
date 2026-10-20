@@ -28,11 +28,13 @@ import { Blackjack } from "./games/Blackjack";
 import { Plinko } from "./games/Plinko";
 import { StockMarket } from "./games/StockMarket";
 import { Cricket } from "./games/Cricket";
+import { ForceChangePasswordModal } from "./ChangePasswordModal";
 
 const TAB_OF: Partial<Record<Route["name"], Tab>> = { home: "home", games: "games", wallet: "wallet", more: "more" };
 
 function Shell() {
   const [auth, setAuth] = useState<"splash" | "login" | "in">("splash");
+  const [forceChangePw, setForceChangePw] = useState(false);
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
   const route = stack[stack.length - 1];
   const { signIn, signOut } = useStore();
@@ -43,6 +45,8 @@ function Shell() {
       signIn({ id: p.id, code: p.code, name: p.name, first: p.name.split(" ")[0], phone: `+91 ${fmtPhone(p.phone)}`, agent: agent?.name ?? null }),
       refreshBotConfig(),
     ]);
+    // If must_change_password flag is set, show the force-change modal before letting them play
+    if (p.mustChangePassword) setForceChangePw(true);
     setAuth("in");
   }, [signIn]);
 
@@ -154,6 +158,7 @@ function Shell() {
 
   return (
     <>
+      {forceChangePw && <ForceChangePasswordModal onDone={() => setForceChangePw(false)} />}
       <ScreenBoundary key={stack.length + route.name}><div>{screen}</div></ScreenBoundary>
       {tab && <BottomNav tab={tab} onTab={(t) => nav.reset({ name: t })} />}
     </>

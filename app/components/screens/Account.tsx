@@ -1,20 +1,23 @@
 "use client";
 
+import { useState } from "react";
 import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { setPref, useSoundPrefs } from "../../lib/sound";
-import { useState } from "react";
-import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard } from "lucide-react";
+import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard, KeyRound } from "lucide-react";
 import { FAQS, GAMES, inr, type Txn } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { GameThumb } from "../GameArt";
 import { Avatar, Header, Toggle } from "../ui";
 import type { Nav } from "../nav";
+import { ChangePasswordModal } from "../ChangePasswordModal";
 
 export function More({ nav }: { nav: Nav }) {
   const { player, txns, total } = useStore();
+  const [changePwOpen, setChangePwOpen] = useState(false);
   const items: { icon: React.ReactNode; label: string; right?: React.ReactNode; go: () => void; danger?: boolean }[] = [
     { icon: <WalletIcon size={19} />, label: "Wallet", go: () => nav.reset({ name: "wallet" }) },
     { icon: <History size={19} />, label: "Game History", go: () => nav.push({ name: "history" }) },
+    { icon: <KeyRound size={19} className="text-amber-400" />, label: "Change Password", go: () => setChangePwOpen(true) },
     { icon: <CircleHelp size={19} />, label: "Help & Support", go: () => nav.push({ name: "help" }) },
     { icon: <SettingsIcon size={19} />, label: "Settings", go: () => nav.push({ name: "settings" }) },
     { icon: <HeartHandshake size={19} />, label: "Responsible Gaming", right: <ChevronRight size={18} className="text-white/40" />, go: () => nav.push({ name: "rg" }) },
@@ -54,6 +57,7 @@ export function More({ nav }: { nav: Nav }) {
         </div>
         <div className="text-center text-[10px] text-white/30 mt-6">Khelobaazi v1.0.0 • 18+ only • Play responsibly</div>
       </div>
+      {changePwOpen && <ChangePasswordModal onClose={() => setChangePwOpen(false)} />}
     </div>
   );
 }
@@ -204,6 +208,7 @@ export function Help({ nav }: { nav: Nav }) {
 
 export function Settings({ nav }: { nav: Nav }) {
   const snd = useSoundPrefs();
+  const [changePwOpen, setChangePwOpen] = useState(false);
   const [n, setN] = useState({ push: true, whatsapp: true });
   const s = { ...snd, ...n };
   const rows: [keyof typeof s, string][] = [["sound", "Sound effects"], ["music", "Background music"], ["vibration", "Vibration"], ["push", "Push notifications"], ["whatsapp", "WhatsApp updates"]];
@@ -217,9 +222,21 @@ export function Settings({ nav }: { nav: Nav }) {
       <div className="px-4">
         <div className="card divide-y divide-white/5">
           {rows.map(([k, label]) => (
-            <div key={k} className="flex items-center justify-between p-4 text-sm">{label}<Toggle on={s[k]} onChange={(v) => setS({ ...s, [k]: v })} /></div>
+            <div key={String(k)} className="flex items-center justify-between p-4 text-sm">{label}<Toggle on={s[k]} onChange={(v) => setS({ ...s, [k]: v })} /></div>
           ))}
         </div>
+
+        <div className="card mt-4 divide-y divide-white/5 text-sm">
+          <button
+            onClick={() => setChangePwOpen(true)}
+            className="w-full flex items-center gap-3 p-4 text-left hover:bg-white/5 transition"
+          >
+            <KeyRound size={18} className="text-amber-400" />
+            <span className="flex-1 font-medium">Change Password</span>
+            <ChevronRight size={18} className="text-white/40" />
+          </button>
+        </div>
+
         <div className="card mt-4 divide-y divide-white/5 text-sm">
           <div className="flex items-center gap-3 p-4"><Globe size={18} className="text-white/70" /><span className="flex-1">Language</span><span className="text-white/60">English</span></div>
           <div className="flex items-center gap-3 p-4"><FileCheck2 size={18} className="text-white/70" /><span className="flex-1">Terms & Conditions</span><ChevronRight size={18} className="text-white/40" /></div>
@@ -227,6 +244,7 @@ export function Settings({ nav }: { nav: Nav }) {
           <div className="flex items-center gap-3 p-4"><Globe size={18} className="text-white/70" /><span className="flex-1">Fair Play Policy</span><ChevronRight size={18} className="text-white/40" /></div>
         </div>
       </div>
+      {changePwOpen && <ChangePasswordModal onClose={() => setChangePwOpen(false)} />}
     </div>
   );
 }

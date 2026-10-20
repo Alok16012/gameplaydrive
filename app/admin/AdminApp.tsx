@@ -17,6 +17,7 @@ import { OutcomeControlView } from "./OutcomeControlView";
 import { CricketResultsView } from "./CricketResultsView";
 import { UserDetailsModal } from "./UserDetailsModal";
 import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView";
+import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 
 // Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
@@ -30,6 +31,14 @@ export default function AdminApp() {
   const [reportTab, setReportTab] = useState<ReportSubTab>("account_statement");
   const [reportsOpen, setReportsOpen] = useState(true);
   const [detailsForGlobal, setDetailsForGlobal] = useState<Account | null>(null);
+  const [forceChangePw, setForceChangePw] = useState(false);
+  const [changeMyPwOpen, setChangeMyPwOpen] = useState(false);
+
+  useEffect(() => {
+    if (me?.mustChangePassword) {
+      setForceChangePw(true);
+    }
+  }, [me?.mustChangePassword]);
 
   if (me === undefined) return <div className="min-h-dvh bg-[#070b22]" />;
   if (!me || me.role === "player" || me.status !== "Active") return <AdminLogin blocked={me ? (me.role === "player" ? "player" : "frozen") : null} />;
@@ -129,12 +138,32 @@ export default function AdminApp() {
           <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.code}</div>
           <div className="text-xs text-gold-300 mt-1">{me.role === "superadmin" ? "Creates coins" : coins(me.coins)}</div>
         </div>
-        <button onClick={logout} className="flex items-center gap-3 px-3 py-2.5 text-sm text-white/60"><LogOut size={18} />Logout</button>
+        <button
+          onClick={() => setChangeMyPwOpen(true)}
+          className="flex items-center gap-3 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 rounded-xl transition w-full"
+        >
+          <KeyRound size={18} />Change Password
+        </button>
+        <button onClick={logout} className="flex items-center gap-3 px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition w-full">
+          <LogOut size={18} />Logout
+        </button>
       </aside>
 
       <main className="flex-1 min-w-0">
         <div className="lg:hidden sticky top-0 z-10 bg-[#0a0f2c]/95 backdrop-blur border-b border-white/5">
-          <div className="px-4 pt-4 flex items-center justify-between"><Brand role={me.role} /><button onClick={logout} aria-label="Logout"><LogOut size={18} /></button></div>
+          <div className="px-4 pt-4 flex items-center justify-between">
+            <Brand role={me.role} />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setChangeMyPwOpen(true)}
+                className="p-1.5 rounded-lg bg-white/5 text-white/70 hover:text-white"
+                title="Change Password"
+              >
+                <KeyRound size={18} />
+              </button>
+              <button onClick={logout} aria-label="Logout"><LogOut size={18} /></button>
+            </div>
+          </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 py-3">
             {nav.map((n) => (
               <button key={n.id} onClick={() => setSec(n.id)} className={`pill px-3 py-1.5 text-xs whitespace-nowrap ${sec === n.id ? "btn-green" : "bg-white/5"}`}>{n.label}</button>
@@ -173,6 +202,19 @@ export default function AdminApp() {
           onClose={() => setDetailsForGlobal(null)}
           onReload={reload}
         />
+      )}
+
+      {forceChangePw && (
+        <ForceChangePasswordModal
+          onDone={async () => {
+            setForceChangePw(false);
+            await reload();
+          }}
+        />
+      )}
+
+      {changeMyPwOpen && (
+        <ChangePasswordModal onClose={() => setChangeMyPwOpen(false)} />
       )}
     </div>
   );
@@ -310,6 +352,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [coinsFor, setCoinsFor] = useState<Account | null>(null);
   const [limitFor, setLimitFor] = useState<Account | null>(null);
   const [editing, setEditing] = useState<Account | null>(null);
+  const [resetPwFor, setResetPwFor] = useState<Account | null>(null);
   const [deleting, setDeleting] = useState<Account | null>(null);
   const [outcomeFor, setOutcomeFor] = useState<Account | null>(null);
   const [detailsFor, setDetailsFor] = useState<Account | null>(null);
@@ -399,6 +442,13 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                     More
                   </button>
                   <button onClick={() => setEditing(u)} className="btn-ghost rounded-lg px-2 py-1.5 text-xs inline-flex items-center gap-1 mr-1.5"><Pencil size={13} />Edit</button>
+                  <button
+                    onClick={() => setResetPwFor(u)}
+                    className="btn-ghost rounded-lg px-2 py-1.5 text-xs inline-flex items-center gap-1 mr-1.5 text-amber-300 hover:text-amber-200"
+                    title={`Reset Password for ${ROLE_LABEL[u.role]}`}
+                  >
+                    <KeyRound size={13} />Pass
+                  </button>
                   {u.role === "player" && <button onClick={() => setLimitFor(u)} className="btn-ghost rounded-lg px-2.5 py-1.5 text-xs inline-flex items-center gap-1 ml-2"><Gauge size={13} />{u.dailyLimit ? coins(u.dailyLimit) + "/day" : "Limit"}</button>}
                   {me.role === "superadmin" && (
                     <button
@@ -431,6 +481,13 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       {limitFor && <LimitModal target={limitFor} reload={reload} onClose={() => setLimitFor(null)} />}
       {outcomeFor && <PlayerOutcomeModal target={outcomeFor} onClose={() => setOutcomeFor(null)} />}
       {editing && <EditModal target={editing} accounts={accounts} reload={reload} onClose={() => setEditing(null)} />}
+      {resetPwFor && (
+        <ResetSubordinatePasswordModal
+          target={resetPwFor}
+          onClose={() => setResetPwFor(null)}
+          onSuccess={reload}
+        />
+      )}
       {deleting && <DeleteAccountModal target={deleting} me={me} accounts={accounts} reload={reload} onClose={() => setDeleting(null)} />}
       {detailsFor && (
         <UserDetailsModal
@@ -439,6 +496,7 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
           onClose={() => setDetailsFor(null)}
           onOpenCoins={(u) => { setDetailsFor(null); setCoinsFor(u); }}
           onOpenOutcome={(u) => { setDetailsFor(null); setOutcomeFor(u); }}
+          onOpenResetPassword={(u) => { setDetailsFor(null); setResetPwFor(u); }}
           onReload={reload}
         />
       )}
