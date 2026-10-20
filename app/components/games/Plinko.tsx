@@ -27,7 +27,7 @@ const MULTS: Record<Rows, Record<Risk, number[]>> = {
 };
 const QUICK = [10, 50, 100, 500];
 // One ball pays at most this much, so a board's max bet is this ÷ its best multiplier (same as public.plinko_max_bet()).
-const MAX_WIN = 100000;
+const MAX_WIN = 1000000;
 const maxBetFor = (rows: Rows, risk: Risk) => Math.min(10000, Math.floor(MAX_WIN / Math.max(...MULTS[rows][risk])));
 const ROW_MS = 150;
 const MAX_BALLS = 12;
