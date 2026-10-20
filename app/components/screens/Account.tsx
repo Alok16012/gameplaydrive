@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { setPref, useSoundPrefs } from "../../lib/sound";
 import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard, KeyRound } from "lucide-react";
@@ -10,6 +10,8 @@ import { GameThumb } from "../GameArt";
 import { Avatar, Header, Toggle } from "../ui";
 import type { Nav } from "../nav";
 import { ChangePasswordModal } from "../ChangePasswordModal";
+import { supabase } from "../../lib/supabase";
+import { cardText, rouletteText, sideLabel, type CardJ } from "../../lib/roundText";
 
 export function More({ nav }: { nav: Nav }) {
   const { player, txns, total } = useStore();
@@ -73,7 +75,7 @@ function groupRounds(txns: Txn[]) {
     const game = parts[0];
     const when = parts[parts.length - 1];
     const desc = parts.slice(1, -1).join(" • ");
-    const hand = desc.match(/(?:Hand|Round) #\d+/)?.[0];
+    const hand = desc.match(/(?:Hand|Round|Spin) #\d+/)?.[0];
     let r = open[game];
     const start = /\b(entry|boot|buy-in)\b/i.test(desc);
     if (!r || (t.amount < 0 && (start || r.paidOut)) || (hand && r.hand && hand !== r.hand)) {
@@ -96,8 +98,79 @@ function groupRounds(txns: Txn[]) {
   return rounds.reverse();
 }
 
+// What was bet and how it came out, per round, from /api/my-history (keys as in detailKey).
+type Detail = Record<string, unknown>;
+const SLUG: Record<string, string> = {
+  Aviator: "aviator", "Stock Market": "stockmarket", Roulette: "roulette", Blackjack: "blackjack",
+  "Dragon Tiger": "dragon-tiger", "Andar Bahar": "andar-bahar", "Lucky 7": "lucky-7",
+};
+const detailKey = (game: string, hand?: string) => {
+  if (game.startsWith("CRICKET: ")) return `cricket:${game.slice(9)}`;
+  const id = hand?.match(/\d+/)?.[0];
+  return SLUG[game] && id ? `${SLUG[game]}:${id}` : null;
+};
+const n = (v: unknown) => Math.round(Number(v)).toLocaleString("en-IN");
+const cards = (cs: unknown) => ((cs as CardJ[]) ?? []).map(cardText).join(" ");
+
+/** One line saying what you bet and what happened, plus the full breakdown when the row is opened. */
+function roundLines(key: string, d: Detail): { summary: string; more: string[] } {
+  const game = key.split(":")[0];
+  if (game === "aviator") {
+    const bets = d.bets as { slot: number; amount: number; auto: number | null; cash: number | null }[];
+    const crash = d.crash === null ? "Round still running" : `Plane crashed at ${Number(d.crash).toFixed(2)}x`;
+    const mine = bets.map((b) => `Bet ${b.slot}: ${n(b.amount)} → ${b.cash ? `cashed out at ${b.cash.toFixed(2)}x` : "not cashed out"}`);
+    return { summary: `${mine.join(" • ")} • ${crash}`, more: [...bets.map((b) => (b.auto ? `Bet ${b.slot} auto cash-out was ${b.auto.toFixed(2)}x` : "")).filter(Boolean)] };
+  }
+  if (game === "stockmarket") {
+    const bets = d.bets as { side: string; amount: number; cashTick: number | null }[];
+    const close = d.close === null ? "Round still running" : `Market closed ${Number(d.close) > 1 ? "Up" : Number(d.close) < 1 ? "Down" : "flat"} (${((Number(d.close) - 1) * 100).toFixed(2)}%)`;
+    return { summary: `${bets.map((b) => `${sideLabel(b.side)} ${n(b.amount)}${b.cashTick !== null && b.cashTick < 80 ? " (closed early)" : ""}`).join(" • ")} • ${close}`, more: [] };
+  }
+  if (game === "roulette") return { summary: `Ball landed on ${rouletteText(Number(d.num))}`, more: [] };
+  if (game === "blackjack") {
+    const hands = (d.hands as { cards: CardJ[]; result?: string; bet?: number }[]) ?? [];
+    return {
+      summary: `${hands.map((h, i) => `${hands.length > 1 ? `Hand ${i + 1}: ` : "You: "}${cards(h.cards)}${h.result ? ` (${h.result})` : ""}`).join(" • ")} • Dealer: ${cards(d.dealer)}`,
+      more: [],
+    };
+  }
+  if (game === "cricket") {
+    const bets = d.bets as { market: string; runner: string; type: string; rate: number | null; stake: number; status: string; result: string | null }[];
+    const line = (b: (typeof bets)[number]) => `${b.market} • ${b.runner} ${b.type} @ ${b.rate ?? "—"} • ${n(b.stake)} → ${b.status === "OPEN" ? "waiting for result" : b.status === "VOID" ? "void (returned)" : b.status === "WON" ? "won" : "lost"}${b.result ? ` (result: ${b.result})` : ""}`;
+    return { summary: bets.length === 1 ? line(bets[0]) : `${bets.length} bets on this match — tap to see them`, more: bets.length > 1 ? bets.map(line) : [] };
+  }
+  // Andar Bahar / Dragon Tiger / Lucky 7
+  const bets = (d.bets as { side: string; v: number }[]) ?? [];
+  const c = (d.cards as Record<string, unknown>) ?? {};
+  const you = `Your bet: ${bets.map((b) => `${sideLabel(b.side)} ${n(b.v)}`).join(", ") || "—"}`;
+  const won = d.winner ? `${sideLabel(String(d.winner))} won` : "";
+  if (game === "andar-bahar") {
+    const a = (c.andar as CardJ[]) ?? [], b = (c.bahar as CardJ[]) ?? [];
+    return { summary: `${you} • ${won} • Joker ${cardText(c.joker as CardJ)}`, more: [`Andar: ${cards(a)}`, `Bahar: ${cards(b)}`, `${a.length + b.length} cards dealt`] };
+  }
+  if (game === "dragon-tiger") return { summary: `${you} • ${won}`, more: [`Dragon ${cardText(c.dragon as CardJ)} vs Tiger ${cardText(c.tiger as CardJ)}`] };
+  return { summary: `${you} • ${won}`, more: [`Card: ${cardText(c.card as CardJ)}`] };
+}
+
+function useRoundDetail() {
+  const [detail, setDetail] = useState<Record<string, Detail>>({});
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase().auth.getSession();
+      const r = await fetch("/api/my-history", { headers: { Authorization: `Bearer ${data.session?.access_token ?? ""}` } }).catch(() => null);
+      const j = await r?.json().catch(() => null);
+      if (active && r?.ok && j?.detail) setDetail(j.detail);
+    })();
+    return () => { active = false; };
+  }, []);
+  return detail;
+}
+
 export function GameHistory({ nav }: { nav: Nav }) {
   const { txns } = useStore();
+  const detail = useRoundDetail();
+  const [openId, setOpenId] = useState<string | null>(null);
   // One row per round: total staked, what it paid back and the net result.
   const rows = groupRounds(txns.filter((t) => t.type === "bet" || t.type === "winning" || t.type === "bonus")).map((r) => ({ r, g: GAMES.find((g) => r.game.startsWith(g.name)) }));
   return (
@@ -109,19 +182,32 @@ export function GameHistory({ nav }: { nav: Nav }) {
           const done = r.paidOut || r.settled;
           const tag = !done ? "Playing" : net > 0 ? "Won" : net === 0 ? "Returned" : "Lost";
           const good = done && net >= 0;
+          const key = detailKey(r.game, r.hand);
+          const d = key ? detail[key] : undefined;
+          const lines = key && d ? roundLines(key, d) : null;
+          const open = openId === r.id;
           return (
-            <div key={r.id} className="card p-2.5 flex items-center gap-3">
-              {g ? <GameThumb game={g} className="w-14 h-14 shrink-0 [&>*]:scale-[.55]" /> : <div className="w-14 h-14 rounded-xl bg-white/5 shrink-0" />}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium">{g?.name ?? r.game}</div>
-                <div className="text-[11px] text-[var(--ink-soft)] truncate">{[r.hand ?? r.desc, r.when].filter(Boolean).join(" • ")}</div>
-                <div className="text-[11px] text-white/45 truncate">Bet {inr(r.staked)}{r.paidOut ? ` • Got ${inr(r.paid)}` : ""}</div>
+            <button key={r.id} onClick={() => lines && setOpenId(open ? null : r.id)} className="card p-2.5 w-full text-left block">
+              <div className="flex items-center gap-3">
+                {g ? <GameThumb game={g} className="w-14 h-14 shrink-0 [&>*]:scale-[.55]" /> : <div className="w-14 h-14 rounded-xl bg-white/5 shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{g?.name ?? r.game.replace(/^CRICKET: /, "Cricket • ")}</div>
+                  <div className="text-[11px] text-[var(--ink-soft)] truncate">{[r.hand ?? r.desc, r.when].filter(Boolean).join(" • ")}</div>
+                  <div className="text-[11px] text-white/45 truncate">Bet {inr(r.staked)}{r.paidOut ? ` • Got ${inr(r.paid)}` : ""}</div>
+                </div>
+                <div className="text-right pr-1">
+                  <div className={`text-[10px] pill px-2 py-0.5 inline-block ${!done ? "bg-white/10 text-white/70" : good ? "bg-neon-400/15 text-neon-400" : "bg-rose-500/15 text-rose-400"}`}>{tag}</div>
+                  <div className={`text-sm font-semibold mt-1 ${!done ? "text-white/70" : good ? "text-neon-400" : "text-rose-400"}`}>{done ? (net > 0 ? "+" : net < 0 ? "-" : "") : "-"}{inr(Math.abs(done ? net : r.staked))}</div>
+                </div>
               </div>
-              <div className="text-right pr-1">
-                <div className={`text-[10px] pill px-2 py-0.5 inline-block ${!done ? "bg-white/10 text-white/70" : good ? "bg-neon-400/15 text-neon-400" : "bg-rose-500/15 text-rose-400"}`}>{tag}</div>
-                <div className={`text-sm font-semibold mt-1 ${!done ? "text-white/70" : good ? "text-neon-400" : "text-rose-400"}`}>{done ? (net > 0 ? "+" : net < 0 ? "-" : "") : "-"}{inr(Math.abs(done ? net : r.staked))}</div>
-              </div>
-            </div>
+              {lines && (
+                <div className="mt-2 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-[11px] text-white/75">
+                  <div className={open ? "" : "truncate"}>{lines.summary}</div>
+                  {open && lines.more.map((m, i) => <div key={i} className="mt-0.5 text-white/60">{m}</div>)}
+                  {!open && (lines.more.length > 0 || lines.summary.length > 60) && <div className="text-[10px] text-neon-400 mt-0.5">Tap for details</div>}
+                </div>
+              )}
+            </button>
           );
         })}
         {rows.length === 0 && <div className="card py-10 text-center text-sm text-white/40">No games played yet</div>}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Search } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { RoundBet, RoundResult } from "../api/round-lookup/route";
+import { cardText, sideLabel, type CardJ } from "../lib/roundText";
 
 // Reports → Our / Live Casino Result: look one round up by its Round ID and see who bet what and what it paid.
 
@@ -16,17 +17,7 @@ const GAME_OPTIONS = [
   { id: "stockmarket", label: "Stock Market" },
 ];
 
-const SIDE: Record<string, string> = {
-  andar: "Andar", bahar: "Bahar", dragon: "Dragon", tiger: "Tiger", tie: "Tie", pair: "Pair",
-  below: "Below 7", seven: "Seven", above: "Above 7", low: "Low", high: "High", even: "Even", odd: "Odd", black: "Black", red: "Red",
-  up: "Up", down: "Down",
-};
-const sideLabel = (s: string) =>
-  SIDE[s] ??
-  s.replace(/^d_/, "Dragon ").replace(/^t_/, "Tiger ").replace(/^g_/, "Group ").replace(/^c_/, "Card ").replace(/_/g, " ");
-
-type CardJ = { r?: string; s?: string } | null | undefined;
-const card = (c: CardJ) => (c ? `${c.r ?? ""}${c.s ?? ""}` : "—");
+const card = cardText;
 const fmt = (n: number) => Math.round(n).toLocaleString("en-IN");
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "");
 
