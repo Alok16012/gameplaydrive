@@ -275,14 +275,17 @@ export function ReportsView({
           if (selectedUser !== "all") q = q.eq("user_id", selectedUser);
           return q.order("id", { ascending: true }).range(from, to);
         };
-        let audQuery = sb.from("audit_log").select("*");
-        if (start) audQuery = audQuery.gte("created_at", start.toISOString());
-        if (end) audQuery = audQuery.lt("created_at", end.toISOString());
+        const auditPage = (from: number, to: number) => {
+          let q = sb.from("audit_log").select("*");
+          if (start) q = q.gte("created_at", start.toISOString());
+          if (end) q = q.lt("created_at", end.toISOString());
+          return q.order("id", { ascending: false }).range(from, to);
+        };
 
         const [led, after, audRes] = await Promise.all([
           fetchAllPages<LedgerRow>(ledgerPage),
           end ? fetchAllPages<{ user_id: string; amount: number }>(afterPage) : Promise.resolve({ rows: [], capped: false }),
-          audQuery.order("created_at", { ascending: false }).limit(500),
+          fetchAllPages<AuditRow>(auditPage),
         ]);
         if (!active) return;
         setLedgerData(led.rows);
@@ -290,8 +293,7 @@ export function ReportsView({
         const m = new Map<string, number>();
         for (const r of after.rows) m.set(r.user_id, (m.get(r.user_id) ?? 0) + Number(r.amount));
         setAfterEnd(m);
-        if (audRes.error) setErr(errText(audRes.error));
-        else setAuditData((audRes.data as AuditRow[]) ?? []);
+        setAuditData(audRes.rows);
       } catch (e) {
         if (active) setErr(errText(e));
       } finally {

@@ -1452,11 +1452,28 @@ function LimitModal({ target, reload, onClose }: { target: Account; reload: () =
 
 interface AuditRow { id: number; actor_name: string | null; action: string; before: string | null; after: string | null; created_at: string }
 
+const AUDIT_PAGE = 200;
+
+// Newest first, AUDIT_PAGE rows at a time; "Load older" continues below the oldest id already shown.
 function AuditView() {
   const [rows, setRows] = useState<AuditRow[] | null>(null);
-  useEffect(() => {
-    supabase().from("audit_log").select("*").order("created_at", { ascending: false }).limit(200).then(({ data }) => setRows((data ?? []) as AuditRow[]));
-  }, []);
+  const [more, setMore] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const load = async (before?: number) => {
+    setBusy(true);
+    setErr("");
+    let q = supabase().from("audit_log").select("*");
+    if (before !== undefined) q = q.lt("id", before);
+    const { data, error } = await q.order("id", { ascending: false }).limit(AUDIT_PAGE);
+    setBusy(false);
+    if (error) return setErr(errText(error));
+    const page = (data ?? []) as AuditRow[];
+    setRows((r) => (before !== undefined && r ? [...r, ...page] : page));
+    setMore(page.length === AUDIT_PAGE);
+  };
+  useEffect(() => { load(); }, []);
+  const oldest = rows?.[rows.length - 1];
   return (
     <>
       <Title t="Audit Log" s="Every action with who did it, when, and before/after values" />
@@ -1474,10 +1491,21 @@ function AuditView() {
               </tr>
             ))}
             {rows && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Nothing yet.</td></tr>}
-            {!rows && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Loading…</td></tr>}
+            {!rows && !err && <tr><td colSpan={5} className="px-4 py-10 text-center text-white/50">Loading…</td></tr>}
           </tbody>
         </table>
       </div>
+      {err && <div className="text-xs text-rose-300 mt-3">{err}</div>}
+      {rows && rows.length > 0 && (
+        <div className="flex items-center justify-between gap-3 mt-3 text-xs text-white/50">
+          <span>{rows.length} entries • back to {new Date(oldest!.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+          {more ? (
+            <button disabled={busy} onClick={() => load(oldest!.id)} className="btn-ghost rounded-xl px-4 py-2 text-sm">{busy ? "Loading…" : "Load older"}</button>
+          ) : (
+            <span>That&apos;s everything</span>
+          )}
+        </div>
+      )}
     </>
   );
 }
