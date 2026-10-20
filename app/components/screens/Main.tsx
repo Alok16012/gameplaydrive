@@ -225,7 +225,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
   const privMin = (rummy && mode !== "points") || gameId === "ludo" ? 10 : 1;
-  const privMax = rummy && mode === "points" ? 100 : 10000;
+  const privMax = 100000000;
   const privStake = privAmt === "" ? privEntries[1] : Number(privAmt);
   // Rummy gets one table per stake on the ladder (Points has 7, Pool/Deals have 8).
   const base = rummy
@@ -279,8 +279,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Private tables: create one (you get an invite code) or join a friend's by code. Teen Patti tables are
   // created on the game server (Railway); Rummy still goes through Supabase until it moves over too.
   const createPrivate = async () => {
-    if (!Number.isInteger(privStake) || privStake < privMin || privStake > privMax) {
-      return showToast(`Pick ${inr(privMin)} to ${inr(privMax)}${rummy && mode === "points" ? " per point" : ""}`);
+    if (!Number.isInteger(privStake) || privStake < privMin) {
+      return showToast(`Min amount is ${inr(privMin)}${rummy && mode === "points" ? " per point" : ""}`);
     }
     setBusy(true);
     try {
@@ -400,8 +400,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
           <>
             <div className="text-sm text-[var(--ink-soft)]">
               {gameId === "ludo"
-                ? `Play with friends only — no bots. ${ludoN === 2 ? "1 vs 1" : "4 players"} (switch above); the game starts when the table is full.`
-                : "Play with friends only — no bots. A game starts when at least 2 players are in."}
+                ? `Play with friends only. ${ludoN === 2 ? "1 vs 1" : "4 players"} (switch above); the game starts when the table is full.`
+                : "Play with friends only. A game starts when at least 2 players are in."}
             </div>
             <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy || gameId === "ludo" ? "Entry" : "Boot"}</div>
             <div className="grid grid-cols-3 gap-2 mt-2">
@@ -414,8 +414,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
               <input
                 value={privAmt}
                 inputMode="numeric"
-                placeholder={`${privMin} – ${privMax.toLocaleString("en-IN")}`}
-                onChange={(e) => setPrivAmt(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder={`Min ${privMin}`}
+                onChange={(e) => setPrivAmt(e.target.value.replace(/\D/g, "").slice(0, 9))}
                 className="flex-1 min-w-0 bg-transparent outline-none text-right font-semibold"
               />
             </label>
