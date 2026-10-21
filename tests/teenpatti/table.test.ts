@@ -124,7 +124,7 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
   let t = fillBots(sitDown(fresh(), human("h"), 0).table, rng, 0);
   const bal: Record<string, number> = { h: 10_000_000 };
   const pay = (ledger: { playerId: string; bot: boolean; amount: number }[]) => { for (const e of ledger) if (!e.bot) bal[e.playerId] += e.amount; };
-  const out: { won: boolean; reason: string; actions: number; pot: number }[] = [];
+  const out: { won: boolean; reason: string; actions: number; pot: number; botSideshows: number; blindPacks: number; minBotBal: number }[] = [];
   let now = 1000, seen: string | null = null;
   for (let guard = 0; guard < 200_000 && t.handNo <= hands; guard++) {
     now += 1000;
@@ -147,7 +147,13 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
     if (h && h.phase === "COMPLETED" && h.handId !== seen && h.players.h) {
       seen = h.handId;
       const st = h.settlement!;
-      out.push({ won: st.winners.some((w) => w.playerId === "h"), reason: st.reason, actions: h.actionCount, pot: h.pot });
+      const bot = (id?: string) => !!id && h!.players[id]?.bot;
+      out.push({
+        won: st.winners.some((w) => w.playerId === "h"), reason: st.reason, actions: h.actionCount, pot: h.pot,
+        botSideshows: h.events.filter((e) => e.type === "SIDESHOW_REQUEST" && bot(e.playerId)).length,
+        blindPacks: h.events.filter((e) => e.type === "PACK" && bot(e.playerId) && !h!.events.some((x) => x.seq < e.seq && x.playerId === e.playerId && x.type === "SEE")).length,
+        minBotBal: Math.min(...Object.values(h.botBalances)),
+      });
     }
   }
   assert.ok(out.length >= hands - 1, `only ${out.length} hands played`);
@@ -164,6 +170,11 @@ test("house bots: a human who never packs can never win because every bot packed
     // Outcome control: every hand lost under force_loss, every hand won under force_win.
     if (name === "force_loss") assert.equal(res.filter((r) => r.won).length, 0, "force_loss: the human won a hand");
     if (name === "force_win") assert.equal(res.filter((r) => !r.won).length, 0, "force_win: the human lost a hand");
+    // Bots play like people: they ask for side shows now and then, never pack cards they haven't looked at, and
+    // never bet more than they have.
+    assert.ok(res.reduce((s, r) => s + r.botSideshows, 0) > 0, `${name}: bots never asked for a side show`);
+    assert.equal(res.reduce((s, r) => s + r.blindPacks, 0), 0, `${name}: a bot packed without looking`);
+    assert.ok(res.every((r) => r.minBotBal >= 0), `${name}: a bot's stack went below zero`);
   }
 });
 

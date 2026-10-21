@@ -515,19 +515,26 @@ function botMove(s: HandState, ctx: Ctx): Result {
       const show = tryAct("SHOW");
       if (show) return show;
     }
-    if (id !== best) return tryAct("PACK") ?? bet();
+    if (id !== best) { see(); return tryAct("PACK") ?? bet(); }
     return bet();
   }
 
-  // The closer: the active bot with the strongest cards.
-  let closer = activeBots[0];
-  for (const b of activeBots) if (compareHands(st.cards[b], st.cards[closer]) > 0) closer = b;
+  // The closer: the active bot with the strongest cards among those whose stack can see the hand through to the pot
+  // limit (a short-stacked bot can't, so it plays like the others and may pack). Failing that, among those who can
+  // cover the next few chaals; failing that, among everyone.
+  const canCover = (b: string, need: number) => (st.botBalances[b] ?? 0) >= need;
+  const nextFew = (b: string) => betAmount(st, b, false).amount * 4;
+  const toCap = st.rules.potCap !== null ? Math.max(0, st.rules.potCap - st.pot) / 2 : 0;
+  const deepest = activeBots.filter((b) => canCover(b, Math.max(nextFew(b), toCap)));
+  const deep = activeBots.filter((b) => canCover(b, nextFew(b)));
+  const pool = deepest.length ? deepest : deep.length ? deep : activeBots;
+  let closer = pool[0];
+  for (const b of pool) if (compareHands(st.cards[b], st.cards[closer]) > 0) closer = b;
   const isCloser = id === closer;
   const left = active(st).length;
 
-  // The closer always looks at its cards as soon as it may (it needs them seen to ask for a show); the others
-  // usually do, like real players after a blind or two.
-  if (!st.players[id].seen && st.players[id].blinds >= minBlindOf(st.rules) && (isCloser || r.int(100) < 70)) see();
+  // Like real players, bots play a blind or two before looking (the blind limit makes everyone look by the third).
+  if (!st.players[id].seen && st.players[id].blinds >= minBlindOf(st.rules) && r.int(100) < (isCloser ? 60 : 50)) see();
 
   const p = st.players[id];
   const ev = p.seen ? evaluate(st.cards[id]) : null;
@@ -564,37 +571,63 @@ function botMove(s: HandState, ctx: Ctx): Result {
       if (beatsHumans && pressure < 16 && r.int(100) < 45) return raise();
       return bet();
     }
-    // Three or more left: the closer never packs; with a strong hand it raises sometimes.
-    if (p.seen && cat >= 3 && pressure < 32 && r.int(100) < 50) return raise();
+    // Three or more left: the closer never packs. Now and then it asks the last bettor for a side show — another
+    // bot whose cards it beats, so the side show knocks that bot out and never the closer (it doesn't knock the
+    // human out early: they stay in until the show).
+    const ss = sideshowCheck(st, id);
+    if (!ss.reason && ss.targetId && st.players[ss.targetId].bot && compareHands(st.cards[id], st.cards[ss.targetId]) > 0 && stack() >= ss.fee * 4 && r.int(100) < 30) {
+      const res = tryAct("SIDESHOW_REQUEST");
+      if (res) return res;
+    }
+    if (p.seen && cat >= 3 && pressure < 32 && r.int(100) < 40) return raise();
     return bet();
   }
 
-  // Supporting bots (three or more left, not the closer): everyone plays at least one blind; after that they pack
-  // one by one — weak hands sooner, strong hands later — so the hand comes down to the human and the closer.
-  // A supporting bot that can't cover the next chaal from its stack packs, like a real player out of coins.
+  // Supporting bots (three or more left, not the closer) play their cards like real players, so the hand comes down
+  // to the human and the closer within a few rounds:
+  //   * blind: never packs (nobody folds cards they haven't seen) — plays blind until it looks;
+  //   * seen: weak cards pack soon, middling cards stay a round or two and may try a side show, good cards stay
+  //     longer and raise now and then; everyone gets more careful as the stake climbs;
+  //   * a bot that can't cover the next couple of chaals from its stack packs.
+  if (!p.seen) return r.int(100) < 15 ? raise() : bet();
   if (stack() < betAmount(st, id, false).amount * 2) return tryAct("PACK") ?? bet();
-  let packChance = 0;
-  if (myBets >= 1) {
-    packChance = myBets === 1 ? 15 : myBets === 2 ? 35 : myBets === 3 ? 55 : myBets === 4 ? 70 : 85;
-    if (p.seen) {
-      if (cat <= 1) packChance += 20;
-      else if (cat >= 3) packChance = Math.max(myBets >= 3 ? 10 : 0, packChance - 30);
-    }
-    if (pressure >= 8) packChance += 15;
+
+  const k = ev!.key;
+  // 0 = weak (high card below K), 1 = middling (A/K high, small pair), 2 = good (pair of 10s+, color), 3 = strong (sequence+)
+  const tier = cat >= 4 ? 3 : cat === 3 || (cat === 2 && k[1] >= 10) ? 2 : cat === 2 || k[1] >= 13 ? 1 : 0;
+  // Chaals played since looking.
+  const seenAt = st.events.findIndex((e) => e.playerId === id && e.type === "SEE");
+  const seenBets = st.events.slice(seenAt + 1).filter((e) => e.playerId === id && e.type === "BET").length;
+  const PACK = [
+    [55, 75, 90],      // weak: first look, next, after
+    [15, 35, 60],      // middling
+    [0, 10, 30],       // good
+    [0, 0, 8],         // strong
+  ][tier];
+  let packChance = PACK[Math.min(seenBets, 2)];
+  if (pressure >= 8) packChance += 15;
+  if (pressure >= 32) packChance += 15;
+  if (r.int(100) < Math.min(95, packChance)) return tryAct("PACK") ?? bet();
+
+  // Middling or good cards: sometimes settle it with the last bettor by a side show (the lower hand packs). A human
+  // is only asked when their cards are better — the bot is the one that packs, the human stays in for the show.
+  const ss = sideshowCheck(st, id);
+  const askable = !!ss.targetId && (st.players[ss.targetId].bot || compareHands(st.cards[id], st.cards[ss.targetId]) < 0);
+  if (tier >= 1 && tier <= 2 && !ss.reason && askable && stack() >= ss.fee * 4 && r.int(100) < 25) {
+    const res = tryAct("SIDESHOW_REQUEST");
+    if (res) return res;
   }
-  if (packChance > 0 && r.int(100) < Math.min(95, packChance)) return tryAct("PACK") ?? bet();
-  if (p.seen && cat >= 3 && pressure < 16 && r.int(100) < 30) return raise();
+  if (tier >= 2 && pressure < 16 && r.int(100) < (tier === 3 ? 40 : 15)) return raise();
   return bet();
 }
 
+/** A bot asked for a side show: it accepts with decent cards (the lower hand packs), and nearly always when its
+ *  cards beat the requester's — the house bots know every hand. Weak cards usually decline. */
 function botAcceptsSideshow(s: HandState, id: string, r: Rng) {
   const reqId = s.pending?.requesterId;
-  if (reqId && s.cards[reqId] && s.cards[id]) {
-    // If bot has better or equal cards, requester will lose the sideshow and pack
-    if (compareHands(s.cards[id], s.cards[reqId]) >= 0) return true;
-  }
+  if (reqId && s.cards[reqId] && compareHands(s.cards[id], s.cards[reqId]) >= 0) return r.int(100) < 90;
   const cat = evaluate(s.cards[id]).key[0];
-  return cat >= 2 || r.int(100) < 40;
+  return cat >= 2 ? r.int(100) < 60 : r.int(100) < 20;
 }
 
 // ------------------------------------------------------------------------------------------------- commands

@@ -36,6 +36,9 @@ function buildEngagingTeenPattiDeck(
   const lossIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_loss");
   const winIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_win");
   const botIndices = orderSeats.map((s, i) => s.bot ? i : -1).filter((i) => i >= 0);
+  // The bot dealt the deciding hand is the one with the deepest stack, so it can keep up with a human who raises
+  // hard (a short-stacked bot would run out of coins before the show).
+  const richestBot = botIndices.reduce((best, i) => ((botBalances[orderSeats[i].playerId] ?? 0) > (botBalances[orderSeats[best].playerId] ?? 0) ? i : best), botIndices[0]);
 
   if (lossIdx >= 0 && botIndices.length > 0) {
     // ===== FORCE LOSS: Human gets strong hand, ALL bots get stronger hands =====
@@ -95,7 +98,7 @@ function buildEngagingTeenPattiDeck(
     }
 
     // Pick which bot gets the best hand (first available bot)
-    const primaryBotIdx = botIndices[0];
+    const primaryBotIdx = richestBot;
 
     // Collect all assigned cards
     const usedIds = new Set([...humanHand.map(cardId), ...bestBotHand.map(cardId)]);
@@ -170,7 +173,7 @@ function buildEngagingTeenPattiDeck(
     const evHuman = evaluate(humanHand);
     const deck: Card[] = [];
     let restPtr = 0;
-    const primaryBotIdx = botIndices[0];
+    const primaryBotIdx = richestBot;
     for (let i = 0; i < orderSeats.length; i++) {
       if (i === winIdx) {
         deck.push(...humanHand);
