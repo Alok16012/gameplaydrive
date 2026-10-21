@@ -57,15 +57,25 @@ async function balancesFor(t: TableState, extra: string[] = []): Promise<Record<
   return Object.fromEntries(rows.map((r) => [r.user_id, Number(r.coins)]));
 }
 
+const outcomeCache = new Map<string, { mode: string; exp: number }>();
+
 async function outcomeModesFor(t: TableState): Promise<Record<string, string>> {
   const humanIds = t.seats.filter((s) => !s.bot).map((s) => s.playerId);
   if (!humanIds.length) return {};
   const res: Record<string, string> = {};
+  const now = Date.now();
   await Promise.all(
     humanIds.map(async (uid) => {
+      const cached = outcomeCache.get(uid);
+      if (cached && cached.exp > now) {
+        res[uid] = cached.mode;
+        return;
+      }
       try {
         const m = await rpc<string>("get_outcome_mode", { p_user_id: uid, p_game: "teen-patti" });
-        res[uid] = m || "fair";
+        const mode = m || "fair";
+        res[uid] = mode;
+        outcomeCache.set(uid, { mode, exp: now + 5000 });
       } catch {
         res[uid] = "fair";
       }

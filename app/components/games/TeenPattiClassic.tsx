@@ -35,12 +35,35 @@ const SEAT_BOX: { style: React.CSSProperties; reverse?: boolean }[] = [
 
 const SEQUENCES = ["A K Q", "A 2 3", "K Q J", "Q J 10", "J 10 9", "10 9 8", "9 8 7", "8 7 6", "7 6 5", "6 5 4", "5 4 3", "4 3 2"];
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+let cachedAuthToken: string | null = null;
+let tokenExpiresAt = 0;
+
+async function getAuthToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedAuthToken && now < tokenExpiresAt) return cachedAuthToken;
   const { data } = await supabase().auth.getSession();
-  const r = await fetch(path, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}`, ...(init?.headers ?? {}) } });
+  cachedAuthToken = data.session?.access_token ?? "";
+  tokenExpiresAt = now + 45000;
+  return cachedAuthToken;
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await getAuthToken();
+  const r = await fetch(path, { ...init, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(init?.headers ?? {}) } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok && r.status !== 409) throw new Error(j.error ?? "Something went wrong");
   return j as T;
+}
+
+interface FlyingCoin {
+  id: number;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  amount: number;
+  delay?: number;
+  go: boolean;
 }
 
 export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number; code?: string }) {
@@ -52,9 +75,12 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const [rules, setRules] = useState(false);
   const [peek, setPeek] = useState(false); // result sheet closed to look at the table
   const [sheetHand, setSheetHand] = useState(0);
+  const [flyingCoins, setFlyingCoins] = useState<FlyingCoin[]>([]);
   const tableId = useRef<string | null>(null);
   const offset = useRef(0); // server clock − local clock
   const polling = useRef(false);
+  const lastEventSeq = useRef(0);
+  const coinIdGen = useRef(0);
 
   const take = useCallback((r: TableResponse) => {
     offset.current = r.table.serverNow - Date.now();
@@ -100,8 +126,9 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
       if (!r.ok && r.message) showToast(r.message);
     } catch (e) {
       showToast((e as Error).message);
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   const leave = async () => {
@@ -153,12 +180,89 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const winnerNames = settled ? settled.winners.map((w) => (w.playerId === myId ? "You" : seats.find((s) => s.playerId === w.playerId)?.name ?? "Player")) : [];
   const meInHand = myId ? inHand(myId) : null;
   const myCards = me?.cards ?? null;
+
+  const getSeatCoords = useCallback((playerId: string) => {
+    if (playerId === myId) {
+      return { x: 50, y: 88 };
+    }
+    const k = others.findIndex((o) => o.playerId === playerId);
+    if (k !== -1) {
+      const boxIdx = 4 - k;
+      const coords = [
+        { x: 12, y: 52 }, // 0: left
+        { x: 22, y: 14 }, // 1: top-left
+        { x: 50, y: 14 }, // 2: top-center
+        { x: 78, y: 14 }, // 3: top-right
+        { x: 88, y: 52 }, // 4: right
+      ];
+      return coords[boxIdx] ?? { x: 50, y: 14 };
+    }
+    return { x: 50, y: 14 };
+  }, [myId, others]);
+
+  const spawnFlyingCoins = useCallback((playerId: string, amount: number) => {
+    const from = getSeatCoords(playerId);
+    const target = { x: 50, y: 36 };
+    const numCoins = Math.min(5, Math.max(2, Math.floor(Math.log10(Math.max(1, amount)) * 2)));
+    const newCoins: FlyingCoin[] = [];
+
+    for (let i = 0; i < numCoins; i++) {
+      coinIdGen.current += 1;
+      newCoins.push({
+        id: coinIdGen.current,
+        startX: from.x + (Math.random() - 0.5) * 4,
+        startY: from.y + (Math.random() - 0.5) * 4,
+        endX: target.x + (Math.random() - 0.5) * 5,
+        endY: target.y + (Math.random() - 0.5) * 5,
+        amount,
+        delay: i * 65,
+        go: false,
+      });
+    }
+
+    setFlyingCoins((prev) => [...prev, ...newCoins]);
+
+    requestAnimationFrame(() => {
+      setFlyingCoins((prev) =>
+        prev.map((c) => (newCoins.some((nc) => nc.id === c.id) ? { ...c, go: true } : c))
+      );
+    });
+
+    setTimeout(() => {
+      sfx.chip();
+      setFlyingCoins((prev) => prev.filter((c) => !newCoins.some((nc) => nc.id === c.id)));
+    }, 850 + numCoins * 65);
+  }, [getSeatCoords]);
+
+  useEffect(() => {
+    if (!v?.events || v.events.length === 0) return;
+    if (lastEventSeq.current === 0) {
+      lastEventSeq.current = Math.max(...v.events.map((e) => e.seq));
+      return;
+    }
+
+    const newEvents = v.events.filter((e) => e.seq > lastEventSeq.current);
+    if (newEvents.length === 0) return;
+
+    lastEventSeq.current = Math.max(...v.events.map((e) => e.seq));
+
+    for (const ev of newEvents) {
+      if ((ev.type === "BET" || ev.type === "BOOT" || ev.type === "SHOW") && ev.playerId && (ev.amount ?? 0) > 0) {
+        spawnFlyingCoins(ev.playerId, ev.amount!);
+      }
+    }
+  }, [v?.events, spawnFlyingCoins]);
+
   const Btn = ({ opt, label, amount, className, onClick }: { opt: { ok: boolean; reason: string | null }; label: string; amount?: number; className: string; onClick: () => void }) => (
     <button
       disabled={busy}
       title={opt.reason ?? undefined}
-      onClick={() => (opt.ok ? onClick() : opt.reason && showToast(opt.reason))}
-      className={`rounded-lg px-3.5 py-1.5 text-[12px] font-bold border leading-tight transition ${className} ${opt.ok ? "" : "opacity-40"}`}
+      onClick={() => {
+        sfx.click();
+        if (opt.ok) onClick();
+        else if (opt.reason) showToast(opt.reason);
+      }}
+      className={`rounded-lg px-3.5 py-1.5 text-[12px] font-bold border leading-tight transition-transform active:scale-95 duration-75 select-none ${className} ${opt.ok ? "cursor-pointer" : "opacity-40 cursor-not-allowed"}`}
     >
       {label}{amount !== undefined && <><br /><span className="text-[13px]">{inr(amount)}</span></>}
     </button>
@@ -169,26 +273,45 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
       <div className="relative w-full h-full flex flex-col select-none">
         {/* Top bar */}
         <div className="h-11 shrink-0 flex items-center gap-2 px-3 bg-black/30">
-          <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-8 h-8 grid place-items-center rounded-full bg-white/10"><ChevronLeft size={18} /></button>
-          <HomeButton className="w-8 h-8 grid place-items-center rounded-full bg-white/10" />
+          <button onClick={away} aria-label="Back to lobby (seat kept)" className="w-8 h-8 grid place-items-center rounded-full bg-white/10 active:scale-95 transition-transform"><ChevronLeft size={18} /></button>
+          <HomeButton className="w-8 h-8 grid place-items-center rounded-full bg-white/10 active:scale-95 transition-transform" />
           <div className="leading-tight">
             <div className="text-sm font-semibold">Teen Patti</div>
             <div className="text-[11px] text-white/60">Boot {inr(tbl?.boot ?? buyIn)}{tbl?.handNo ? ` • Hand #${tbl.handNo}` : ""}</div>
           </div>
           {tbl?.code && (
-            <button onClick={() => { navigator.clipboard?.writeText(tbl.code!); showToast("Code copied"); }} className="ml-3 pill bg-white/10 px-3 py-1 text-[12px]">
+            <button onClick={() => { navigator.clipboard?.writeText(tbl.code!); showToast("Code copied"); }} className="ml-3 pill bg-white/10 px-3 py-1 text-[12px] active:scale-95 transition-transform">
               Private • <b className="tracking-widest text-gold-300">{tbl.code}</b> • Copy
             </button>
           )}
           <div className="ml-auto flex items-center gap-3">
-            <button onClick={() => setRules(true)} className="text-[12px] text-white/60 flex items-center gap-1"><BookOpen size={13} /> Rules</button>
+            <button onClick={() => setRules(true)} className="text-[12px] text-white/60 flex items-center gap-1 active:scale-95 transition-transform"><BookOpen size={13} /> Rules</button>
             <Money n={total} className="text-sm font-semibold text-neon-400" />
-            <button onClick={leave} className="text-[12px] text-white/60 flex items-center gap-1"><LogOut size={13} /> Leave</button>
+            <button onClick={leave} className="text-[12px] text-white/60 flex items-center gap-1 active:scale-95 transition-transform"><LogOut size={13} /> Leave</button>
           </div>
         </div>
 
         {/* Table */}
-        <div className="relative flex-1 min-h-0">
+        <div className="relative flex-1 min-h-0 overflow-hidden">
+          {/* Flying coins animation for each chaal / bet */}
+          {flyingCoins.map((coin) => (
+            <div
+              key={coin.id}
+              className="pointer-events-none absolute z-30 transition-all duration-700 ease-out"
+              style={{
+                left: `${coin.go ? coin.endX : coin.startX}%`,
+                top: `${coin.go ? coin.endY : coin.startY}%`,
+                transform: "translate(-50%, -50%)",
+                opacity: coin.go ? 0.95 : 1,
+                transitionDelay: `${coin.delay || 0}ms`,
+              }}
+            >
+              <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-600 via-yellow-400 to-amber-200 border border-yellow-200 shadow-[0_0_10px_rgba(251,191,36,0.9)] flex items-center justify-center font-bold text-[10px] text-amber-950">
+                🪙
+              </div>
+            </div>
+          ))}
+
           <div className="absolute left-[10%] right-[10%] top-[13%] bottom-[17%] felt-oval">
             <div className="absolute inset-x-0 top-[44%] text-center text-[20px] font-black tracking-[0.35em] text-white/10">TEEN PATTI</div>
           </div>
@@ -281,13 +404,22 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               </div>
             ) : meInHand ? (
               <div className="flex flex-col items-center">
-                <div className="flex -space-x-3">
+                <div
+                  className={`flex -space-x-3 select-none ${me?.canSee?.ok ? "cursor-pointer active:scale-95 transition-transform" : ""}`}
+                  onClick={() => {
+                    if (me?.canSee?.ok) {
+                      sfx.click();
+                      act("SEE_CARDS");
+                    }
+                  }}
+                  title={me?.canSee?.ok ? "Tap cards to see" : undefined}
+                >
                   {(myCards ?? [undefined, undefined, undefined]).map((c, i) => (
                     <PlayingCard key={i} card={c ? ui(c) : undefined} faceDown={!c} size="lg" className={`${c ? "flip" : ""} ${meInHand.status === "PACKED" ? "opacity-50" : ""}`} style={{ transform: `rotate(${(i - 1) * 7}deg) translateY(${Math.abs(i - 1) * 5}px)` }} />
                   ))}
                 </div>
                 <div className="mt-1 text-[12px] text-white/85 bg-black/45 rounded px-2">
-                  {me?.handName ? <>Your hand: <b className="text-gold-300">{me.handName}</b></> : meInHand.status === "PACKED" ? "Packed without looking" : meInHand.blinds < v!.minBlind ? `Play ${v!.minBlind} blind chaal, then you can See` : `Blind ${meInHand.blinds}/${v!.blindLimit} — tap See on your turn`}
+                  {me?.handName ? <>Your hand: <b className="text-gold-300">{me.handName}</b></> : meInHand.status === "PACKED" ? "Packed without looking" : meInHand.blinds < v!.minBlind ? `Play ${v!.minBlind} blind chaal, then tap See` : `Blind ${meInHand.blinds}/${v!.blindLimit} — tap See anytime`}
                 </div>
               </div>
             ) : null}
@@ -320,7 +452,18 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               <Btn opt={me.sideshow} label={`Side Show${me.sideshow.ok ? ` • ${inr(me.sideshow.amount)}` : ""}`} className="bg-fuchsia-700 border-fuchsia-300/30" onClick={() => act("SIDESHOW_REQUEST")} />
               <Btn opt={me.show} label={`Show${me.show.ok ? ` • ${inr(me.show.amount)}` : ""}`} className="bg-[#8b1d2c] border-white/15 px-5 py-2.5 text-sm" onClick={() => act("SHOW")} />
               <div className="flex-1 flex justify-center">
-                <button disabled={busy} title={me.canSee.reason ?? undefined} onClick={() => (me.canSee.ok ? act("SEE_CARDS") : me.canSee.reason && showToast(me.canSee.reason))} className={`rounded-full px-6 py-2 text-sm font-bold bg-sky-500 ${me.canSee.ok ? "" : "opacity-40"}`}>{me.seen ? "Seen ✓" : "See"}</button>
+                <button
+                  disabled={busy}
+                  title={me.canSee.reason ?? undefined}
+                  onClick={() => {
+                    sfx.click();
+                    if (me.canSee.ok) act("SEE_CARDS");
+                    else if (me.canSee.reason) showToast(me.canSee.reason);
+                  }}
+                  className={`rounded-full px-6 py-2 text-sm font-bold bg-sky-500 shadow-lg transition-transform active:scale-95 duration-75 select-none ${me.canSee.ok ? "hover:bg-sky-400 cursor-pointer ring-2 ring-sky-300 animate-pulse" : "opacity-40 cursor-not-allowed"}`}
+                >
+                  {me.seen ? "Seen ✓" : "See"}
+                </button>
               </div>
               <Btn opt={me.double} label={`${me.seen ? "Chaal" : "Blind"} 2x`} amount={me.double.amount} className="bg-[#3d7a1f] border-lime-300/30" onClick={() => act("BET_DOUBLE")} />
               <Btn opt={me.min} label={me.seen ? "Chaal" : "Blind"} amount={me.min.amount} className="bg-[#b8231f] border-white/20 px-5" onClick={() => act("BET_MIN")} />

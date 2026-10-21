@@ -74,8 +74,8 @@ export function viewFor(s: HandState, viewerId: string | null, balance: number):
       cards: myCards, handName: myCards ? evaluate(myCards).name : null,
       canSee: {
         amount: 0,
-        ok: myTurn && !meP.seen && meP.blinds >= minBlindOf(s.rules),
-        reason: meP.seen ? "Already seen" : turnReason ?? (meP.blinds < minBlindOf(s.rules) ? `Play ${minBlindOf(s.rules)} blind chaal first` : null),
+        ok: live && meP.status === "ACTIVE" && !meP.seen && meP.blinds >= minBlindOf(s.rules),
+        reason: meP.seen ? "Already seen" : meP.status !== "ACTIVE" ? "You have packed" : meP.blinds < minBlindOf(s.rules) ? `Play ${minBlindOf(s.rules)} blind chaal first` : null,
       },
       min: opt(bmin.amount, bmin.newBase > s.rules.maxBaseStake ? "Above the table maximum" : null),
       double: opt(bdbl.amount, bdbl.newBase > s.rules.maxBaseStake ? "Above the table maximum" : null),

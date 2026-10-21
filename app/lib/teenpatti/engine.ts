@@ -650,6 +650,17 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
   if (cmd.type === "LEAVE") return leave(s, id, ctx);
   if (p.status !== "ACTIVE") return reject(s, "NOT_IN_HAND", "You have packed");
 
+  // Player can see cards AT ANY TIME once they have played at least 1 blind chaal,
+  // even if it is currently another player's turn!
+  if (cmd.type === "SEE_CARDS") {
+    if (p.seen) return { state: s, ledger: [], ok: true, changed: false };
+    if (p.blinds < minBlindOf(s.rules)) return reject(s, "BLIND_FIRST", `Play ${minBlindOf(s.rules)} blind chaal${minBlindOf(s.rules) === 1 ? "" : "s"} first`);
+    return internal(s, ctx, (x) => {
+      x.players[id].seen = true;
+      event(x, ctx.now, { type: "SEE", playerId: id });
+    });
+  }
+
   if (cmd.type === "SIDESHOW_ACCEPT" || cmd.type === "SIDESHOW_REJECT") {
     const pend = s.pending;
     if (!pend || pend.targetId !== id || pend.requestId !== cmd.requestId) return reject(s, "NO_SIDESHOW", "No side show to answer");
@@ -660,13 +671,6 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
   if (s.turnId !== id) return reject(s, "NOT_YOUR_TURN", "Not your turn");
 
   switch (cmd.type) {
-    case "SEE_CARDS":
-      if (p.seen) return { state: s, ledger: [], ok: true, changed: false }; // repeat: no change, no extra time
-      if (p.blinds < minBlindOf(s.rules)) return reject(s, "BLIND_FIRST", `Play ${minBlindOf(s.rules)} blind chaal${minBlindOf(s.rules) === 1 ? "" : "s"} first`);
-      return internal(s, ctx, (x) => {
-        x.players[id].seen = true;
-        event(x, ctx.now, { type: "SEE", playerId: id });
-      });
 
     case "BET_MIN":
     case "BET_DOUBLE": {

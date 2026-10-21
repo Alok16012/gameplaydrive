@@ -8,13 +8,22 @@ export interface Player { playerId: string; name: string; emoji: string }
 const EMOJI = ["🧑🏽", "👩🏽", "👨🏻", "👩🏾", "🧑🏻", "👨🏾"];
 const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
 
+const playerCache = new Map<string, { player: Player; exp: number }>();
+
 export async function playerFromRequest(req: Request): Promise<Player> {
   const token = req.headers.get("authorization")?.replace(/^Bearer /, "");
-  const actor = token ? await userFromToken(token) : null;
+  if (!token) throw new TableError("Please sign in again", 401);
+  const now = Date.now();
+  const cached = playerCache.get(token);
+  if (cached && cached.exp > now) return cached.player;
+
+  const actor = await userFromToken(token);
   if (!actor) throw new TableError("Please sign in again", 401);
   const p = await selectOne<{ id: string; name: string; role: string; status: string }>("profiles", `select=id,name,role,status&id=eq.${actor.id}`);
   if (!p || p.role !== "player" || p.status !== "active") throw new TableError("Only active players can sit at a table", 403);
-  return { playerId: p.id, name: p.name, emoji: EMOJI[hash(p.id) % EMOJI.length] };
+  const player: Player = { playerId: p.id, name: p.name, emoji: EMOJI[hash(p.id) % EMOJI.length] };
+  playerCache.set(token, { player, exp: now + 15000 });
+  return player;
 }
 
 /** Admin controls: the game must be open, the boot within its limits, and the player's daily room must allow it. */
