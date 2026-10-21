@@ -16,7 +16,7 @@ import {
   Upload,
 } from "lucide-react";
 import type { Account } from "../lib/hierarchy";
-import { supabase } from "../lib/supabase";
+import { authToken } from "../lib/supabase";
 
 interface PaymentState {
   upiId: string;
@@ -130,8 +130,7 @@ export function AgentPaymentView({ me }: { me: Account }) {
     let active = true;
     async function fetchSettings() {
       try {
-        const { data: s } = await supabase().auth.getSession();
-        const token = s.session?.access_token;
+        const token = await authToken().catch(() => "");
         if (!token) return;
 
         const res = await fetch("/api/agent-payment", {
@@ -254,9 +253,7 @@ export function AgentPaymentView({ me }: { me: Account }) {
     const finalQr = qrMode === "custom" ? customQrImage : (generatedQr || "");
 
     try {
-      const { data: s } = await supabase().auth.getSession();
-      const token = s.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
+      const token = await authToken();
 
       const res = await fetch("/api/agent-payment", {
         method: "POST",
@@ -295,9 +292,7 @@ export function AgentPaymentView({ me }: { me: Account }) {
     setDeleting(true);
     setMsg(null);
     try {
-      const { data: s } = await supabase().auth.getSession();
-      const token = s.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
+      const token = await authToken();
 
       const res = await fetch("/api/agent-payment", {
         method: "DELETE",

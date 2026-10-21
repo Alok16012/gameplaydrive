@@ -42,3 +42,34 @@ export function joinOnce(fn: string, args: Record<string, unknown>) {
   }
   return p;
 }
+
+/** A usable access token for our /api routes: refreshes the session when the token is missing or about to expire
+ *  (a phone that sat in the background can hold an expired token the auto-refresh timer never replaced). */
+export async function authToken(): Promise<string> {
+  const auth = supabase().auth;
+  let { data: { session } } = await auth.getSession();
+  const soon = Date.now() / 1000 + 60;
+  if (!session || !session.access_token || (session.expires_at ?? 0) < soon) {
+    const r = await auth.refreshSession();
+    session = r.data.session ?? session;
+  }
+  if (!session?.access_token) throw new Error("Your session has ended. Please log in again.");
+  return session.access_token;
+}
+
+/** fetch() against our /api routes with a bearer token. On 401 the session is refreshed once and the request
+ *  retried; if the server still rejects it, the dead session is signed out so the login screen shows. */
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const send = async (token: string) =>
+    fetch(path, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` } });
+  let r = await send(await authToken());
+  if (r.status === 401) {
+    const { data } = await supabase().auth.refreshSession();
+    if (data.session?.access_token) r = await send(data.session.access_token);
+    if (r.status === 401) {
+      await supabase().auth.signOut();
+      throw new Error("Your session has ended. Please log in again.");
+    }
+  }
+  return r;
+}

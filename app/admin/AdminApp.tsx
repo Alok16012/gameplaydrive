@@ -14,7 +14,7 @@ import { GameIcon } from "../components/GameArt";
 import { BOT_AVATARS, randomBal, randomName, useBotConfig, type BotProfile } from "../lib/botpool";
 import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, updateAccount, useAccounts, type Account, type Role } from "../lib/hierarchy";
 import { staffEmail } from "../lib/loginEmail";
-import { errText, supabase } from "../lib/supabase";
+import { apiFetch, errText, supabase } from "../lib/supabase";
 import { OutcomeControlView } from "./OutcomeControlView";
 import { CricketResultsView } from "./CricketResultsView";
 import { UserDetailsModal } from "./UserDetailsModal";
@@ -614,14 +614,7 @@ function DeleteAccountModal({
     setBusy(true);
     setErr("");
     try {
-      const { data: s } = await supabase().auth.getSession();
-      const token = s.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
-
-      const res = await fetch(`/api/accounts?id=${target.id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await apiFetch(`/api/accounts?id=${target.id}`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to delete account");
 
@@ -872,15 +865,12 @@ function PlayerOutcomeModal({ target, onClose }: { target: Account; onClose: () 
     setSaving(true);
     setMsg("");
     try {
-      const { data } = await supabase().auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
       const body = newMode === "fair"
         ? { clear_account_id: target.id, target_role: roleKey }
         : { account_id: target.id, account_mode: newMode, target_role: roleKey };
-      const res = await fetch("/api/outcome-control", {
+      const res = await apiFetch("/api/outcome-control", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const json = await res.json();

@@ -25,7 +25,7 @@ import { GAMES, type GameId } from "../lib/data";
 
 import { GameIcon } from "../components/GameArt";
 import { ROLE_LABEL, coins, type Account, type Role } from "../lib/hierarchy";
-import { errText, supabase } from "../lib/supabase";
+import { authToken, errText, supabase } from "../lib/supabase";
 
 export type OutcomeMode = "fair" | "force_win" | "force_loss";
 
@@ -127,9 +127,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
   const loadData = async () => {
     setLoading(true);
     try {
-      const { data: s } = await supabase().auth.getSession();
-      const token = s.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
+      const token = await authToken();
 
       const res = await fetch("/api/outcome-control", {
         headers: { Authorization: `Bearer ${token}` },
@@ -172,9 +170,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
   }, keyIdentifier: string) => {
     setSavingKey(keyIdentifier);
     try {
-      const { data: s } = await supabase().auth.getSession();
-      const token = s.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
+      const token = await authToken();
 
       const res = await fetch("/api/outcome-control", {
         method: "POST",

@@ -16,7 +16,7 @@ import {
   KeyRound,
 } from "lucide-react";
 import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
-import { supabase } from "../lib/supabase";
+import { apiFetch, authToken, supabase } from "../lib/supabase";
 import type { SportBetRow } from "../lib/cricketApi";
 import { ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 
@@ -95,10 +95,7 @@ export function UserDetailsModal({
     async function loadMeta() {
       setStatsErr("");
       try {
-        const { data: sess } = await supabase().auth.getSession();
-        const res = await fetch(`/api/account-meta?id=${target.id}`, {
-          headers: { Authorization: `Bearer ${sess.session?.access_token ?? ""}` },
-        });
+        const res = await apiFetch(`/api/account-meta?id=${target.id}`);
         const json = await res.json();
         if (!active) return;
         if (!res.ok) throw new Error(json?.error || "Could not load figures");
@@ -137,9 +134,7 @@ export function UserDetailsModal({
     }
     setSaving(true);
     try {
-      const { data: s } = await supabase().auth.getSession();
-      const token = s.session?.access_token;
-      if (!token) throw new Error("Please sign in again");
+      const token = await authToken();
 
       const res = await fetch("/api/account-meta", {
         method: "POST",

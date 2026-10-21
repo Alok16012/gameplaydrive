@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { errText, supabase } from "./supabase";
+import { apiFetch, errText, supabase } from "./supabase";
 
 // Account hierarchy: Super Admin → Admin → Agent → Player, stored in Supabase (public.profiles + wallets).
 // Row-level security returns only the signed-in account and its downline; changes go through database
@@ -80,10 +80,9 @@ export function useAccounts() {
 
 /** Create a login under the signed-in account (server checks the hierarchy rules). */
 export async function createAccount(body: { role: Role; name: string; phone: string; username?: string; password: string; parentId: string; state?: string; meta?: Record<string, unknown> }): Promise<Account> {
-  const { data: s } = await supabase().auth.getSession();
-  const r = await fetch("/api/accounts", {
+  const r = await apiFetch("/api/accounts", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const j = await r.json();
@@ -93,10 +92,9 @@ export async function createAccount(body: { role: Role; name: string; phone: str
 
 /** Edit an account's details (and optionally set a new password). The server checks the editor may do this. */
 export async function updateAccount(body: { id: string; name: string; phone: string; username?: string; state?: string; password?: string }): Promise<void> {
-  const { data: s } = await supabase().auth.getSession();
-  const r = await fetch("/api/accounts", {
+  const r = await apiFetch("/api/accounts", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
@@ -138,10 +136,9 @@ export const coins = (n: number) => `🪙 ${Math.round(n).toLocaleString("en-IN"
 
 /** Change the signed-in user's own password (old password required). */
 export async function changeMyPassword(oldPassword: string, newPassword: string): Promise<void> {
-  const { data: s } = await supabase().auth.getSession();
-  const r = await fetch("/api/change-password", {
+  const r = await apiFetch("/api/change-password", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ oldPassword, newPassword }),
   });
   const j = await r.json().catch(() => ({}));
@@ -150,10 +147,9 @@ export async function changeMyPassword(oldPassword: string, newPassword: string)
 
 /** A superior resets a subordinate's password (hierarchy enforced server-side). */
 export async function resetSubordinatePassword(targetId: string, newPassword: string): Promise<void> {
-  const { data: s } = await supabase().auth.getSession();
-  const r = await fetch("/api/change-password", {
+  const r = await apiFetch("/api/change-password", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token ?? ""}` },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetId, newPassword }),
   });
   const j = await r.json().catch(() => ({}));
