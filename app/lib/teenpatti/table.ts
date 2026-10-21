@@ -3,7 +3,7 @@
 // table row, calls these, and commits the result atomically.
 
 import { applyCommand, processDue, startHand, type Command, type Ctx, type HandState, type LedgerEntry, type Rng, type Rules, type Seat } from "./engine.ts";
-import { fullDeck, cardId, type Card } from "./evaluator.ts";
+import { fullDeck, cardId, type Card, evaluate, compareKeys } from "./evaluator.ts";
 
 export const TABLE_SEATS = 6;
 /** Between hands. */
@@ -62,6 +62,7 @@ function buildEngagingTeenPattiDeck(
       [rest[i], rest[j]] = [rest[j], rest[i]];
     }
 
+    const evBot = evaluate(botHand);
     const deck: Card[] = [];
     let restPtr = 0;
     for (let i = 0; i < orderSeats.length; i++) {
@@ -70,7 +71,19 @@ function buildEngagingTeenPattiDeck(
       } else if (i === botIdx) {
         deck.push(...botHand);
       } else {
-        deck.push(rest[restPtr++], rest[restPtr++], rest[restPtr++]);
+        const chunk = [rest[restPtr++], rest[restPtr++], rest[restPtr++]];
+        if (compareKeys(evaluate(chunk).key, evBot.key) >= 0) {
+          for (let k = restPtr; k < rest.length; k++) {
+            const candidate = [chunk[0], chunk[1], rest[k]];
+            if (compareKeys(evaluate(candidate).key, evBot.key) < 0) {
+              const temp = chunk[2];
+              chunk[2] = rest[k];
+              rest[k] = temp;
+              break;
+            }
+          }
+        }
+        deck.push(...chunk);
       }
     }
     while (restPtr < rest.length) {
@@ -88,6 +101,7 @@ function buildEngagingTeenPattiDeck(
       const j = rng ? rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
       [rest[i], rest[j]] = [rest[j], rest[i]];
     }
+    const evHuman = evaluate(humanHand);
     const deck: Card[] = [];
     let restPtr = 0;
     for (let i = 0; i < orderSeats.length; i++) {
@@ -96,7 +110,19 @@ function buildEngagingTeenPattiDeck(
       } else if (i === botIdx) {
         deck.push(...botHand);
       } else {
-        deck.push(rest[restPtr++], rest[restPtr++], rest[restPtr++]);
+        const chunk = [rest[restPtr++], rest[restPtr++], rest[restPtr++]];
+        if (compareKeys(evaluate(chunk).key, evHuman.key) >= 0) {
+          for (let k = restPtr; k < rest.length; k++) {
+            const candidate = [chunk[0], chunk[1], rest[k]];
+            if (compareKeys(evaluate(candidate).key, evHuman.key) < 0) {
+              const temp = chunk[2];
+              chunk[2] = rest[k];
+              rest[k] = temp;
+              break;
+            }
+          }
+        }
+        deck.push(...chunk);
       }
     }
     while (restPtr < rest.length) {
@@ -188,7 +214,7 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
     let name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     for (let i = 0; used.has(name) && i < 20; i++) name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     used.add(name);
-    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: t.boot * (40 + rng.int(160)), lastSeen: now });
+    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: t.boot * (300 + rng.int(700)), lastSeen: now });
   }
   return { ...t, seats: seats.sort((a, b) => a.seat - b.seat) };
 }
@@ -241,6 +267,8 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   // Humans who went away leave; bots that can't cover a few boots leave; public tables refill.
   t = { ...t, seats: t.seats.filter((s) => (s.bot ? (s.bal ?? 0) >= t.boot * 4 : ctx.now - s.lastSeen < AWAY_MS)) };
   t = fillBots(t, ctx.rng, ctx.now);
+  // Auto-replenish bots so they never get starved or forced to pack
+  t = { ...t, seats: t.seats.map((s) => (s.bot ? { ...s, bal: Math.max(s.bal ?? 0, t.boot * 200) } : s)) };
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
   const handNo = t.handNo + 1;

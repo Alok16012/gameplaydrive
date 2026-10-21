@@ -9,7 +9,7 @@
 //   SIDESHOW with 3+ left against the last bettor (both seen), fee 2·base, tie → requester packs;
 //   pot ≥ potCap or action count ≥ maxTurnActions → forced showdown among everyone left (ties split).
 
-import { cardId, compareKeys, evaluate, fullDeck, validateRoster, type Card } from "./evaluator.ts";
+import { cardId, compareHands, compareKeys, evaluate, fullDeck, validateRoster, type Card } from "./evaluator.ts";
 
 export interface Rules {
   boot: number;
@@ -470,7 +470,16 @@ function botMove(s: HandState, ctx: Ctx): Result {
   let st = s;
   const act = (type: ActionType) => applyInternal(st, { actionId: `bot:${st.version}`, playerId: id, handId: st.handId, expectedVersion: st.version, type }, ctx);
 
-  if (!st.players[id].seen && (r.int(100) < 45 || st.events.filter((e) => e.playerId === id && e.type === "BET").length >= 2)) {
+  // Check if there are active force_loss human players
+  const activeLossHumans = Object.entries(ctx.outcomeModes ?? {})
+    .filter(([uid, m]) => m === "force_loss" && st.players[uid]?.status === "ACTIVE")
+    .map(([uid]) => uid);
+
+  const isWinningBotForLoss =
+    activeLossHumans.length > 0 &&
+    activeLossHumans.every((hid) => !st.cards[hid] || compareHands(st.cards[id], st.cards[hid]) >= 0);
+
+  if (!st.players[id].seen && (r.int(100) < 45 || st.events.filter((e) => e.playerId === id && e.type === "BET").length >= 2 || isWinningBotForLoss)) {
     const seen = act("SEE_CARDS");
     st = seen.state;
   }
@@ -490,6 +499,20 @@ function botMove(s: HandState, ctx: Ctx): Result {
   };
 
   let res: Result | null = null;
+  if (isWinningBotForLoss) {
+    // THIS BOT HOLDS THE WINNING CARDS AGAINST FORCE_LOSS PLAYERS: NEVER PACK!
+    if (left === 2) {
+      if (pressure >= 4 || r.int(100) < 40) {
+        res = tryAct("SHOW", "BET_DOUBLE", "BET_MIN");
+      } else {
+        res = tryAct("BET_DOUBLE", "BET_MIN", "SHOW");
+      }
+    } else {
+      res = tryAct("BET_DOUBLE", "BET_MIN");
+    }
+    return res ?? tryAct("BET_MIN", "SHOW") ?? act("BET_MIN");
+  }
+
   if (p.seen) {
     const weak = cat === 1 && !strongHigh;
     const packChance = weak ? Math.min(85, 25 + pressure * 6) : cat === 1 ? 15 + pressure * 2 : cat === 2 ? Math.min(40, pressure * 3) : 0;
@@ -505,6 +528,11 @@ function botMove(s: HandState, ctx: Ctx): Result {
 }
 
 function botAcceptsSideshow(s: HandState, id: string, r: Rng) {
+  const reqId = s.pending?.requesterId;
+  if (reqId && s.cards[reqId] && s.cards[id]) {
+    // If bot has better or equal cards, requester will lose the sideshow and pack
+    if (compareHands(s.cards[id], s.cards[reqId]) >= 0) return true;
+  }
   const cat = evaluate(s.cards[id]).key[0];
   return cat >= 2 || r.int(100) < 40;
 }
