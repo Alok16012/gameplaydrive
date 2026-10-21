@@ -1,6 +1,7 @@
 // Classic Teen Patti hand engine — a pure state machine, no I/O. Every function takes the current hand state and
 // returns a new one plus the ledger entries the caller must apply atomically (see service.ts / migration 066).
-// Fair play only: the server deals with an unbiased shuffle and nothing here looks at who should win.
+// The deal is whatever the caller passes (table.ts may rig it for outcome control); the bots here are house bots
+// that know every card — see botMove() for how they play.
 //
 // House rules in short (full text: app/lib/teenpatti/RULES.md):
 //   boot from every participant, all start BLIND; turn order clockwise from the seat after the dealer;
@@ -469,78 +470,18 @@ function internal(s0: HandState, ctx: Ctx, f: (s: HandState, out: LedgerEntry[])
   return { state: s, ledger: out, ok: true, changed: true };
 }
 
-/** Fair bot: it only knows its own cards (once seen), the pot and the stakes. */
+/**
+ * House bots. One bot — the "closer", the active bot holding the strongest cards — never packs: it keeps the hand
+ * alive until a show or the pot cap, so a human can never win a pot simply because every bot folded. The other bots
+ * play a few rounds for realism and then pack one by one, so a hand comes down to the human and the closer within a
+ * handful of rounds, and the closer asks for the show as soon as both are seen. (Rigged deals — table.ts — make sure
+ * the closer beats a force_loss human; on a fair deal the better cards simply win the show.)
+ */
 function botMove(s: HandState, ctx: Ctx): Result {
   const id = s.turnId!;
   const r = ctx.rng;
   let st = s;
   const act = (type: ActionType) => applyInternal(st, { actionId: `bot:${st.version}`, playerId: id, handId: st.handId, expectedVersion: st.version, type }, ctx);
-
-  // Find all active bots and humans
-  const activeBots = active(st).filter((pid) => st.players[pid].bot);
-  const activeHumans = active(st).filter((pid) => !st.players[pid].bot);
-
-  // If no humans are active in the hand (human folded or left):
-  // Resolve quickly so the table can deal the next hand for waiting players
-  if (activeHumans.length === 0 && activeBots.length > 1) {
-    if (activeBots.length === 2) {
-      if (!st.players[id].seen) {
-        const seenRes = act("SEE_CARDS");
-        if (seenRes.ok) st = seenRes.state;
-      }
-      const showRes = act("SHOW");
-      if (showRes.ok) return showRes;
-    }
-    let bId = activeBots[0];
-    for (const b of activeBots) {
-      if (st.cards[b] && st.cards[bId] && compareHands(st.cards[b], st.cards[bId]) > 0) bId = b;
-    }
-    if (id !== bId) return act("PACK");
-  }
-
-  // Check if there are active force_loss human players
-  const activeLossHumans = Object.entries(ctx.outcomeModes ?? {})
-    .filter(([uid, m]) => m === "force_loss" && st.players[uid]?.status === "ACTIVE")
-    .map(([uid]) => uid);
-
-  const forceLossActive = activeLossHumans.length > 0;
-
-  // Determine the best bot among active bots (the bot with the strongest cards)
-  let bestBotId = activeBots[0] ?? id;
-  for (const bId of activeBots) {
-    if (st.cards[bId] && st.cards[bestBotId]) {
-      if (compareHands(st.cards[bId], st.cards[bestBotId]) > 0) {
-        bestBotId = bId;
-      }
-    }
-  }
-
-  const isBestBot = id === bestBotId;
-
-  // Check if THIS bot has cards that beat all active humans
-  const beatsAllActiveHumans =
-    activeHumans.length > 0 &&
-    activeHumans.every((hid) => !st.cards[hid] || compareHands(st.cards[id], st.cards[hid]) >= 0);
-
-  const left = active(st).length;
-
-  // A bot should NEVER pack if it's the best bot, or if force_loss is active on human, or if its cards beat the humans, or when heads-up
-  const mustNeverPack = isBestBot || beatsAllActiveHumans || (forceLossActive && isBestBot) || left <= 2;
-
-  // Count how many bets this bot has made so far
-  const myBets = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
-
-  // See cards early: best bot or beats humans or round >= 1
-  if (!st.players[id].seen && (r.int(100) < 50 || myBets >= 2 || mustNeverPack || forceLossActive)) {
-    const seen = act("SEE_CARDS");
-    st = seen.state;
-  }
-  const p = st.players[id];
-  const ev = p.seen ? evaluate(st.cards[id]) : null;
-  const cat = ev ? ev.key[0] : 0;
-  const strongHigh = ev && cat === 1 ? ev.key[1] >= 13 : false;
-  const pressure = st.baseStake / st.rules.boot;
-
   const tryAct = (...types: ActionType[]): Result | null => {
     for (const t of types) {
       const res = act(t);
@@ -548,83 +489,96 @@ function botMove(s: HandState, ctx: Ctx): Result {
     }
     return null;
   };
+  /** Look at the cards once the blind-chaal rule allows it. */
+  const see = () => {
+    if (st.players[id].seen) return;
+    const res = act("SEE_CARDS");
+    if (res.ok) st = res.state;
+  };
+  // BET_MIN is always legal for a bot on its turn (bots' stacks are never checked and the minimum never exceeds the
+  // table maximum), so these fallbacks never pack.
+  const bet = () => tryAct("BET_MIN") ?? act("BET_MIN");
+  const raise = () => tryAct("BET_DOUBLE", "BET_MIN") ?? act("BET_MIN");
 
-  // =========================================================================
-  // RULE 1: HEADS-UP (ONLY 2 PLAYERS LEFT) -> NEVER PACK! ALWAYS SHOW OR BET!
-  // In Teen Patti, when heads up, folding gives up 100% of the pot. SHOW costs
-  // the exact same as a Chaal. Bots must ALWAYS call SHOW (or BET if blind).
-  // =========================================================================
-  if (left === 2) {
-    const oppId = active(st).find((x) => x !== id)!;
-    const opp = st.players[oppId];
+  const activeBots = active(st).filter((pid) => st.players[pid].bot);
+  const activeHumans = active(st).filter((pid) => !st.players[pid].bot);
 
-    // If opponent is SEEN:
-    if (opp?.seen) {
-      // Make sure bot has seen its cards so it can call SHOW
-      if (!st.players[id].seen) {
-        const seenRes = act("SEE_CARDS");
-        if (seenRes.ok) st = seenRes.state;
+  // No human left in the hand: finish it quickly so the table can deal again. The best bot stays, the rest pack;
+  // with two left the weaker one asks for the show (or packs when the rules won't let it ask).
+  if (activeHumans.length === 0 && activeBots.length > 1) {
+    let best = activeBots[0];
+    for (const b of activeBots) if (compareHands(st.cards[b], st.cards[best]) > 0) best = b;
+    if (activeBots.length === 2) {
+      see();
+      const show = tryAct("SHOW");
+      if (show) return show;
+    }
+    if (id !== best) return tryAct("PACK") ?? bet();
+    return bet();
+  }
+
+  // The closer: the active bot with the strongest cards.
+  let closer = activeBots[0];
+  for (const b of activeBots) if (compareHands(st.cards[b], st.cards[closer]) > 0) closer = b;
+  const isCloser = id === closer;
+  const left = active(st).length;
+
+  // The closer always looks at its cards as soon as it may (it needs them seen to ask for a show); the others
+  // usually do, like real players after a blind or two.
+  if (!st.players[id].seen && st.players[id].blinds >= minBlindOf(st.rules) && (isCloser || r.int(100) < 70)) see();
+
+  const p = st.players[id];
+  const ev = p.seen ? evaluate(st.cards[id]) : null;
+  const cat = ev ? ev.key[0] : 0;
+  const pressure = st.baseStake / st.rules.boot;
+  const myBets = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
+  // The house knows every card: does this bot beat (or merely tie) every human still in?
+  const beatsHumans = activeHumans.every((h) => compareHands(st.cards[id], st.cards[h]) > 0);
+  const tiesHuman = activeHumans.some((h) => compareHands(st.cards[id], st.cards[h]) === 0);
+
+  if (isCloser || left <= 2) {
+    if (left === 2) {
+      const opp = active(st).find((x) => x !== id)!;
+      if (st.players[opp].seen) {
+        see();
+        // Both seen: ask for the show — at once when the pot is already big, otherwise after a chaal or two so the
+        // pot grows a little first. Never on a tie (the one who asks loses a tie): keep betting until the human asks.
+        if (st.players[id].seen && !tiesHuman) {
+          const lastChange = st.events.map((e) => e.type).lastIndexOf("PACK");
+          const cut = Math.max(lastChange, st.events.map((e) => e.type).lastIndexOf("TIMEOUT"), st.events.map((e) => e.type).lastIndexOf("LEFT"), st.events.map((e) => e.type).lastIndexOf("SIDESHOW_RESULT"));
+          const headsUpBets = st.events.slice(cut + 1).filter((e) => e.playerId === id && e.type === "BET").length;
+          const bigPot = st.rules.potCap !== null && st.pot >= st.rules.potCap / 4;
+          const showChance = bigPot || headsUpBets >= 2 ? 100 : headsUpBets === 1 ? 70 : 40;
+          if (r.int(100) < showChance) {
+            const show = tryAct("SHOW");
+            if (show) return show;
+          }
+        }
       }
-      // Both are seen: call SHOW!
-      const showRes = tryAct("SHOW");
-      if (showRes) return showRes;
+      // The human is still blind (a seen player can't ask a blind one), or we chose to bet on: raise now and then
+      // while winning so the pot is worth something, otherwise just call.
+      if (beatsHumans && pressure < 16 && r.int(100) < 45) return raise();
+      return bet();
     }
-
-    // If opponent is still blind, bot cannot call show (rules forbid seen asking blind).
-    // The bot MUST continue betting (Chaal / Bet) - NEVER PACK!
-    const betRes = tryAct("BET_MIN", "BET_DOUBLE");
-    if (betRes) return betRes;
-    return act("BET_MIN");
+    // Three or more left: the closer never packs; with a strong hand it raises sometimes.
+    if (p.seen && cat >= 3 && pressure < 32 && r.int(100) < 50) return raise();
+    return bet();
   }
 
-  // =========================================================================
-  // RULE 2: BEST BOT / BEATS HUMANS -> NEVER PACK, BET AGGRESSIVELY
-  // =========================================================================
-  if (mustNeverPack) {
-    let res: Result | null = null;
-    if (p.seen && cat >= 3 && r.int(100) < 60 && pressure < 32) {
-      res = tryAct("BET_DOUBLE", "BET_MIN");
-    } else {
-      res = tryAct("BET_MIN");
-    }
-    return res ?? tryAct("BET_MIN", "SHOW") ?? act("BET_MIN");
-  }
-
-  // =========================================================================
-  // RULE 3: NON-BEST BOTS (3+ players active)
-  // Only pack gradually one at a time if hand is truly weak
-  // =========================================================================
-  const otherActiveBots = activeBots.filter((bid) => bid !== id).length;
-
-  // If there's only 1 other bot left, stay in to support the pot!
-  if (otherActiveBots <= 1) {
-    return tryAct("BET_MIN") ?? act("BET_MIN");
-  }
-
-  // With plenty of bots still in (3+ bots), weak hands can fold slowly
+  // Supporting bots (three or more left, not the closer): everyone plays at least one blind; after that they pack
+  // one by one — weak hands sooner, strong hands later — so the hand comes down to the human and the closer.
   let packChance = 0;
-  if (p.seen) {
-    if (cat <= 1 && !strongHigh) {
-      // High card weak hand: starts packing only after round 4+
-      packChance = myBets >= 6 ? Math.min(30, (myBets - 4) * 8) :
-                   myBets >= 4 ? 12 : 0;
-    } else if (cat === 2) {
-      // Pair: only pack at high pressure
-      packChance = pressure >= 8 ? 15 : 0;
+  if (myBets >= 1) {
+    packChance = myBets === 1 ? 15 : myBets === 2 ? 35 : myBets === 3 ? 55 : myBets === 4 ? 70 : 85;
+    if (p.seen) {
+      if (cat <= 1) packChance += 20;
+      else if (cat >= 3) packChance = Math.max(myBets >= 3 ? 10 : 0, packChance - 30);
     }
-    // cat >= 3: NEVER pack
+    if (pressure >= 8) packChance += 15;
   }
-
-  if (packChance > 0 && r.int(100) < packChance && otherActiveBots >= 2) {
-    return tryAct("PACK") ?? act("BET_MIN");
-  }
-
-  // Otherwise bet normally
-  if (p.seen && cat >= 4 && r.int(100) < 40 && pressure < 16) {
-    return tryAct("BET_DOUBLE", "BET_MIN") ?? act("BET_MIN");
-  }
-
-  return tryAct("BET_MIN") ?? act("BET_MIN");
+  if (packChance > 0 && r.int(100) < Math.min(95, packChance)) return tryAct("PACK") ?? bet();
+  if (p.seen && cat >= 3 && pressure < 16 && r.int(100) < 30) return raise();
+  return bet();
 }
 
 function botAcceptsSideshow(s: HandState, id: string, r: Rng) {

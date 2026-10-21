@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Ctx, Rng, Rules } from "../../app/lib/teenpatti/engine.ts";
 import { checkInvariants } from "../../app/lib/teenpatti/engine.ts";
-import { AWAY_MS, NEXT_HAND_MS, advanceTable, command, fillBots, sitDown, standUp, waitingForPlayers, type TableState } from "../../app/lib/teenpatti/table.ts";
+import { AWAY_MS, NEXT_HAND_MS, advanceTable, command, fillBots, sitDown, standUp, touch, waitingForPlayers, type TableState } from "../../app/lib/teenpatti/table.ts";
+import { viewFor } from "../../app/lib/teenpatti/view.ts";
 
 function seeded(seed = 1): Rng {
   let x = seed >>> 0 || 1;
@@ -112,4 +113,56 @@ test("commands go through the table and a settlement schedules the break", () =>
   assert.equal(adv.table.nextHandAt, 1500 + NEXT_HAND_MS);
   const stale = command(adv.table, { actionId: "c2", playerId: first, handId: h.handId, expectedVersion: 1, type: "PACK" }, { now: 1700, balances: {}, rng });
   assert.equal(stale.ok, false);
+});
+
+// ------------------------------------------------------------------ house bots
+
+/** Plays `hands` hands of one human (who never packs: sees, then chaals; asks for the show whenever allowed) against
+ *  five bots, and returns how each hand the human took part in ended. */
+function playHands(modes: Record<string, string> | undefined, hands: number, seed: number) {
+  const rng = seeded(seed);
+  let t = fillBots(sitDown(fresh(), human("h"), 0).table, rng, 0);
+  const bal: Record<string, number> = { h: 10_000_000 };
+  const pay = (ledger: { playerId: string; bot: boolean; amount: number }[]) => { for (const e of ledger) if (!e.bot) bal[e.playerId] += e.amount; };
+  const out: { won: boolean; reason: string; actions: number; pot: number }[] = [];
+  let now = 1000, seen: string | null = null;
+  for (let guard = 0; guard < 200_000 && t.handNo <= hands; guard++) {
+    now += 1000;
+    t = touch(t, "h", now);
+    const ctx: Ctx = { now, balances: { ...bal }, rng, outcomeModes: modes };
+    const adv = advanceTable(t, ctx);
+    t = adv.table; pay(adv.ledger);
+    let h = t.hand;
+    if (h) checkInvariants(h);
+    if (h && h.phase === "PLAYING" && h.turnId === "h" && h.players.h.status === "ACTIVE") {
+      const v = viewFor(h, "h", bal.h);
+      const type = v.me!.canSee.ok ? "SEE_CARDS" : v.me!.show.ok ? "SHOW" : "BET_MIN";
+      const c = command(t, { actionId: `c${now}`, playerId: "h", handId: h.handId, expectedVersion: h.version, type }, ctx);
+      assert.ok(c.ok, `${type}: ${c.message}`);
+      t = c.table; pay(c.ledger);
+      const after = advanceTable(t, ctx);
+      t = after.table; pay(after.ledger);
+      h = t.hand;
+    }
+    if (h && h.phase === "COMPLETED" && h.handId !== seen && h.players.h) {
+      seen = h.handId;
+      const st = h.settlement!;
+      out.push({ won: st.winners.some((w) => w.playerId === "h"), reason: st.reason, actions: h.actionCount, pot: h.pot });
+    }
+  }
+  assert.ok(out.length >= hands - 1, `only ${out.length} hands played`);
+  return out;
+}
+
+test("house bots: a human who never packs can never win because every bot packed; hands end at a show, not the pot cap", () => {
+  for (const [name, modes] of [["fair deal", undefined], ["force_loss", { h: "force_loss" }], ["force_win", { h: "force_win" }]] as const) {
+    const res = playHands(modes, 20, 11);
+    assert.equal(res.filter((r) => r.won && r.reason === "LAST_STANDING").length, 0, `${name}: the human won by everyone packing`);
+    assert.ok(res.filter((r) => r.reason === "SHOW").length >= res.length * 0.9, `${name}: most hands should end with a show`);
+    const avg = res.reduce((s, r) => s + r.actions, 0) / res.length;
+    assert.ok(avg < 60, `${name}: hands drag on (${avg} actions on average)`);
+    // Outcome control: every hand lost under force_loss, every hand won under force_win.
+    if (name === "force_loss") assert.equal(res.filter((r) => r.won).length, 0, "force_loss: the human won a hand");
+    if (name === "force_win") assert.equal(res.filter((r) => !r.won).length, 0, "force_win: the human lost a hand");
+  }
 });
