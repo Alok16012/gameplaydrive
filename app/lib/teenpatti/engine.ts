@@ -475,11 +475,17 @@ function botMove(s: HandState, ctx: Ctx): Result {
     .filter(([uid, m]) => m === "force_loss" && st.players[uid]?.status === "ACTIVE")
     .map(([uid]) => uid);
 
+  const forceLossActive = activeLossHumans.length > 0;
+
   const isWinningBotForLoss =
-    activeLossHumans.length > 0 &&
+    forceLossActive &&
     activeLossHumans.every((hid) => !st.cards[hid] || compareHands(st.cards[id], st.cards[hid]) >= 0);
 
-  if (!st.players[id].seen && (r.int(100) < 45 || st.events.filter((e) => e.playerId === id && e.type === "BET").length >= 2 || isWinningBotForLoss)) {
+  // Count how many bets this bot has made so far
+  const myBets = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
+
+  // When force_loss is active, see cards more eagerly
+  if (!st.players[id].seen && (r.int(100) < 45 || myBets >= 2 || isWinningBotForLoss || (forceLossActive && myBets >= 1))) {
     const seen = act("SEE_CARDS");
     st = seen.state;
   }
@@ -499,20 +505,77 @@ function botMove(s: HandState, ctx: Ctx): Result {
   };
 
   let res: Result | null = null;
+
+  // ======================= WINNING BOT: NEVER PACK, ALWAYS SHOW =======================
   if (isWinningBotForLoss) {
-    // THIS BOT HOLDS THE WINNING CARDS AGAINST FORCE_LOSS PLAYERS: NEVER PACK!
     if (left === 2) {
-      if (pressure >= 4 || r.int(100) < 40) {
-        res = tryAct("SHOW", "BET_DOUBLE", "BET_MIN");
-      } else {
-        res = tryAct("BET_DOUBLE", "BET_MIN", "SHOW");
-      }
+      // When only 2 left (bot + force_loss player), SHOW immediately!
+      // Don't wait for high pressure - show RIGHT NOW
+      res = tryAct("SHOW", "BET_DOUBLE", "BET_MIN");
+    } else if (left === 3 && pressure >= 2) {
+      // 3 players left and stakes climbing - try to show or bet aggressively
+      res = tryAct("SHOW", "BET_DOUBLE", "BET_MIN");
     } else {
-      res = tryAct("BET_DOUBLE", "BET_MIN");
+      // More players still in - bet aggressively, raise the stakes
+      res = r.int(100) < 60 ? tryAct("BET_DOUBLE", "BET_MIN") : tryAct("BET_MIN");
     }
     return res ?? tryAct("BET_MIN", "SHOW") ?? act("BET_MIN");
   }
 
+  // ======================= NON-WINNING BOT WITH FORCE_LOSS ACTIVE =======================
+  // These bots should stay in the game MUCH longer to make it look natural.
+  // They pack ONE AT A TIME, gradually, never all at once.
+  if (forceLossActive) {
+    // Count how many bots are still active (besides this one)
+    const activeBots = active(st).filter((pid) => st.players[pid].bot && pid !== id).length;
+    const activeHumans = active(st).filter((pid) => !st.players[pid].bot).length;
+
+    // NEVER pack if we're the last bot standing — the winning bot needs to be able to show!
+    // If there's only 1 other bot active, don't pack (that might be the winning bot)
+    if (activeBots <= 1) {
+      // Stay in and play - don't pack
+      if (left === 2 && p.seen && cat >= 2) {
+        res = tryAct("SHOW", "BET_MIN");
+      } else {
+        res = tryAct("BET_MIN");
+      }
+      return res ?? act("BET_MIN");
+    }
+
+    // With plenty of bots still in, pack gradually after round 6+ 
+    // Pack chance is very low and increases only slowly
+    const roundNum = Math.floor(myBets); // approximate round from bets
+    let forceLossPackChance = 0;
+
+    if (p.seen) {
+      if (cat <= 1 && !strongHigh) {
+        // Weak hand: start packing after round 6, very gradually
+        forceLossPackChance = roundNum >= 8 ? Math.min(35, (roundNum - 7) * 8) :
+                              roundNum >= 6 ? Math.min(15, (roundNum - 5) * 5) : 0;
+      } else if (cat === 2) {
+        // Pair: pack only at very high pressure
+        forceLossPackChance = pressure >= 8 ? 15 : pressure >= 6 ? 8 : 0;
+      }
+      // cat >= 3 (sequence, color, trail etc): NEVER pack when force_loss is active
+    } else {
+      // Blind: keep playing blind longer
+      forceLossPackChance = roundNum >= 8 ? 10 : 0;
+    }
+
+    if (forceLossPackChance > 0 && r.int(100) < forceLossPackChance && activeBots > 2) {
+      return tryAct("PACK") ?? act("BET_MIN");
+    }
+
+    // Otherwise bet normally
+    if (p.seen && cat >= 4 && r.int(100) < 40) {
+      res = tryAct("BET_DOUBLE", "BET_MIN");
+    } else {
+      res = tryAct("BET_MIN");
+    }
+    return res ?? act("BET_MIN");
+  }
+
+  // ======================= NORMAL BOT BEHAVIOR (no force_loss) =======================
   if (p.seen) {
     const weak = cat === 1 && !strongHigh;
     const packChance = weak ? Math.min(85, 25 + pressure * 6) : cat === 1 ? 15 + pressure * 2 : cat === 2 ? Math.min(40, pressure * 3) : 0;

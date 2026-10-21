@@ -34,48 +34,112 @@ function buildEngagingTeenPattiDeck(
 
   const lossIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_loss");
   const winIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_win");
-  const botIdx = orderSeats.findIndex((s) => s.bot);
+  const botIndices = orderSeats.map((s, i) => s.bot ? i : -1).filter((i) => i >= 0);
 
-  if (lossIdx >= 0 && botIdx >= 0) {
+  if (lossIdx >= 0 && botIndices.length > 0) {
+    // ===== FORCE LOSS: Human gets strong hand, ALL bots get stronger hands =====
+    // Pick a hand combo from varied options so it doesn't look repetitive
+    const roll = rng ? rng.int(100) : Math.floor(Math.random() * 100);
+
     let humanHand: Card[];
-    let botHand: Card[];
+    let bestBotHand: Card[];
+    // Additional strong bot hands for other bots
+    let otherBotHands: Card[][];
 
-    const roll = Math.random();
-    if (roll < 0.65) {
-      // 65%: Human has Pair of Kings (K♠ K♥ 8♦), Bot has Pair of Aces (A♠ A♦ 9♣)
+    if (roll < 30) {
+      // 30%: Human has Pair of Kings (K♠ K♥ 8♦), Best bot has Pair of Aces (A♠ A♦ 9♣)
       humanHand = [{ r: 13, s: "S" }, { r: 13, s: "H" }, { r: 8, s: "D" }];
-      botHand = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
-    } else if (roll < 0.85) {
-      // 20%: Human has Ace-high Color (A♥ 10♥ 4♥), Bot has Sequence (10♣ J♦ Q♠)
-      humanHand = [{ r: 14, s: "H" }, { r: 10, s: "H" }, { r: 4, s: "H" }];
-      botHand = [{ r: 10, s: "C" }, { r: 11, s: "D" }, { r: 12, s: "S" }];
-    } else {
-      // 15%: Human has Sequence (9♠ 10♦ J♣), Bot has higher Sequence (J♥ Q♦ K♠)
+      bestBotHand = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
+      otherBotHands = [
+        [{ r: 13, s: "D" }, { r: 13, s: "C" }, { r: 14, s: "H" }], // Pair of Kings (same but different kicker)
+        [{ r: 12, s: "S" }, { r: 11, s: "D" }, { r: 10, s: "C" }],  // Sequence Q-J-10
+        [{ r: 14, s: "C" }, { r: 12, s: "H" }, { r: 10, s: "D" }],  // High card A-Q-10
+      ];
+    } else if (roll < 50) {
+      // 20%: Human has Sequence (9♠ 10♦ J♣), Best bot has higher Sequence (J♥ Q♦ K♠)
       humanHand = [{ r: 9, s: "S" }, { r: 10, s: "D" }, { r: 11, s: "C" }];
-      botHand = [{ r: 11, s: "H" }, { r: 12, s: "D" }, { r: 13, s: "S" }];
+      bestBotHand = [{ r: 11, s: "H" }, { r: 12, s: "D" }, { r: 13, s: "S" }];
+      otherBotHands = [
+        [{ r: 12, s: "S" }, { r: 12, s: "H" }, { r: 7, s: "D" }],  // Pair of Queens
+        [{ r: 10, s: "H" }, { r: 11, s: "S" }, { r: 12, s: "C" }],  // Sequence 10-J-Q
+        [{ r: 14, s: "D" }, { r: 13, s: "C" }, { r: 9, s: "H" }],  // High card A-K-9
+      ];
+    } else if (roll < 70) {
+      // 20%: Human has Ace-high Color (A♥ 10♥ 4♥), Best bot has Sequence (10♣ J♦ Q♠)
+      humanHand = [{ r: 14, s: "H" }, { r: 10, s: "H" }, { r: 4, s: "H" }];
+      bestBotHand = [{ r: 10, s: "C" }, { r: 11, s: "D" }, { r: 12, s: "S" }];
+      otherBotHands = [
+        [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 5, s: "C" }],  // Pair of Aces
+        [{ r: 13, s: "D" }, { r: 12, s: "C" }, { r: 11, s: "S" }],  // Sequence K-Q-J
+        [{ r: 14, s: "C" }, { r: 13, s: "H" }, { r: 11, s: "D" }],  // High A-K-J
+      ];
+    } else if (roll < 85) {
+      // 15%: Human has Pair of Aces (A♥ A♦ 6♣), Best bot has Trail of 3s (3♠ 3♥ 3♦) — dramatic!
+      humanHand = [{ r: 14, s: "H" }, { r: 14, s: "D" }, { r: 6, s: "C" }];
+      bestBotHand = [{ r: 3, s: "S" }, { r: 3, s: "H" }, { r: 3, s: "D" }];
+      otherBotHands = [
+        [{ r: 14, s: "S" }, { r: 14, s: "C" }, { r: 10, s: "D" }],  // Pair of Aces (higher kicker)
+        [{ r: 13, s: "S" }, { r: 12, s: "H" }, { r: 11, s: "C" }],  // Sequence K-Q-J
+        [{ r: 12, s: "D" }, { r: 12, s: "C" }, { r: 9, s: "S" }],  // Pair of Queens
+      ];
+    } else {
+      // 15%: Human has Pure Sequence (7♥ 8♥ 9♥), Best bot has higher Pure Sequence (Q♠ K♠ A♠)
+      humanHand = [{ r: 7, s: "H" }, { r: 8, s: "H" }, { r: 9, s: "H" }];
+      bestBotHand = [{ r: 12, s: "S" }, { r: 13, s: "S" }, { r: 14, s: "S" }];
+      otherBotHands = [
+        [{ r: 10, s: "D" }, { r: 11, s: "D" }, { r: 12, s: "D" }], // Pure Sequence 10-J-Q
+        [{ r: 14, s: "D" }, { r: 14, s: "C" }, { r: 11, s: "H" }],  // Pair of Aces
+        [{ r: 13, s: "H" }, { r: 13, s: "D" }, { r: 10, s: "C" }],  // Pair of Kings
+      ];
     }
 
-    const usedIds = new Set([...humanHand.map(cardId), ...botHand.map(cardId)]);
+    // Pick which bot gets the best hand (first available bot)
+    const primaryBotIdx = botIndices[0];
+
+    // Collect all assigned cards
+    const usedIds = new Set([...humanHand.map(cardId), ...bestBotHand.map(cardId)]);
+    // Also track used cards from other bot hands we'll assign
+    const assignedBotHands: Map<number, Card[]> = new Map();
+    assignedBotHands.set(primaryBotIdx, bestBotHand);
+
+    // Assign other bot hands, checking for card conflicts
+    let otherHandIdx = 0;
+    for (const bi of botIndices) {
+      if (bi === primaryBotIdx || otherHandIdx >= otherBotHands.length) continue;
+      const hand = otherBotHands[otherHandIdx];
+      // Check if any cards conflict with already used cards
+      const conflict = hand.some((c) => usedIds.has(cardId(c)));
+      if (!conflict) {
+        assignedBotHands.set(bi, hand);
+        hand.forEach((c) => usedIds.add(cardId(c)));
+        otherHandIdx++;
+      } else {
+        otherHandIdx++; // skip this hand combo, try next
+      }
+    }
+
+    // Build remaining deck excluding all assigned cards
     const rest = fullDeck().filter((c) => !usedIds.has(cardId(c)));
     for (let i = rest.length - 1; i > 0; i--) {
       const j = rng ? rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
       [rest[i], rest[j]] = [rest[j], rest[i]];
     }
 
-    const evBot = evaluate(botHand);
+    const evBest = evaluate(bestBotHand);
     const deck: Card[] = [];
     let restPtr = 0;
     for (let i = 0; i < orderSeats.length; i++) {
       if (i === lossIdx) {
         deck.push(...humanHand);
-      } else if (i === botIdx) {
-        deck.push(...botHand);
+      } else if (assignedBotHands.has(i)) {
+        deck.push(...assignedBotHands.get(i)!);
       } else {
+        // Random hand for other human players — ensure they can't beat the best bot
         const chunk = [rest[restPtr++], rest[restPtr++], rest[restPtr++]];
-        if (compareKeys(evaluate(chunk).key, evBot.key) >= 0) {
+        if (compareKeys(evaluate(chunk).key, evBest.key) >= 0) {
           for (let k = restPtr; k < rest.length; k++) {
             const candidate = [chunk[0], chunk[1], rest[k]];
-            if (compareKeys(evaluate(candidate).key, evBot.key) < 0) {
+            if (compareKeys(evaluate(candidate).key, evBest.key) < 0) {
               const temp = chunk[2];
               chunk[2] = rest[k];
               rest[k] = temp;
@@ -92,7 +156,8 @@ function buildEngagingTeenPattiDeck(
     return deck;
   }
 
-  if (winIdx >= 0 && botIdx >= 0) {
+  if (winIdx >= 0 && botIndices.length > 0) {
+    // ===== FORCE WIN: Give human a dominant hand =====
     const humanHand: Card[] = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
     const botHand: Card[] = [{ r: 13, s: "S" }, { r: 13, s: "H" }, { r: 8, s: "D" }];
     const usedIds = new Set([...humanHand.map(cardId), ...botHand.map(cardId)]);
@@ -104,10 +169,11 @@ function buildEngagingTeenPattiDeck(
     const evHuman = evaluate(humanHand);
     const deck: Card[] = [];
     let restPtr = 0;
+    const primaryBotIdx = botIndices[0];
     for (let i = 0; i < orderSeats.length; i++) {
       if (i === winIdx) {
         deck.push(...humanHand);
-      } else if (i === botIdx) {
+      } else if (i === primaryBotIdx) {
         deck.push(...botHand);
       } else {
         const chunk = [rest[restPtr++], rest[restPtr++], rest[restPtr++]];
