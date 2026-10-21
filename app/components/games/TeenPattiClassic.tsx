@@ -66,6 +66,29 @@ interface FlyingCoin {
   go: boolean;
 }
 
+
+/** An action button. Defined at module level on purpose: a component created inside the render would be a new type
+ *  every render, and the 250 ms clock re-render would then replace the button's DOM node mid-tap and lose the tap. */
+function Btn({ opt, label, amount, className, onClick, busy, pending, onBlocked }: {
+  opt: { ok: boolean; reason: string | null }; label: string; amount?: number; className: string; onClick: () => void;
+  busy: boolean; pending: boolean; onBlocked: (reason: string) => void;
+}) {
+  return (
+    <button
+      disabled={busy}
+      title={opt.reason ?? undefined}
+      onClick={() => {
+        sfx.click();
+        if (opt.ok) onClick();
+        else if (opt.reason) onBlocked(opt.reason);
+      }}
+      className={`rounded-lg px-3.5 py-1.5 text-[12px] font-bold border leading-tight transition-transform active:scale-95 duration-75 select-none ${className} ${opt.ok ? "cursor-pointer" : "opacity-40 cursor-not-allowed"} ${pending ? "ring-2 ring-white/80 animate-pulse" : ""}`}
+    >
+      {pending ? "…" : label}{amount !== undefined && !pending && <><br /><span className="text-[13px]">{inr(amount)}</span></>}
+    </button>
+  );
+}
+
 export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number; code?: string }) {
   const { total, showToast, applyBalance } = useStore();
   const [resp, setResp] = useState<TableResponse | null>(null);
@@ -76,14 +99,23 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const [peek, setPeek] = useState(false); // result sheet closed to look at the table
   const [sheetHand, setSheetHand] = useState(0);
   const [flyingCoins, setFlyingCoins] = useState<FlyingCoin[]>([]);
+  /** The action just tapped, shown at once while the server confirms it (and the coins it puts in the pot). */
+  const [pending, setPending] = useState<{ type: ActionType; amount: number } | null>(null);
+  const inflight = useRef(false); // an action is on its way: polls wait, so an older reply can't overwrite its result
+  const newest = useRef({ hand: 0, version: 0 }); // the latest state seen, so a slow poll reply is never applied over a newer one
+  const skipMyCoins = useRef(false); // coins for my own bet already flew when I tapped
   const tableId = useRef<string | null>(null);
   const offset = useRef(0); // server clock − local clock
   const polling = useRef(false);
-  const lastEventSeq = useRef(0);
+  const lastEvent = useRef<{ handId: string; seq: number } | null>(null); // last animated event; seq restarts every hand
   const coinIdGen = useRef(0);
 
   const take = useCallback((r: TableResponse) => {
     offset.current = r.table.serverNow - Date.now();
+    const hand = r.table.handNo, version = r.view?.version ?? 0;
+    const n = newest.current;
+    if (hand < n.hand || (hand === n.hand && version < n.version)) return; // a reply that was overtaken (e.g. a poll started before an action)
+    newest.current = { hand, version };
     setResp(r);
     applyBalance(r.balance);
   }, [applyBalance]);
@@ -95,7 +127,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
       .then((r) => { if (!alive) return; tableId.current = r.table.id; take(r); })
       .catch((e) => alive && setErr(e.message));
     const poll = async () => {
-      if (!tableId.current || polling.current) return;
+      if (!tableId.current || polling.current || inflight.current) return;
       polling.current = true;
       try { take(await api<TableResponse>(`/api/teenpatti/state?table=${tableId.current}`)); } catch (e) { if (alive) setErr((e as Error).message); }
       polling.current = false;
@@ -117,6 +149,13 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const act = async (type: ActionType, requestId?: string) => {
     if (!tableId.current || !v || busy) return;
     setBusy(true);
+    inflight.current = true;
+    // Show the action at once: the tapped button pulses, and for a bet the coins fly and the pot grows before the
+    // server has answered (its reply then replaces this).
+    const me = v.me;
+    const amount = type === "BET_MIN" ? me?.min.amount ?? 0 : type === "BET_DOUBLE" ? me?.double.amount ?? 0 : type === "SHOW" ? me?.show.amount ?? 0 : type === "SIDESHOW_REQUEST" ? me?.sideshow.amount ?? 0 : 0;
+    setPending({ type, amount });
+    if (amount > 0 && me) { skipMyCoins.current = true; spawnFlyingCoins(me.playerId, amount); }
     try {
       const r = await api<{ ok: boolean; message?: string; state: TableResponse }>("/api/teenpatti/act", {
         method: "POST",
@@ -124,9 +163,13 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
       });
       if (r.state) take(r.state);
       if (!r.ok && r.message) showToast(r.message);
+      if (!r.ok) skipMyCoins.current = false;
     } catch (e) {
+      skipMyCoins.current = false;
       showToast((e as Error).message);
     } finally {
+      inflight.current = false;
+      setPending(null);
       setBusy(false);
     }
   };
@@ -236,37 +279,26 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
 
   useEffect(() => {
     if (!v?.events || v.events.length === 0) return;
-    if (lastEventSeq.current === 0) {
-      lastEventSeq.current = Math.max(...v.events.map((e) => e.seq));
+    const top = Math.max(...v.events.map((e) => e.seq));
+    const last = lastEvent.current;
+    if (last === null) {
+      // First look at the table: don't replay the history as animations.
+      lastEvent.current = { handId: v.handId, seq: top };
       return;
     }
-
-    const newEvents = v.events.filter((e) => e.seq > lastEventSeq.current);
+    // Event numbers start again at 1 with every hand, so a new hand animates from its first boot.
+    const since = last.handId === v.handId ? last.seq : 0;
+    const newEvents = v.events.filter((e) => e.seq > since);
+    lastEvent.current = { handId: v.handId, seq: top };
     if (newEvents.length === 0) return;
 
-    lastEventSeq.current = Math.max(...v.events.map((e) => e.seq));
-
     for (const ev of newEvents) {
-      if ((ev.type === "BET" || ev.type === "BOOT" || ev.type === "SHOW") && ev.playerId && (ev.amount ?? 0) > 0) {
+      if ((ev.type === "BET" || ev.type === "BOOT" || ev.type === "SHOW" || ev.type === "SIDESHOW_REQUEST") && ev.playerId && (ev.amount ?? 0) > 0) {
+        if (ev.playerId === v.me?.playerId && ev.type !== "BOOT" && skipMyCoins.current) { skipMyCoins.current = false; continue; }
         spawnFlyingCoins(ev.playerId, ev.amount!);
       }
     }
-  }, [v?.events, spawnFlyingCoins]);
-
-  const Btn = ({ opt, label, amount, className, onClick }: { opt: { ok: boolean; reason: string | null }; label: string; amount?: number; className: string; onClick: () => void }) => (
-    <button
-      disabled={busy}
-      title={opt.reason ?? undefined}
-      onClick={() => {
-        sfx.click();
-        if (opt.ok) onClick();
-        else if (opt.reason) showToast(opt.reason);
-      }}
-      className={`rounded-lg px-3.5 py-1.5 text-[12px] font-bold border leading-tight transition-transform active:scale-95 duration-75 select-none ${className} ${opt.ok ? "cursor-pointer" : "opacity-40 cursor-not-allowed"}`}
-    >
-      {label}{amount !== undefined && <><br /><span className="text-[13px]">{inr(amount)}</span></>}
-    </button>
-  );
+  }, [v?.events, v?.handId, v?.me?.playerId, spawnFlyingCoins]);
 
   return (
     <LandscapeStage>
@@ -335,7 +367,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               </div>
             ) : (
               <>
-                <div className="pill bg-black/55 px-4 py-1 text-[15px] text-gold-300 font-bold">Pot {inr(v!.pot)}</div>
+                <div className="pill bg-black/55 px-4 py-1 text-[15px] text-gold-300 font-bold">Pot {inr(v!.pot + (pending?.amount ?? 0))}</div>
                 <div className="text-[11px] text-white/60 mt-1">Stake {inr(v!.baseStake)}{v!.rules.potCap ? ` • Pot limit ${inr(v!.rules.potCap)}` : ""}</div>
                 {v!.pending ? (
                   <div className="text-[12px] text-fuchsia-300 mt-1">
@@ -343,7 +375,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
                   </div>
                 ) : v!.turnId && (
                   <div className={`text-[13px] mt-1 ${v!.turnId === myId ? "text-neon-400 font-bold" : "text-white/75"}`}>
-                    {v!.turnId === myId ? "Your turn" : `${seats.find((s) => s.playerId === v!.turnId)?.name ?? "…"}'s turn`} • {Math.ceil(secsTo(v!.turnDeadline))}s
+                    {pending ? "Sending…" : <>{v!.turnId === myId ? "Your turn" : `${seats.find((s) => s.playerId === v!.turnId)?.name ?? "…"}'s turn`} • {Math.ceil(secsTo(v!.turnDeadline))}s</>}
                   </div>
                 )}
               </>
@@ -448,9 +480,9 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
         <div className="h-14 shrink-0 flex items-center gap-2 px-3 bg-black/45 border-t border-white/10">
           {me?.inHand && meInHand?.status === "ACTIVE" && liveHand ? (
             <>
-              <Btn opt={me.pack} label="Pack" className="bg-[#8b1d2c] border-white/15 px-5 py-2.5 text-sm" onClick={() => act("PACK")} />
-              <Btn opt={me.sideshow} label={`Side Show${me.sideshow.ok ? ` • ${inr(me.sideshow.amount)}` : ""}`} className="bg-fuchsia-700 border-fuchsia-300/30" onClick={() => act("SIDESHOW_REQUEST")} />
-              <Btn opt={me.show} label={`Show${me.show.ok ? ` • ${inr(me.show.amount)}` : ""}`} className="bg-[#8b1d2c] border-white/15 px-5 py-2.5 text-sm" onClick={() => act("SHOW")} />
+              <Btn opt={me.pack} label="Pack" className="bg-[#8b1d2c] border-white/15 px-5 py-2.5 text-sm" onClick={() => act("PACK")} busy={busy} pending={pending?.type === "PACK"} onBlocked={showToast} />
+              <Btn opt={me.sideshow} label={`Side Show${me.sideshow.ok ? ` • ${inr(me.sideshow.amount)}` : ""}`} className="bg-fuchsia-700 border-fuchsia-300/30" onClick={() => act("SIDESHOW_REQUEST")} busy={busy} pending={pending?.type === "SIDESHOW_REQUEST"} onBlocked={showToast} />
+              <Btn opt={me.show} label={`Show${me.show.ok ? ` • ${inr(me.show.amount)}` : ""}`} className="bg-[#8b1d2c] border-white/15 px-5 py-2.5 text-sm" onClick={() => act("SHOW")} busy={busy} pending={pending?.type === "SHOW"} onBlocked={showToast} />
               <div className="flex-1 flex justify-center">
                 <button
                   disabled={busy}
@@ -462,11 +494,11 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
                   }}
                   className={`rounded-full px-6 py-2 text-sm font-bold bg-sky-500 shadow-lg transition-transform active:scale-95 duration-75 select-none ${me.canSee.ok ? "hover:bg-sky-400 cursor-pointer ring-2 ring-sky-300 animate-pulse" : "opacity-40 cursor-not-allowed"}`}
                 >
-                  {me.seen ? "Seen ✓" : "See"}
+                  {pending?.type === "SEE_CARDS" ? "…" : me.seen ? "Seen ✓" : "See"}
                 </button>
               </div>
-              <Btn opt={me.double} label={`${me.seen ? "Chaal" : "Blind"} 2x`} amount={me.double.amount} className="bg-[#3d7a1f] border-lime-300/30" onClick={() => act("BET_DOUBLE")} />
-              <Btn opt={me.min} label={me.seen ? "Chaal" : "Blind"} amount={me.min.amount} className="bg-[#b8231f] border-white/20 px-5" onClick={() => act("BET_MIN")} />
+              <Btn opt={me.double} label={`${me.seen ? "Chaal" : "Blind"} 2x`} amount={me.double.amount} className="bg-[#3d7a1f] border-lime-300/30" onClick={() => act("BET_DOUBLE")} busy={busy} pending={pending?.type === "BET_DOUBLE"} onBlocked={showToast} />
+              <Btn opt={me.min} label={me.seen ? "Chaal" : "Blind"} amount={me.min.amount} className="bg-[#b8231f] border-white/20 px-5" onClick={() => act("BET_MIN")} busy={busy} pending={pending?.type === "BET_MIN"} onBlocked={showToast} />
             </>
           ) : (
             <div className="flex-1 text-center text-[13px] text-white/60">
