@@ -107,6 +107,7 @@ export function Home({ nav }: { nav: Nav }) {
       )}
       <div className="flex items-center justify-between">
         <div>
+          <div className="font-bold text-[15px] leading-none tracking-tight mb-2"><span className="text-amber-400 mr-1">♠</span><span className="text-white">Khelo</span><span className="gold-text">baazi</span></div>
           <div className="text-[22px] font-semibold">Hello, {player?.first} 👋</div>
           <div className="text-sm text-[var(--ink-soft)]">Ready to play?</div>
         </div>

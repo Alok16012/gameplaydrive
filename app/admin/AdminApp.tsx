@@ -7,7 +7,7 @@ import { useAutoUpdate } from "../lib/autoUpdate";
 import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { useEffect, useMemo, useState } from "react";
 import {
-  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, ChevronDown, Eye, Pencil, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Check, ChevronDown, Copy, Eye, Pencil, RefreshCw, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -1046,6 +1046,54 @@ function EditModal({ target, accounts, reload, onClose }: { target: Account; acc
   );
 }
 
+
+/** Credentials are generated for the admin so they only have to copy-paste them to the new user. Usernames are
+ *  `kb` + 6 digits for players and a role prefix for staff; passwords are 8 unambiguous letters/digits. */
+const USERNAME_PREFIX: Record<Role, string> = { superadmin: "sa", admin: "ad", agent: "ag", player: "kb" };
+function genUsername(role: Role, taken: Set<string | null>): string {
+  const prefix = USERNAME_PREFIX[role] ?? "kb";
+  for (let i = 0; i < 50; i++) {
+    const u = prefix + String(100000 + Math.floor(Math.random() * 900000));
+    if (!taken.has(u)) return u;
+  }
+  return prefix + Date.now().toString().slice(-6);
+}
+function genPassword(len = 8): string {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const buf = new Uint32Array(len);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(buf);
+  else for (let i = 0; i < len; i++) buf[i] = Math.floor(Math.random() * 0xffffffff);
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[buf[i] % chars.length];
+  return /\d/.test(out) ? out : out.slice(0, -1) + "7";
+}
+
+function CopyButton({ text, label, className }: { text: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button type="button" onClick={copy} className={className ?? "shrink-0 p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10"} title="Copy" aria-label={label ?? "Copy"}>
+      {copied ? <Check size={15} className="text-emerald-300" /> : <Copy size={15} />}
+      {label && <span>{copied ? "Copied!" : label}</span>}
+    </button>
+  );
+}
+
+/** Text input with "regenerate" and "copy" buttons (used for auto-generated username / password). */
+function GenField({ value, onChange, onRegen, autoComplete }: { value: string; onChange: (v: string) => void; onRegen: () => void; autoComplete?: string }) {
+  return (
+    <div className="flex items-center gap-1.5 mt-1">
+      <input value={value} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete ?? "off"} autoCapitalize="none" spellCheck={false} className={`${inputCls} font-mono`} />
+      <button type="button" onClick={onRegen} className="shrink-0 p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10" title="Generate new" aria-label="Generate new"><RefreshCw size={15} /></button>
+      <CopyButton text={value} />
+    </div>
+  );
+}
+
 function CreateModal({
   role,
   me,
@@ -1059,11 +1107,12 @@ function CreateModal({
   onShowDetails?: (acc: Account) => void;
 }) {
   const owners = ownerOptions(accounts, me, role);
-  const [f, setF] = useState({
+  const taken = useMemo(() => new Set(accounts.map((a) => a.username).filter(Boolean)), [accounts]);
+  const [f, setF] = useState(() => ({
     name: "",
     phone: "",
-    username: "",
-    password: "",
+    username: genUsername(role, taken),
+    password: genPassword(),
     state: STATES[0],
     owner: owners[0]?.id ?? me.id,
     city: "",
@@ -1072,12 +1121,13 @@ function CreateModal({
     ourPart: "0",
     creditPts: "0",
     remark: "",
-  });
+  }));
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Account | null>(null);
   const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
   const staff = role !== "player";
+  const credsText = (acc: Account) => `🎮 Khelobaazi login\nUsername: ${acc.username ?? f.username.trim().toLowerCase()}\nPassword: ${f.password}\n\nhttps://khelobaazi.in`;
 
   const submit = async () => {
     if (!f.name.trim()) return setErr("Enter a name");
@@ -1130,13 +1180,15 @@ function CreateModal({
             <div className="flex justify-between"><span className="text-white/60">ID</span><b>{done.code}</b></div>
             <div className="flex justify-between"><span className="text-white/60">Name</span><span>{done.name}</span></div>
             {done.phone && <div className="flex justify-between"><span className="text-white/60">Mobile</span><span>+91 {fmtPhone(done.phone)}</span></div>}
-            {done.username && <div className="flex justify-between"><span className="text-white/60">Username</span><span>{done.username}</span></div>}
+            {done.username && <div className="flex justify-between"><span className="text-white/60">Username</span><span className="font-mono">{done.username}</span></div>}
+            <div className="flex justify-between"><span className="text-white/60">Password</span><span className="font-mono">{f.password}</span></div>
             {staff && <div className="flex justify-between"><span className="text-white/60">City</span><span>{f.city}</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">Partnership</span><span>{f.partnershipName} ({f.userPart}%)</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">Credit pts</span><span>🪙 {Number(f.creditPts).toLocaleString("en-IN")}</span></div>}
           </div>
+          <CopyButton text={credsText(done)} label="Copy username & password" className="btn-ghost w-full mt-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5" />
           <div className="text-xs text-emerald-300/90 mt-3">
-            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : `They sign in to the player app with username "${done.username}"${done.phone ? " (or their mobile number)" : ""} and the password you set. Give them coins from the Players list.`}
+            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : `They sign in to the player app with username "${done.username}"${done.phone ? " (or their mobile number)" : ""} and this password. Give them coins from the Players list.`}
           </div>
           <div className="flex items-center gap-2 mt-5">
             {onShowDetails && staff && (
@@ -1158,18 +1210,24 @@ function CreateModal({
         <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="mt-4 space-y-3 max-h-[75vh] overflow-y-auto pr-1">
           <label className="block text-xs text-white/60">Full name<input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} className={`${inputCls} mt-1`} /></label>
           {!staff && (
-            <label className="block text-xs text-white/60">Username <span className="text-rose-300">*</span> <span className="text-white/40">(used to sign in)</span><input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+            <label className="block text-xs text-white/60">Username <span className="text-rose-300">*</span> <span className="text-white/40">(auto-generated • used to sign in)</span>
+              <GenField value={f.username} onChange={(v) => set("username", v.toLowerCase())} onRegen={() => set("username", genUsername(role, taken))} autoComplete="username" />
+            </label>
           )}
           <label className="block text-xs text-white/60">Mobile number <span className="text-white/40">(optional)</span>
             <div className="flex items-center gap-2 mt-1"><span className="text-sm text-white/60">+91</span><input inputMode="numeric" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} className={inputCls} /></div>
           </label>
           <div className="grid grid-cols-2 gap-3">
             {staff ? (
-              <label className="block text-xs text-white/60">Username<input value={f.username} onChange={(e) => set("username", e.target.value.toLowerCase())} autoComplete="off" autoCapitalize="none" className={`${inputCls} mt-1`} /></label>
+              <label className="block text-xs text-white/60">Username <span className="text-white/40">(auto)</span>
+                <GenField value={f.username} onChange={(v) => set("username", v.toLowerCase())} onRegen={() => set("username", genUsername(role, taken))} autoComplete="username" />
+              </label>
             ) : (
               <label className="block text-xs text-white/60">State<select value={f.state} onChange={(e) => set("state", e.target.value)} className={`${inputCls} mt-1`}>{STATES.map((s) => <option key={s} className="bg-[#0d1335]">{s}</option>)}</select></label>
             )}
-            <label className="block text-xs text-white/60">Password<input type="password" value={f.password} onChange={(e) => set("password", e.target.value)} autoComplete="new-password" className={`${inputCls} mt-1`} /></label>
+            <label className="block text-xs text-white/60">Password <span className="text-white/40">(auto)</span>
+              <GenField value={f.password} onChange={(v) => set("password", v)} onRegen={() => set("password", genPassword())} autoComplete="new-password" />
+            </label>
           </div>
           {owners.length > 1 && (
             <label className="block text-xs text-white/60">Reports to

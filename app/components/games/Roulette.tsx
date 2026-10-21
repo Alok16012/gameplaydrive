@@ -3,6 +3,7 @@
 import { sfx } from "../../lib/sound";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from "lucide-react";
+import { useLiveCount } from "../../lib/liveCount";
 import { gameById, inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
@@ -77,6 +78,7 @@ const OUTSIDE = ["low", "even", "red", "black", "odd", "high", "d1", "d2", "d3",
 
 export function Roulette({ nav }: { nav: Nav }) {
   const game = gameById("roulette");
+  const online = useLiveCount(Math.floor(game.online / 60));
   const { total, player, showToast, applyBalance, holdWinnings } = useStore();
   const [phase, setPhase] = useState<Phase>("betting");
   const [endsAt, setEndsAt] = useState(() => Date.now() + BET_SECS * 1000);
@@ -375,7 +377,7 @@ export function Roulette({ nav }: { nav: Nav }) {
         <div className="h-[17%] min-h-[54px] relative z-30 flex items-center gap-3 px-3 bg-gradient-to-t from-black/55 to-black/20 border-t border-[#c9a24a]/40">
           <div className="flex flex-col items-center text-[10px] text-white/80 shrink-0">
             <Users size={18} />
-            {Math.floor(game.online / 60)}
+            {online}
           </div>
           <div className="flex items-center gap-2 shrink-0 rounded-xl bg-black/35 pl-1 pr-3 py-1">
             <Avatar size={34} />

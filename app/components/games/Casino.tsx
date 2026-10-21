@@ -3,6 +3,7 @@
 import { sfx, useResultSound, useSoundOnRise } from "../../lib/sound";
 import { useEffect, useRef, useState } from "react";
 import { History, RotateCcw, Repeat, Undo2, Users } from "lucide-react";
+import { useLiveCount } from "../../lib/liveCount";
 import { deck, gameById, inr, rankValue, randomCard, type Card, type GameId } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
@@ -10,9 +11,9 @@ import { Chip, Header, Money, PlayingCard } from "../ui";
 import type { Nav } from "../nav";
 
 // Timer-sync casino games (PRD §6.2): Dragon Tiger and Andar Bahar. Lucky 7 has its own board (LuckySeven.tsx). In production the round clock, deal and result all come from the
-// server; here a local loop simulates it: 15 s betting → deal → result → payout → next round.
+// server; here a local loop simulates it: 10 s betting → deal → result → payout → next round.
 
-const BET_SECS = 15;
+const BET_SECS = 10;
 // Dragon Tiger: the Tiger card opens this long after the Dragon card, for suspense.
 // Dragon Tiger: the Dragon card opens at once; a 3-2-1 count runs on the table and then the Tiger card opens.
 const DT_TIGER_DELAY_MS = 3000;
@@ -138,6 +139,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [lastBets, setLastBets] = useState<{ side: string; v: number }[]>([]);
   const [round, setRound] = useState<Round | null>(null);
   const [roundNo, setRoundNo] = useState(() => 88200 + Math.floor(Math.random() * 90));
+  const online = useLiveCount(Math.floor(game.online / 40));
   const [won, setWon] = useState<number | null>(null);
   const [crowd, setCrowd] = useState<Record<string, number>>({});
   const [hist, setHist] = useState<string[]>(() => Array.from({ length: 20 }, () => playRound(gameId).winner));
@@ -312,7 +314,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
               <div className="h-full rounded-full transition-[width] duration-200" style={{ width: `${progress * 100}%`, background: secs <= 5 ? "#f43f5e" : "#4ade80" }} />
             </div>
           </div>
-          <div className="text-[11px] text-white/50 flex items-center gap-1"><Users size={13} />{Math.floor(game.online / 40)}</div>
+          <div className="text-[11px] text-white/50 flex items-center gap-1"><Users size={13} />{online}</div>
         </div>
 
         {/* Bet areas */}
