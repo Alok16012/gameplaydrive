@@ -25,10 +25,11 @@ const fromRow = (r: Row): TableState & { version: number } => ({
 /** The table row, with the admin's current settings (fee, turn time, blind limit) laid over the rules saved with
  *  it — so a change in Game Config applies to every table from its next hand, not only to new tables. */
 export async function loadTable(id: string) {
-  const r = await selectOne<Row>("tp2_tables", `select=*&id=eq.${id}`);
+  // The row and the (usually cached) config are fetched side by side.
+  const [r, cfg] = await Promise.all([selectOne<Row>("tp2_tables", `select=*&id=eq.${id}`), gameCfg()]);
   if (!r) return null;
   const t = fromRow(r);
-  const live = await rulesFor(t.boot);
+  const live = rulesFromCfg(t.boot, cfg);
   return { ...t, rules: { ...t.rules, turnTimeoutMs: live.turnTimeoutMs, blindLimit: live.blindLimit, rakePct: live.rakePct } };
 }
 
@@ -43,15 +44,17 @@ async function gameCfg(): Promise<Record<string, unknown>> {
 
 /** Table rules from the Admin → Game Config settings for Teen Patti (fee, turn time, blind limit). */
 export async function rulesFor(boot: number): Promise<Rules> {
-  const cfg = await gameCfg();
+  return rulesFromCfg(boot, await gameCfg());
+}
+
+function rulesFromCfg(boot: number, cfg: Record<string, unknown>): Rules {
   const turn = Number(cfg?.turn) || 15;
   const blindLimit = Math.max(1, Number(cfg?.blind_limit) || 3);
   const rakePct = cfg?.rake === undefined || cfg?.rake === null ? 5 : Math.min(25, Math.max(0, Number(cfg.rake) || 0));
   return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit, rakePct };
 }
 
-async function balancesFor(t: TableState, extra: string[] = []): Promise<Record<string, number>> {
-  const ids = [...new Set([...t.seats.filter((s) => !s.bot).map((s) => s.playerId), ...extra])];
+async function balancesOf(ids: string[]): Promise<Record<string, number>> {
   if (!ids.length) return {};
   const rows = await selectAll<{ user_id: string; coins: number }>("wallets", `select=user_id,coins&user_id=in.(${ids.join(",")})`);
   return Object.fromEntries(rows.map((r) => [r.user_id, Number(r.coins)]));
@@ -59,8 +62,7 @@ async function balancesFor(t: TableState, extra: string[] = []): Promise<Record<
 
 const outcomeCache = new Map<string, { mode: string; exp: number }>();
 
-async function outcomeModesFor(t: TableState): Promise<Record<string, string>> {
-  const humanIds = t.seats.filter((s) => !s.bot).map((s) => s.playerId);
+async function outcomeModesOf(humanIds: string[]): Promise<Record<string, string>> {
   if (!humanIds.length) return {};
   const res: Record<string, string> = {};
   const now = Date.now();
@@ -84,6 +86,26 @@ async function outcomeModesFor(t: TableState): Promise<Record<string, string>> {
   return res;
 }
 
+/**
+ * Everything a step needs, in one round trip: the table row, plus the wallets and outcome modes of the players we
+ * expect to find at it (the caller), fetched side by side. Anyone else seated is looked up afterwards (an extra
+ * round trip only at tables with more than one human).
+ */
+async function loadAll(id: string, expected: string[]) {
+  const [t, bal, modes] = await Promise.all([loadTable(id), balancesOf(expected), outcomeModesOf(expected)]);
+  if (!t) return null;
+  const humans = t.seats.filter((s) => !s.bot).map((s) => s.playerId);
+  const missing = humans.filter((h) => !expected.includes(h));
+  if (missing.length) {
+    const [b2, m2] = await Promise.all([balancesOf(missing), outcomeModesOf(missing)]);
+    Object.assign(bal, b2);
+    Object.assign(modes, m2);
+  }
+  // Outcome modes only for the people seated (a player about to sit down has none yet).
+  for (const k of Object.keys(modes)) if (!humans.includes(k)) delete modes[k];
+  return { t, balances: bal, outcomeModes: modes };
+}
+
 function patchOf(before: TableState, after: TableState) {
   const p: Record<string, unknown> = {};
   if (after.seats !== before.seats) p.seats = after.seats;
@@ -100,30 +122,41 @@ export class TableError extends Error {
 
 type Step<T> = (t: TableState, ctx: Ctx) => { table: TableState; ledger: TableLedgerEntry[]; result: T };
 
+/** Milliseconds spent loading and committing, for the Server-Timing header. */
+export type Timing = { load?: number; commit?: number; tries?: number };
+
 /**
  * Load → step → commit, retrying when another request got there first. The step must be pure (it is re-run on a
- * fresh load); ledger entries carry unique keys so a retry after a lost commit never pays twice.
+ * fresh load); ledger entries carry unique keys so a retry after a lost commit never pays twice. `players`: humans
+ * expected at the table (the caller), loaded together with the row. `allowed`: the caller's profile check — awaited
+ * before anything is committed or returned.
  */
-export async function withTable<T>(id: string, step: Step<T>, extraPlayers: string[] = []): Promise<{ table: TableState; balances: Record<string, number>; result: T; now: number }> {
+export async function withTable<T>(id: string, step: Step<T>, players: string[] = [], allowed?: Promise<unknown>, timing: Timing = {}): Promise<{ table: TableState; balances: Record<string, number>; result: T; now: number }> {
   for (let attempt = 0; attempt < 6; attempt++) {
-    const t = await loadTable(id);
-    if (!t) throw new TableError("Table not found", 404);
-    // Balances of everyone seated, plus a player about to sit down (so they can be dealt into this hand).
-    const [balances, outcomeModes] = await Promise.all([balancesFor(t, extraPlayers), outcomeModesFor(t)]);
+    timing.tries = attempt + 1;
+    const t0 = Date.now();
+    const loaded = await loadAll(id, players);
+    timing.load = (timing.load ?? 0) + Date.now() - t0;
+    if (allowed) await allowed;
+    if (!loaded) throw new TableError("Table not found", 404);
+    const { t, balances, outcomeModes } = loaded;
     const now = Date.now();
     const { version, ...state } = t;
     const r = step(state, { now, balances, outcomeModes, rng });
     const patch = patchOf(state, r.table);
     if (!Object.keys(patch).length && !r.ledger.length) return { table: r.table, balances, result: r.result, now };
+    const t1 = Date.now();
     try {
       await rpc("tp2_commit", {
         p_table: id, p_expected: version, p_patch: patch,
         p_ledger: r.ledger.filter((e) => !e.bot).map((e) => ({ handId: e.handId, handNo: e.handNo, key: e.key, playerId: e.playerId, kind: e.kind, amount: e.amount })),
       });
+      timing.commit = (timing.commit ?? 0) + Date.now() - t1;
       // Wallets moved: report the balances the step saw adjusted by what it did.
       for (const e of r.ledger) if (!e.bot) balances[e.playerId] = (balances[e.playerId] ?? 0) + e.amount;
       return { table: r.table, balances, result: r.result, now };
     } catch (e) {
+      timing.commit = (timing.commit ?? 0) + Date.now() - t1;
       const msg = e instanceof Error ? e.message : String(e);
       if (/TP2_STALE/.test(msg)) continue;
       if (/TP2_INSUFFICIENT/.test(msg)) throw new TableError("Not enough coins", 400);
@@ -156,7 +189,7 @@ export async function join(id: string, player: { playerId: string; name: string;
 }
 
 /** Presence + timers; returns the viewer's filtered view. */
-export async function poll(id: string, viewerId: string) {
+export async function poll(id: string, viewerId: string, allowed?: Promise<unknown>, timing?: Timing) {
   const r = await withTable(id, (t, ctx) => {
     const me = seatOf(t, viewerId);
     if (!me) throw new TableError("You are not at this table", 403);
@@ -164,23 +197,23 @@ export async function poll(id: string, viewerId: string) {
     const table = ctx.now - me.lastSeen > 10000 ? touch(t, viewerId, ctx.now) : t;
     const adv = advanceTable(table, ctx);
     return { table: adv.table, ledger: adv.ledger, result: null };
-  });
+  }, [viewerId], allowed, timing);
   return respond(r.table, viewerId, r.balances, r.now);
 }
 
-export async function act(id: string, playerId: string, cmd: Omit<Command, "playerId">) {
+export async function act(id: string, playerId: string, cmd: Omit<Command, "playerId">, allowed?: Promise<unknown>, timing?: Timing) {
   const r = await withTable(id, (t, ctx) => {
     if (!seatOf(t, playerId)) throw new TableError("You are not at this table", 403);
     const adv = advanceTable(t, ctx);
     const c = command(adv.table, { ...cmd, playerId }, ctx);
     const after = advanceTable(c.table, ctx); // a settlement may schedule the next hand
     return { table: after.table, ledger: [...adv.ledger, ...c.ledger, ...after.ledger], result: { ok: c.ok, error: c.error, message: c.message } };
-  });
+  }, [playerId], allowed, timing);
   return { ...r.result, state: respond(r.table, playerId, r.balances, r.now) };
 }
 
 /** Pack (if in a hand) and give the seat up. */
-export async function leave(id: string, playerId: string) {
+export async function leave(id: string, playerId: string, allowed?: Promise<unknown>) {
   await withTable(id, (t, ctx) => {
     if (!seatOf(t, playerId)) return { table: t, ledger: [], result: null };
     const adv = advanceTable(t, ctx);
@@ -188,7 +221,7 @@ export async function leave(id: string, playerId: string) {
     const table = standUp(c.table, playerId);
     const after = advanceTable(table, ctx);
     return { table: after.table, ledger: [...adv.ledger, ...c.ledger, ...after.ledger], result: null };
-  });
+  }, [playerId], allowed);
 }
 
 export interface TableResponse {
