@@ -209,6 +209,9 @@ export interface TableSeat {
   bot: boolean;
   /** Bots only: their table stack. */
   bal?: number;
+  /** Bots only: set on bots seated with a botStack() stack. Bots from before it (topped up to identical crore-size
+   *  stacks) lack it and are replaced at their table's next hand. */
+  stack?: 1;
   lastSeen: number;
 }
 
@@ -301,7 +304,7 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
     let name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     for (let i = 0; used.has(name) && i < 20; i++) name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     used.add(name);
-    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: botStack(t.boot, rng), lastSeen: now });
+    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: botStack(t.boot, rng), stack: 1, lastSeen: now });
   }
   return { ...t, seats: seats.sort((a, b) => a.seat - b.seat) };
 }
@@ -353,7 +356,7 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   let t = t0;
   // Humans who went away leave; bots that are nearly broke or have won big leave; public tables refill with new
   // bots on fresh stacks.
-  t = { ...t, seats: t.seats.filter((s) => (s.bot ? botStays(t.boot, s.bal ?? 0) : ctx.now - s.lastSeen < AWAY_MS)) };
+  t = { ...t, seats: t.seats.filter((s) => (s.bot ? s.stack === 1 && botStays(t.boot, s.bal ?? 0) : ctx.now - s.lastSeen < AWAY_MS)) };
   t = fillBots(t, ctx.rng, ctx.now);
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
