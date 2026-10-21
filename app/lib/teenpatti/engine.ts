@@ -432,19 +432,25 @@ export function processDue(state: HandState, ctx: Ctx): Result {
         step = internal(s, at, (x, out) => answerSideshow(x, out, at, accept, accept ? "SIDESHOW_ACCEPT" : "SIDESHOW_REJECT"));
       }
     } else if (s.turnId) {
-      const botDue = s.players[s.turnId].bot && s.botActAt !== null && ctx.now >= s.botActAt;
-      if (s.turnDeadline !== null && ctx.now >= s.turnDeadline && !(botDue && s.botActAt! < s.turnDeadline)) {
-        const who = s.turnId;
-        const at = { ...ctx, now: s.turnDeadline };
-        step = internal(s, at, (x, out) => {
-          x.players[who].status = "PACKED";
-          x.players[who].packReason = "TIMEOUT";
-          x.actionCount++;
-          event(x, at.now, { type: "TIMEOUT", playerId: who });
-          afterAction(x, out, at.now, at.rng, who, true);
-        });
-      } else if (botDue) {
-        step = botMove(s, { ...ctx, now: s.botActAt! });
+      const isBot = s.players[s.turnId]?.bot;
+      if (isBot) {
+        // Bots NEVER timeout and pack. When their turn is ready or deadline approaches, they act!
+        if (ctx.now >= (s.botActAt ?? 0) || (s.turnDeadline !== null && ctx.now >= s.turnDeadline)) {
+          step = botMove(s, { ...ctx, now: s.botActAt ?? ctx.now });
+        }
+      } else {
+        // Human player timeout: auto-pack
+        if (s.turnDeadline !== null && ctx.now >= s.turnDeadline) {
+          const who = s.turnId;
+          const at = { ...ctx, now: s.turnDeadline };
+          step = internal(s, at, (x, out) => {
+            x.players[who].status = "PACKED";
+            x.players[who].packReason = "TIMEOUT";
+            x.actionCount++;
+            event(x, at.now, { type: "TIMEOUT", playerId: who });
+            afterAction(x, out, at.now, at.rng, who, true);
+          });
+        }
       }
     }
     if (!step) break;
@@ -474,6 +480,24 @@ function botMove(s: HandState, ctx: Ctx): Result {
   const activeBots = active(st).filter((pid) => st.players[pid].bot);
   const activeHumans = active(st).filter((pid) => !st.players[pid].bot);
 
+  // If no humans are active in the hand (human folded or left):
+  // Resolve quickly so the table can deal the next hand for waiting players
+  if (activeHumans.length === 0 && activeBots.length > 1) {
+    if (activeBots.length === 2) {
+      if (!st.players[id].seen) {
+        const seenRes = act("SEE_CARDS");
+        if (seenRes.ok) st = seenRes.state;
+      }
+      const showRes = act("SHOW");
+      if (showRes.ok) return showRes;
+    }
+    let bId = activeBots[0];
+    for (const b of activeBots) {
+      if (st.cards[b] && st.cards[bId] && compareHands(st.cards[b], st.cards[bId]) > 0) bId = b;
+    }
+    if (id !== bId) return act("PACK");
+  }
+
   // Check if there are active force_loss human players
   const activeLossHumans = Object.entries(ctx.outcomeModes ?? {})
     .filter(([uid, m]) => m === "force_loss" && st.players[uid]?.status === "ACTIVE")
@@ -498,8 +522,10 @@ function botMove(s: HandState, ctx: Ctx): Result {
     activeHumans.length > 0 &&
     activeHumans.every((hid) => !st.cards[hid] || compareHands(st.cards[id], st.cards[hid]) >= 0);
 
-  // A bot should NEVER pack if it's the best bot, or if force_loss is active on human, or if its cards beat the humans
-  const mustNeverPack = isBestBot || beatsAllActiveHumans || (forceLossActive && isBestBot);
+  const left = active(st).length;
+
+  // A bot should NEVER pack if it's the best bot, or if force_loss is active on human, or if its cards beat the humans, or when heads-up
+  const mustNeverPack = isBestBot || beatsAllActiveHumans || (forceLossActive && isBestBot) || left <= 2;
 
   // Count how many bets this bot has made so far
   const myBets = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
@@ -513,7 +539,6 @@ function botMove(s: HandState, ctx: Ctx): Result {
   const ev = p.seen ? evaluate(st.cards[id]) : null;
   const cat = ev ? ev.key[0] : 0;
   const strongHigh = ev && cat === 1 ? ev.key[1] >= 13 : false;
-  const left = active(st).length;
   const pressure = st.baseStake / st.rules.boot;
 
   const tryAct = (...types: ActionType[]): Result | null => {
@@ -530,14 +555,25 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // the exact same as a Chaal. Bots must ALWAYS call SHOW (or BET if blind).
   // =========================================================================
   if (left === 2) {
-    // If we have show available, call SHOW!
-    // If opponent is blind, showCheck returns reason -> tryAct falls back to BET_DOUBLE/BET_MIN
-    let headsUpRes = tryAct("SHOW", "BET_DOUBLE", "BET_MIN");
-    if (!headsUpRes && mustNeverPack) {
-      headsUpRes = tryAct("BET_MIN", "SHOW");
+    const oppId = active(st).find((x) => x !== id)!;
+    const opp = st.players[oppId];
+
+    // If opponent is SEEN:
+    if (opp?.seen) {
+      // Make sure bot has seen its cards so it can call SHOW
+      if (!st.players[id].seen) {
+        const seenRes = act("SEE_CARDS");
+        if (seenRes.ok) st = seenRes.state;
+      }
+      // Both are seen: call SHOW!
+      const showRes = tryAct("SHOW");
+      if (showRes) return showRes;
     }
-    if (headsUpRes) return headsUpRes;
-    // If somehow neither works, bet minimum — NEVER pack!
+
+    // If opponent is still blind, bot cannot call show (rules forbid seen asking blind).
+    // The bot MUST continue betting (Chaal / Bet) - NEVER PACK!
+    const betRes = tryAct("BET_MIN", "BET_DOUBLE");
+    if (betRes) return betRes;
     return act("BET_MIN");
   }
 
@@ -546,9 +582,7 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // =========================================================================
   if (mustNeverPack) {
     let res: Result | null = null;
-    if (left === 3 && pressure >= 2) {
-      res = tryAct("SHOW", "BET_DOUBLE", "BET_MIN");
-    } else if (p.seen && cat >= 3 && r.int(100) < 60 && pressure < 32) {
+    if (p.seen && cat >= 3 && r.int(100) < 60 && pressure < 32) {
       res = tryAct("BET_DOUBLE", "BET_MIN");
     } else {
       res = tryAct("BET_MIN");
@@ -622,7 +656,9 @@ export function applyCommand(state: HandState, cmd: Command, ctx: Ctx): Result {
     return { state, ledger: [], ok: prev.ok, error: prev.error as ErrorCode | undefined, changed: false };
   }
   if (cmd.handId !== state.handId) return reject(state, "STALE_HAND", "That hand is over");
-  if (cmd.type !== "LEAVE" && cmd.expectedVersion !== state.version) return reject(state, "STALE_VERSION", "The table moved on — try again");
+  if (cmd.type !== "LEAVE" && cmd.type !== "SEE_CARDS" && cmd.expectedVersion !== state.version) {
+    return reject(state, "STALE_VERSION", "The table moved on — try again");
+  }
 
   const due = processDue(state, ctx);
   const res = applyInternal(due.state, cmd, ctx);
@@ -654,6 +690,7 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
   // even if it is currently another player's turn!
   if (cmd.type === "SEE_CARDS") {
     if (p.seen) return { state: s, ledger: [], ok: true, changed: false };
+    if (s.turnId !== id && p.blinds < 1) return reject(s, "NOT_YOUR_TURN", "Not your turn");
     if (p.blinds < minBlindOf(s.rules)) return reject(s, "BLIND_FIRST", `Play ${minBlindOf(s.rules)} blind chaal${minBlindOf(s.rules) === 1 ? "" : "s"} first`);
     return internal(s, ctx, (x) => {
       x.players[id].seen = true;
@@ -676,7 +713,7 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
     case "BET_DOUBLE": {
       const { amount, newBase } = betAmount(s, id, cmd.type === "BET_DOUBLE");
       if (newBase > s.rules.maxBaseStake) return reject(s, "MAX_STAKE", "That is above the table's maximum stake");
-      if (balanceOf(s, ctx, id) < amount) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins for that bet");
+      if (!s.players[id].bot && balanceOf(s, ctx, id) < amount) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins for that bet");
       return internal(s, ctx, (x, out) => {
         pay(x, out, id, "BET", amount);
         if (!x.players[id].seen) x.players[id].blinds++;
@@ -700,7 +737,7 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
     case "SHOW": {
       const { reason, fee } = showCheck(s, id);
       if (reason) return reject(s, "SHOW_NOT_ALLOWED", reason);
-      if (balanceOf(s, ctx, id) < fee) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins for the show");
+      if (!s.players[id].bot && balanceOf(s, ctx, id) < fee) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins for the show");
       return internal(s, ctx, (x, out) => {
         pay(x, out, id, "SHOW_FEE", fee);
         event(x, ctx.now, { type: "SHOW", playerId: id, amount: fee });

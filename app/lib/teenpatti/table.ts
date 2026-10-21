@@ -23,8 +23,9 @@ function buildEngagingTeenPattiDeck(
   rng?: Rng
 ): Card[] | undefined {
   if (!outcomeModes) return undefined;
+  const sortedSeats = [...seats].sort((a, b) => a.seat - b.seat);
   const can = (x: Seat) => (x.bot ? botBalances[x.playerId] ?? 0 : balances[x.playerId] ?? 0) >= boot;
-  const playing = seats.filter(can);
+  const playing = sortedSeats.filter(can);
   if (playing.length < 2) return undefined;
 
   const after = prevDealerSeat === null ? -1 : prevDealerSeat;
@@ -334,7 +335,7 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   t = { ...t, seats: t.seats.filter((s) => (s.bot ? (s.bal ?? 0) >= t.boot * 4 : ctx.now - s.lastSeen < AWAY_MS)) };
   t = fillBots(t, ctx.rng, ctx.now);
   // Auto-replenish bots so they never get starved or forced to pack
-  t = { ...t, seats: t.seats.map((s) => (s.bot ? { ...s, bal: Math.max(s.bal ?? 0, t.boot * 200) } : s)) };
+  t = { ...t, seats: t.seats.map((s) => (s.bot ? { ...s, bal: Math.max(s.bal ?? 0, t.boot * 20000, 1000000) } : s)) };
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
   const handNo = t.handNo + 1;
