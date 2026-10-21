@@ -166,3 +166,16 @@ test("house bots: a human who never packs can never win because every bot packed
     if (name === "force_win") assert.equal(res.filter((r) => !r.won).length, 0, "force_win: the human lost a hand");
   }
 });
+
+test("bot stacks: every bot gets its own stack in lakhs, never crores, and the boot comes off it at once", () => {
+  for (const boot of [50, 1000]) {
+    const rng = seeded(9);
+    let t: TableState = { ...fresh(), boot, rules: { ...RULES, boot, maxBaseStake: boot * 128, potCap: boot * 1024 } };
+    t = fillBots(sitDown(t, human("a"), 0).table, rng, 0);
+    const stacks = t.seats.filter((s) => s.bot).map((s) => s.bal!);
+    assert.equal(new Set(stacks).size, stacks.length, "stacks should differ");
+    for (const b of stacks) assert.ok(b >= 100_000 && b <= Math.max(boot * 2500, 2_500_000), `stack ${b} out of range at boot ${boot}`);
+    const adv = advanceTable(t, { now: 1000, balances: { a: 10_000_000 }, rng });
+    for (const s of adv.table.seats.filter((x) => x.bot)) assert.equal(adv.table.hand!.botBalances[s.playerId], s.bal! - boot);
+  }
+});

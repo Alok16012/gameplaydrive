@@ -498,7 +498,9 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // BET_MIN is always legal for a bot on its turn (bots' stacks are never checked and the minimum never exceeds the
   // table maximum), so these fallbacks never pack.
   const bet = () => tryAct("BET_MIN") ?? act("BET_MIN");
-  const raise = () => tryAct("BET_DOUBLE", "BET_MIN") ?? act("BET_MIN");
+  // Bots play within their stack: no raising when it would leave too little for the next few chaals.
+  const stack = () => st.botBalances[id] ?? 0;
+  const raise = () => (stack() >= betAmount(st, id, true).amount * 6 ? tryAct("BET_DOUBLE", "BET_MIN") ?? act("BET_MIN") : bet());
 
   const activeBots = active(st).filter((pid) => st.players[pid].bot);
   const activeHumans = active(st).filter((pid) => !st.players[pid].bot);
@@ -548,7 +550,9 @@ function botMove(s: HandState, ctx: Ctx): Result {
           const cut = Math.max(lastChange, st.events.map((e) => e.type).lastIndexOf("TIMEOUT"), st.events.map((e) => e.type).lastIndexOf("LEFT"), st.events.map((e) => e.type).lastIndexOf("SIDESHOW_RESULT"));
           const headsUpBets = st.events.slice(cut + 1).filter((e) => e.playerId === id && e.type === "BET").length;
           const bigPot = st.rules.potCap !== null && st.pot >= st.rules.potCap / 4;
-          const showChance = bigPot || headsUpBets >= 2 ? 100 : headsUpBets === 1 ? 70 : 40;
+          // Running short of coins for another chaal: call it now, like a real player would.
+          const short = stack() < betAmount(st, id, false).amount * 4;
+          const showChance = bigPot || short || headsUpBets >= 2 ? 100 : headsUpBets === 1 ? 70 : 40;
           if (r.int(100) < showChance) {
             const show = tryAct("SHOW");
             if (show) return show;
@@ -567,6 +571,8 @@ function botMove(s: HandState, ctx: Ctx): Result {
 
   // Supporting bots (three or more left, not the closer): everyone plays at least one blind; after that they pack
   // one by one — weak hands sooner, strong hands later — so the hand comes down to the human and the closer.
+  // A supporting bot that can't cover the next chaal from its stack packs, like a real player out of coins.
+  if (stack() < betAmount(st, id, false).amount * 2) return tryAct("PACK") ?? bet();
   let packChance = 0;
   if (myBets >= 1) {
     packChance = myBets === 1 ? 15 : myBets === 2 ? 35 : myBets === 3 ? 55 : myBets === 4 ? 70 : 85;

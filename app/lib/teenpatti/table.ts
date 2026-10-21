@@ -268,7 +268,27 @@ export function touch(t: TableState, playerId: string, now: number): TableState 
 const BOT_NAMES = ["Rahul", "Priya", "Aman", "Sneha", "Vikram", "Pooja", "Arjun", "Neha", "Rohit", "Kavya", "Sameer", "Divya", "Karan", "Anjali", "Imran", "Meera"];
 const BOT_EMOJI = ["👨🏽", "👩🏻", "🧔🏾", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👱🏽‍♂️", "👩🏾", "🧑🏽‍🦰", "👨🏿", "👩🏼‍🦰", "🧕🏽"];
 
-/** Public tables keep six seats busy with fair-playing bots; private tables never get any. */
+/**
+ * A bot's table stack: like a real player's, somewhere between a few lakh and a couple of dozen lakh (scaled up at
+ * big boots), most of them at the low end. lo/hi also decide when a bot leaves: below lo/5 it is nearly broke, above
+ * 2·hi it has won big and cashes out — either way a new bot with a fresh stack takes the seat.
+ */
+export function botStackRange(boot: number) {
+  return { lo: Math.max(boot * 500, 100_000), hi: Math.max(boot * 2500, 2_500_000) };
+}
+
+export function botStack(boot: number, rng: Rng) {
+  const { lo, hi } = botStackRange(boot);
+  const u = rng.int(1_000_000) / 1_000_000;
+  return Math.round(lo + (hi - lo) * u * u); // skewed low: most stacks near lo, a few near hi
+}
+
+const botStays = (boot: number, bal: number) => {
+  const { lo, hi } = botStackRange(boot);
+  return bal >= Math.max(boot * 4, lo / 5) && bal <= hi * 2;
+};
+
+/** Public tables keep six seats busy with bots; private tables never get any. */
 export function fillBots(t: TableState, rng: Rng, now: number): TableState {
   if (t.code) return t;
   const seats = [...t.seats];
@@ -281,7 +301,7 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
     let name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     for (let i = 0; used.has(name) && i < 20; i++) name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     used.add(name);
-    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: t.boot * (300 + rng.int(700)), lastSeen: now });
+    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: botStack(t.boot, rng), lastSeen: now });
   }
   return { ...t, seats: seats.sort((a, b) => a.seat - b.seat) };
 }
@@ -331,11 +351,10 @@ export function advanceTable(t0: TableState, ctx: Ctx): Advance {
 
 function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   let t = t0;
-  // Humans who went away leave; bots that can't cover a few boots leave; public tables refill.
-  t = { ...t, seats: t.seats.filter((s) => (s.bot ? (s.bal ?? 0) >= t.boot * 4 : ctx.now - s.lastSeen < AWAY_MS)) };
+  // Humans who went away leave; bots that are nearly broke or have won big leave; public tables refill with new
+  // bots on fresh stacks.
+  t = { ...t, seats: t.seats.filter((s) => (s.bot ? botStays(t.boot, s.bal ?? 0) : ctx.now - s.lastSeen < AWAY_MS)) };
   t = fillBots(t, ctx.rng, ctx.now);
-  // Auto-replenish bots so they never get starved or forced to pack
-  t = { ...t, seats: t.seats.map((s) => (s.bot ? { ...s, bal: Math.max(s.bal ?? 0, t.boot * 20000, 1000000) } : s)) };
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
   const handNo = t.handNo + 1;

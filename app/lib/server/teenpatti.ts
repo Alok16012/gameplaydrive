@@ -236,10 +236,14 @@ export interface TableResponse {
 
 function respond(t: TableState, viewerId: string, balances: Record<string, number>, now: number): TableResponse {
   const balance = balances[viewerId] ?? 0;
+  // A bot's stack as it stands right now: the hand's running figure (down with every boot and chaal, up when it
+  // wins) while it is in the hand; the seat's figure otherwise.
+  const hb = t.hand?.botBalances ?? {};
+  const botBal = (s: TableSeat) => Math.max(0, Math.round(s.playerId in hb ? hb[s.playerId] : s.bal ?? 0));
   return {
     table: {
       id: t.id, code: t.code, boot: t.boot, handNo: t.handNo, nextHandAt: t.nextHandAt, waiting: waitingForPlayers(t, balances, now), serverNow: now, rules: t.rules,
-      seats: t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, emoji: s.emoji, bot: s.bot, bal: s.bot ? s.bal ?? 0 : null, away: !s.bot && now - s.lastSeen > 20000 })),
+      seats: t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, emoji: s.emoji, bot: s.bot, bal: s.bot ? botBal(s) : null, away: !s.bot && now - s.lastSeen > 20000 })),
     },
     view: t.hand ? viewFor(t.hand, viewerId, balance) : null,
     balance,
