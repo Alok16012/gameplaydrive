@@ -33,11 +33,23 @@ begin
       return t; -- a real player is still in the deal: it plays on as usual
     end if;
   end loop;
+  if n = 0 then
+    -- No seats at all: nothing to settle, just stop the clock.
+    t.status := 'waiting'; t.match_over := true; t.turn := null; t.phase := null; t.turn_ends := null; t.bot_acts_at := null; t.next_at := null;
+    return t;
+  end if;
   active := public.rm_active(t.seats);
-  if active is null or array_length(active, 1) = 0 then
-    -- Everyone dropped or showed wrong: the seat that paid least in points takes it (nothing to win anyway).
-    select i2 - 1 into best from jsonb_array_elements(t.seats) with ordinality z(v, i2) where coalesce((v ->> 'playing')::boolean, false) limit 1;
-    if best is null then return t; end if;
+  -- array_length of an empty array is null, not 0.
+  if coalesce(array_length(active, 1), 0) = 0 then
+    -- Everyone dropped or showed wrong (a private table with no bots, say). Someone has to be the deal's winner for
+    -- rm_end_deal to settle it: a bot if there is one, else the player who dropped cheapest. The others are charged
+    -- their drop points and get the rest of their buy-in back.
+    select i2 - 1 into best from jsonb_array_elements(t.seats) with ordinality z(v, i2)
+      where coalesce((v ->> 'playing')::boolean, false)
+      order by (v ->> 'bot')::boolean desc nulls last,
+               case when coalesce((v ->> 'wrong')::boolean, false) then 999 else public.rm_drop_pts(t.mode, coalesce((v ->> 'middle')::boolean, false)) end
+      limit 1;
+    best := coalesce(best, 0);
   elsif array_length(active, 1) = 1 then
     best := active[1];
   else
