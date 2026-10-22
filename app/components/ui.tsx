@@ -208,8 +208,25 @@ export class ScreenBoundary extends Component<{ children: React.ReactNode }, { f
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  componentDidCatch(error: unknown) {
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("Screen crashed", error);
+    // Report it, so a crash on a phone can be read from the server (app_settings.client_errors).
+    try {
+      const e = error as { message?: string; stack?: string } | null;
+      const body = JSON.stringify({
+        message: e?.message ?? String(error), stack: `${e?.stack ?? ""}\n${info.componentStack ?? ""}`.slice(0, 4000),
+        route: typeof location !== "undefined" ? location.pathname + location.hash : "", build: process.env.NEXT_PUBLIC_BUILD_ID ?? "dev",
+      });
+      let token = "";
+      try {
+        for (const k of ["gamehub-player-auth", "gamehub-staff-auth"]) {
+          const raw = localStorage.getItem(k);
+          const t = raw ? (JSON.parse(raw) as { access_token?: string }).access_token : undefined;
+          if (t) { token = t; break; }
+        }
+      } catch { token = ""; }
+      fetch("/api/client-error", { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body, keepalive: true }).catch(() => {});
+    } catch { /* reporting must never throw */ }
   }
   render() {
     if (!this.state.failed) return this.props.children;
