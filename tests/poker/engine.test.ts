@@ -399,3 +399,68 @@ test("table: a hand runs to the end against bots, then the next one is dealt aft
   assert.equal(t.handNo, 2);
   assert.equal(t.hand!.phase, "PLAYING");
 });
+
+// ------------------------------------------------------------------ house bots & outcome control
+
+/** One human (never folds: checks, calls, and raises the minimum now and then) against five bots for `hands` hands. */
+function playHands(modes: Record<string, string> | undefined, hands: number, seed: number) {
+  const rng = seeded(seed);
+  let t = fillBots(sitDown(fresh(), human("h"), 0).table, rng, 0);
+  const bal: Record<string, number> = { h: 10_000_000 };
+  const pay = (ledger: { playerId: string; bot: boolean; amount: number }[]) => { for (const e of ledger) if (!e.bot) bal[e.playerId] += e.amount; };
+  const out: { won: boolean; reason: string; botFolds: number; minBot: number }[] = [];
+  let now = 1000, seen = "";
+  for (let guard = 0; guard < 100_000 && t.handNo <= hands; guard++) {
+    now += 1000;
+    t = { ...t, seats: t.seats.map((s) => (s.playerId === "h" ? { ...s, lastSeen: now } : s)) };
+    const ctx: Ctx = { now, balances: { ...bal }, rng, outcomeModes: modes };
+    const adv = advanceTable(t, ctx);
+    t = adv.table; pay(adv.ledger);
+    let hd = t.hand;
+    if (hd) checkInvariants(hd);
+    if (hd && hd.phase === "PLAYING" && hd.turnId === "h") {
+      const v = viewFor(hd, "h", bal.h);
+      const type = v.me!.raise.ok && rng.int(4) === 0 ? "RAISE" : v.me!.check.ok ? "CHECK" : "CALL";
+      const c = command(t, { actionId: `c${now}`, playerId: "h", handId: hd.handId, expectedVersion: hd.version, type, to: type === "RAISE" ? v.me!.raise.min : undefined }, ctx);
+      assert.ok(c.ok, `${type}: ${c.message}`);
+      t = c.table; pay(c.ledger);
+      const after = advanceTable(t, ctx); t = after.table; pay(after.ledger);
+      hd = t.hand;
+    }
+    if (hd && hd.phase === "COMPLETED" && hd.handId !== seen && hd.players.h) {
+      seen = hd.handId;
+      const bot = (id?: string) => !!id && hd!.players[id]?.bot;
+      out.push({
+        won: hd.settlement!.winners.some((w) => w.playerId === "h"), reason: hd.settlement!.reason,
+        botFolds: hd.events.filter((e) => (e.type === "FOLD" || e.type === "TIMEOUT") && bot(e.playerId)).length,
+        minBot: Math.min(...Object.values(hd.botBalances)),
+      });
+    }
+  }
+  assert.ok(out.length >= hands - 1, `only ${out.length} hands played`);
+  return out;
+}
+
+test("house bots: a human who never folds can't win because every bot folded; force_loss always loses, force_win always wins", () => {
+  for (const [name, modes] of [["fair deal", undefined], ["force_loss", { h: "force_loss" }], ["force_win", { h: "force_win" }]] as const) {
+    const res = playHands(modes, 25, 3);
+    assert.equal(res.filter((r) => r.won && r.reason === "LAST_STANDING").length, 0, `${name}: the human won by everyone folding`);
+    assert.ok(res.reduce((s, r) => s + r.botFolds, 0) > 0, `${name}: no bot ever folded`);
+    assert.ok(res.every((r) => r.minBot >= 0), `${name}: a bot's stack went below zero`);
+    if (name === "force_loss") assert.equal(res.filter((r) => r.won).length, 0, "force_loss: the human won a hand");
+    if (name === "force_win") assert.equal(res.filter((r) => !r.won).length, 0, "force_win: the human lost a hand");
+  }
+});
+
+test("bot stacks: every bot gets its own stack in lakhs and the boot comes off it at once", () => {
+  for (const boot of [50, 1000]) {
+    const rng = seeded(9);
+    let t: TableState = { ...fresh(), boot, rules: { ...TRULES, boot, maxBet: boot * 100 } };
+    t = fillBots(sitDown(t, human("a"), 0).table, rng, 0);
+    const stacks = t.seats.filter((s) => s.bot).map((s) => s.bal!);
+    assert.equal(new Set(stacks).size, stacks.length, "stacks should differ");
+    for (const b of stacks) assert.ok(b >= 100_000 && b <= Math.max(boot * 2500, 2_500_000), `stack ${b} out of range at boot ${boot}`);
+    const adv = advanceTable(t, { now: 1000, balances: { a: 10_000_000 }, rng });
+    for (const s of adv.table.seats.filter((x) => x.bot)) assert.equal(adv.table.hand!.botBalances[s.playerId], s.bal! - boot);
+  }
+});

@@ -1,7 +1,8 @@
 // Texas Hold'em hand engine — a pure state machine, no I/O, in the same shape as the Classic Teen Patti engine
 // (app/lib/teenpatti/engine.ts). Every function takes the current hand and returns a new one plus the ledger
 // entries the caller must apply atomically (app/lib/server/poker.ts, migration 070).
-// Fair play only: the server deals with an unbiased shuffle and nothing here looks at who should win.
+// The deal is whatever the caller passes (table.ts may rig it for outcome control); the bots are house bots that
+// know every card — see botMove() for how they play.
 //
 // House rules (the same as the practice table had):
 //   • every player at the table puts in the boot (ante); two cards each, five on the board;
@@ -149,6 +150,8 @@ export interface Ctx {
   /** Human wallet balances at the time of the command (the database re-checks every debit). */
   balances: Record<string, number>;
   rng: Rng;
+  /** Outcome control per human (force_loss / force_win / fair); used when a hand is dealt. */
+  outcomeModes?: Record<string, string>;
 }
 
 export type ErrorCode =
@@ -464,29 +467,82 @@ export function foldChance(strength: number, call: number, boot: number, preflop
   return preflop && pressure <= 0.25 ? p * 0.6 : p;
 }
 
-/** Fair bot: it only knows its own cards, the board on show, the pot and the bets. */
+/** Best possible hand right now for `id` given the board on show (hole + visible board, padded by the full board
+ *  when fewer than five cards are out — the house knows the rest of the board). */
+function finalKey(s: HandState, id: string) {
+  return evaluate([...s.cards[id], ...s.board]).key;
+}
+
+/**
+ * House bots, in the same shape as Teen Patti's. One bot — the "closer", the active bot that wins at the showdown
+ * (the house knows the whole deal) — never folds: it calls everything and raises now and then, so a human can never
+ * take a pot just because every bot folded, and a force_loss human (who is dealt a losing hand) always loses at the
+ * showdown. The other bots play their cards like people: fold weak hands against bets, call with fair hands, raise
+ * with strong ones. Ties with the human: the closer plays on (a split pot is fine).
+ */
 function botMove(s: HandState, ctx: Ctx): Result {
   const id = s.turnId!;
   const r = ctx.rng;
   const act = (type: ActionType, to?: number) => applyInternal(s, { actionId: `bot:${s.version}`, playerId: id, handId: s.handId, expectedVersion: s.version, type, to }, ctx);
   const bal = balanceOf(s, ctx, id);
   const call = toCall(s, id);
-  if (call > bal) return act("FOLD");
   const board = s.board.slice(0, boardVisible(s.stage));
   const strength = handStrength(s.cards[id], board);
-  if (r.int(1000) < Math.round(foldChance(strength, call, s.rules.boot, board.length === 0) * 1000)) return act("FOLD");
-  const raiseChance = strength > 0.8 ? 55 : strength > 0.65 ? 30 : strength > 0.45 ? 10 : 4;
-  if (s.raises < s.rules.maxRaises && s.botRaises < BOT_RAISES && r.int(100) < raiseChance) {
+
+  const activeBots = active(s).filter((pid) => s.players[pid].bot);
+  const activeHumans = active(s).filter((pid) => !s.players[pid].bot);
+  // The closer: the active bot with the best final hand, among those who can keep paying (a short stack can't see
+  // the hand through, so it plays like the others).
+  const deep = activeBots.filter((b) => (s.botBalances[b] ?? 0) >= Math.max(toCall(s, b), s.rules.boot * 4));
+  const pool = deep.length ? deep : activeBots;
+  let closer = pool[0];
+  for (const b of pool) if (compareKeys(finalKey(s, b), finalKey(s, closer)) > 0) closer = b;
+  const isCloser = id === closer;
+  const beatsHumans = activeHumans.length > 0 && activeHumans.every((h) => compareKeys(finalKey(s, id), finalKey(s, h)) > 0);
+
+  const callOrCheck = () => {
+    const res = call > 0 ? act("CALL") : act("CHECK");
+    return res.ok ? res : act("FOLD");
+  };
+  const tryRaise = (big: boolean) => {
+    if (s.raises >= s.rules.maxRaises || s.botRaises >= BOT_RAISES) return null;
     const { min, max } = raiseRange(s, id, bal);
-    const want = min * (strength > 0.8 && r.int(100) < 40 ? 2 : 1);
+    const want = min * (big ? 2 : 1);
     const to = Math.min(max, Math.max(min, Math.floor(want / s.rules.boot) * s.rules.boot));
-    if (to >= min) {
-      const res = act("RAISE", to);
-      if (res.ok) return res;
-    }
+    if (to < min || to > bal + s.players[id].bet) return null;
+    // Keep enough behind for the rest of the hand.
+    if (bal - (to - s.players[id].bet) < s.rules.boot * 4) return null;
+    const res = act("RAISE", to);
+    return res.ok ? res : null;
+  };
+
+  // No human left: wrap up fast — everyone but the closer folds, the closer checks or calls.
+  if (activeHumans.length === 0) {
+    if (!isCloser && activeBots.length > 1) return act("FOLD");
+    return callOrCheck();
   }
-  const res = call > 0 ? act("CALL") : act("CHECK");
-  return res.ok ? res : act("FOLD");
+
+  if (isCloser) {
+    // Never folds. Can't cover the call (shouldn't happen: the richest bot is dealt the winning hand): call what it can.
+    if (call > bal) return callOrCheck();
+    // Raise sometimes while beating the human, so the pot is worth something; more often on later streets.
+    const raiseChance = beatsHumans ? (board.length === 0 ? 25 : board.length === 3 ? 35 : 45) : 10;
+    if (r.int(100) < raiseChance) {
+      const res = tryRaise(beatsHumans && board.length >= 4 && r.int(100) < 40);
+      if (res) return res;
+    }
+    return callOrCheck();
+  }
+
+  // Supporting bots: play their cards. Fold weak hands against a bet, call fair hands, raise strong ones.
+  if (call > bal) return act("FOLD");
+  if (r.int(1000) < Math.round(foldChance(strength, call, s.rules.boot, board.length === 0) * 1000)) return act("FOLD");
+  const raiseChance = strength > 0.8 ? 45 : strength > 0.65 ? 22 : strength > 0.45 ? 8 : 3;
+  if (r.int(100) < raiseChance) {
+    const res = tryRaise(strength > 0.8 && r.int(100) < 40);
+    if (res) return res;
+  }
+  return callOrCheck();
 }
 
 // ------------------------------------------------------------------------------------------------- commands
