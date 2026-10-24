@@ -30,7 +30,8 @@ export async function loadTable(id: string) {
   if (!r) return null;
   const t = fromRow(r);
   const live = rulesFromCfg(t.boot, cfg);
-  return { ...t, rules: { ...t.rules, turnTimeoutMs: live.turnTimeoutMs, blindLimit: live.blindLimit, rakePct: live.rakePct } };
+  // The pot limit is overlaid too, so a change here reaches tables created earlier.
+  return { ...t, rules: { ...t.rules, turnTimeoutMs: live.turnTimeoutMs, blindLimit: live.blindLimit, rakePct: live.rakePct, potCap: live.potCap } };
 }
 
 /** Admin → Game Config for Teen Patti, refreshed every 30 s (one lookup serves every poll in that window). */
@@ -47,11 +48,16 @@ export async function rulesFor(boot: number): Promise<Rules> {
   return rulesFromCfg(boot, await gameCfg());
 }
 
+/** Pot limit per boot (the owner's table, 2026-10-24): a hand goes to a forced showdown once the pot reaches it.
+ *  Other boots (private tables) get 165× the boot, the ratio of the biggest public table. */
+export const POT_CAPS: Record<number, number> = { 50: 15_000, 100: 30_000, 500: 125_000, 1000: 165_000 };
+export const potCapFor = (boot: number) => POT_CAPS[boot] ?? Math.max(boot * 7, boot * 165);
+
 function rulesFromCfg(boot: number, cfg: Record<string, unknown>): Rules {
   const turn = Number(cfg?.turn) || 15;
   const blindLimit = Math.max(1, Number(cfg?.blind_limit) || 3);
   const rakePct = cfg?.rake === undefined || cfg?.rake === null ? 5 : Math.min(25, Math.max(0, Number(cfg.rake) || 0));
-  return { boot, maxBaseStake: boot * 128, potCap: boot * 1024, turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit, rakePct };
+  return { boot, maxBaseStake: boot * 128, potCap: potCapFor(boot), turnTimeoutMs: turn * 1000, sideshowTimeoutMs: 10000, maxTurnActions: null, minBlind: 1, blindLimit, rakePct };
 }
 
 async function balancesOf(ids: string[]): Promise<Record<string, number>> {
