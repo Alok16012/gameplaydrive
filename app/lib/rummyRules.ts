@@ -77,10 +77,13 @@ export function scoreGroups(groups: Card[][], wild: string): { points: number; v
     const points = pure + tun < 3 ? sum(groups) : sum(groups.filter((_, i) => !good(kinds[i])));
     return { points: Math.min(points, 120), valid: count === 21 && pure + tun >= 3 && kinds.every(good), kinds };
   }
+  // 13 Card Rummy: a 3 Naali or a Double is nothing special — three identical cards or a pair of them are just
+  // loose cards — so they are shown and scored as invalid.
   const good13 = (k: GroupKind) => k === "pure" || k === "impure" || k === "set";
+  const kinds13 = kinds.map((k) => (good13(k) ? k : "invalid"));
   let points: number;
   if (pure === 0) points = sum(groups);
-  else if (seqs < 2) points = sum(groups.filter((_, i) => kinds[i] !== "pure"));
-  else points = sum(groups.filter((_, i) => !good13(kinds[i])));
-  return { points: Math.min(points, 80), valid: count === 13 && pure >= 1 && seqs >= 2 && kinds.every(good13), kinds };
+  else if (seqs < 2) points = sum(groups.filter((_, i) => kinds13[i] !== "pure"));
+  else points = sum(groups.filter((_, i) => !good13(kinds13[i])));
+  return { points: Math.min(points, 80), valid: count === 13 && pure >= 1 && seqs >= 2 && kinds13.every(good13), kinds: kinds13 };
 }
