@@ -190,12 +190,15 @@ export async function GET(req: Request) {
         });
       }
 
-      // Ledger lines "<Game> • Round #<id>" for rounds without a casino_rounds row.
+      // Ledger lines for rounds without a casino_rounds row (before 062, and 21-24 Oct 2026 when 073 had dropped the
+      // insert). Notes look like "<Game> • Round #<id>" (062), "<Game> • <id> • Win" (073) or
+      // "<Game> • Round #<id> • Bet" (080).
       const ledger = await selectAll<{ user_id: string; amount: number; kind: string; note: string; created_at: string }>(
-        "ledger", `select=user_id,amount,kind,note,created_at&note=like.${encodeURIComponent(`* • Round #${round}`)}&order=created_at`);
+        "ledger", `select=user_id,amount,kind,note,created_at&note=like.${encodeURIComponent(`*${round}*`)}&order=created_at`);
       const legacy = new Map<string, RoundResult>();
+      const noteGame = (note: string) => Object.keys(CASINO).find((k) => new RegExp(`^${CASINO[k]} • (Round #)?${round}( • |$)`).test(note));
       for (const l of ledger) {
-        const g = Object.keys(CASINO).find((k) => l.note === `${CASINO[k]} • Round #${round}`);
+        const g = noteGame(l.note);
         if (!g || !casinoGames.includes(g) || covered.has(`${g}:${l.user_id}`) || !seen(l.user_id)) continue;
         const key = `${g}:${l.user_id}`;
         const r = legacy.get(key) ?? { game: CASINO[g], round, at: l.created_at, info: {}, legacy: true, bets: [{ user: who(l.user_id), stake: 0, payout: 0, at: l.created_at, detail: {} }] };
