@@ -471,11 +471,16 @@ function internal(s0: HandState, ctx: Ctx, f: (s: HandState, out: LedgerEntry[])
 }
 
 /**
- * House bots. One bot — the "closer", the active bot holding the strongest cards — never packs: it keeps the hand
- * alive until a show or the pot cap, so a human can never win a pot simply because every bot folded. The other bots
- * play a few rounds for realism and then pack one by one, so a hand comes down to the human and the closer within a
- * handful of rounds, and the closer asks for the show as soon as both are seen. (Rigged deals — table.ts — make sure
- * the closer beats a force_loss human; on a fair deal the better cards simply win the show.)
+ * House bots. One bot — the "closer", the active bot holding the strongest cards — carries the house's side of the
+ * hand:
+ *   * while it beats the human it never packs: it keeps the hand alive, raises now and then so the pot is worth
+ *     something, and asks for the show once both are seen — so the human loses a pot worth having;
+ *   * when the human holds the better cards (a force_win deal, or the half of fair deals that go the player's way)
+ *     it plays like someone who knows he's beaten: a cheap call or two, then it packs. Every bot does. The human
+ *     wins — with real cards — but only the boot and a chaal or two, never a pot the bots built for them.
+ * The other bots play their cards like people (weak hands pack soon, good hands stay a while, side shows now and
+ * then), so a hand comes down to the human and the closer within a few rounds. (Rigged deals — table.ts — decide
+ * who holds the better cards; nothing here changes that, only how much the losing side pays to find out.)
  */
 function botMove(s: HandState, ctx: Ctx): Result {
   const id = s.turnId!;
@@ -544,6 +549,20 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // The house knows every card: does this bot beat (or merely tie) every human still in?
   const beatsHumans = activeHumans.every((h) => compareHands(st.cards[id], st.cards[h]) > 0);
   const tiesHuman = activeHumans.some((h) => compareHands(st.cards[id], st.cards[h]) === 0);
+
+  // Beaten by the human: no bot feeds a pot it is going to lose. A cheap call or two while the stake is still the
+  // boot, then pack — before the stake doubles, before this bot has more than a few boots in, and always once the
+  // pot is past a modest size. (Tied cards: the one who asks loses, so a tie plays on as a win.)
+  const losing = activeHumans.length > 0 && !beatsHumans && !tiesHuman;
+  if (losing) {
+    see();
+    if (!st.players[id].seen) return bet(); // can't look yet (first blind): one blind, then look and pack
+    const myBetsNow = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
+    const inFor = st.players[id].contributed;
+    const giveUp = pressure >= 2 || inFor >= st.rules.boot * 4 || myBetsNow >= 2 || st.pot >= st.rules.boot * 12 || betAmount(st, id, false).amount > st.rules.boot * 2;
+    if (giveUp) return tryAct("PACK") ?? bet();
+    return bet();
+  }
 
   if (isCloser || left <= 2) {
     if (left === 2) {

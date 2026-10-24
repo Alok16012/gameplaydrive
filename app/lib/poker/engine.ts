@@ -475,9 +475,10 @@ function finalKey(s: HandState, id: string) {
 
 /**
  * House bots, in the same shape as Teen Patti's. One bot — the "closer", the active bot that wins at the showdown
- * (the house knows the whole deal) — never folds: it calls everything and raises now and then, so a human can never
- * take a pot just because every bot folded, and a force_loss human (who is dealt a losing hand) always loses at the
- * showdown. The other bots play their cards like people: fold weak hands against bets, call with fair hands, raise
+ * (the house knows the whole deal) — carries the house's side: while it beats the human it never folds, calls
+ * everything and raises now and then, so a force_loss human loses a pot worth having at the showdown. When the human
+ * holds the winning hand, every bot folds early: the human wins the antes and a bet or two, not a pot the bots
+ * built. The other bots play their cards like people: fold weak hands against bets, call with fair hands, raise
  * with strong ones. Ties with the human: the closer plays on (a split pot is fine).
  */
 function botMove(s: HandState, ctx: Ctx): Result {
@@ -520,6 +521,17 @@ function botMove(s: HandState, ctx: Ctx): Result {
   if (activeHumans.length === 0) {
     if (!isCloser && activeBots.length > 1) return act("FOLD");
     return callOrCheck();
+  }
+
+  // Beaten by the human (a force_win deal, or a fair deal that went the player's way): no bot feeds a pot it will
+  // lose. Check when it's free, call once while the bet is small, then fold — so the human wins with real cards but
+  // only the antes and a bet or two, never a pot the bots built.
+  const losing = !beatsHumans && !activeHumans.every((h) => compareKeys(finalKey(s, id), finalKey(s, h)) === 0);
+  if (losing) {
+    if (call === 0) return callOrCheck();
+    const inFor = s.players[id].contributed;
+    const giveUp = call > s.rules.boot * 2 || inFor >= s.rules.boot * 4 || s.pot >= s.rules.boot * 12 || board.length >= 4;
+    return giveUp ? act("FOLD") : callOrCheck();
   }
 
   if (isCloser) {

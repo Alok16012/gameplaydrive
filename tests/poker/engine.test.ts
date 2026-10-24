@@ -408,7 +408,7 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
   let t = fillBots(sitDown(fresh(), human("h"), 0).table, rng, 0);
   const bal: Record<string, number> = { h: 10_000_000 };
   const pay = (ledger: { playerId: string; bot: boolean; amount: number }[]) => { for (const e of ledger) if (!e.bot) bal[e.playerId] += e.amount; };
-  const out: { won: boolean; reason: string; botFolds: number; minBot: number }[] = [];
+  const out: { won: boolean; reason: string; botFolds: number; minBot: number; pot: number }[] = [];
   let now = 1000, seen = "";
   for (let guard = 0; guard < 100_000 && t.handNo <= hands; guard++) {
     now += 1000;
@@ -431,7 +431,7 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
       seen = hd.handId;
       const bot = (id?: string) => !!id && hd!.players[id]?.bot;
       out.push({
-        won: hd.settlement!.winners.some((w) => w.playerId === "h"), reason: hd.settlement!.reason,
+        won: hd.settlement!.winners.some((w) => w.playerId === "h"), reason: hd.settlement!.reason, pot: hd.pot,
         botFolds: hd.events.filter((e) => (e.type === "FOLD" || e.type === "TIMEOUT") && bot(e.playerId)).length,
         minBot: Math.min(...Object.values(hd.botBalances)),
       });
@@ -441,10 +441,14 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
   return out;
 }
 
-test("house bots: a human who never folds can't win because every bot folded; force_loss always loses, force_win always wins", () => {
+test("house bots: the human wins only small pots and loses at the showdown; force_loss always loses, force_win always wins", () => {
   for (const [name, modes] of [["fair deal", undefined], ["force_loss", { h: "force_loss" }], ["force_win", { h: "force_win" }]] as const) {
     const res = playHands(modes, 25, 3);
-    assert.equal(res.filter((r) => r.won && r.reason === "LAST_STANDING").length, 0, `${name}: the human won by everyone folding`);
+    // When the human holds the winning hand the bots fold early and the pot stays small; when a bot does, the hand
+    // goes to the showdown.
+    for (const r of res.filter((x) => x.won)) assert.ok(r.pot <= 10 * 20, `${name}: the human won a pot the bots built (${r.pot})`);
+    const lost = res.filter((x) => !x.won);
+    assert.ok(lost.every((r) => r.reason === "SHOWDOWN"), `${name}: a hand the human lost didn't go to the showdown`);
     assert.ok(res.reduce((s, r) => s + r.botFolds, 0) > 0, `${name}: no bot ever folded`);
     assert.ok(res.every((r) => r.minBot >= 0), `${name}: a bot's stack went below zero`);
     if (name === "force_loss") assert.equal(res.filter((r) => r.won).length, 0, "force_loss: the human won a hand");
