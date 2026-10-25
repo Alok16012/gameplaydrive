@@ -470,6 +470,13 @@ function internal(s0: HandState, ctx: Ctx, f: (s: HandState, out: LedgerEntry[])
   return { state: s, ledger: out, ok: true, changed: true };
 }
 
+/** Small string hash (FNV-1a), for per-hand, per-bot traits that must not change between polls. */
+function hashOf(s: string) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+
 /**
  * House bots. One bot — the "closer", the active bot holding the strongest cards — carries the house's side of the
  * hand:
@@ -569,13 +576,24 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // show on the table, never a pot the bots built.
   const losing = activeHumans.length > 0 && !beatsHumans && !tiesHuman;
   if (losing) {
-    const l = look();
-    if (l) return l; // looks first; acts on its next move, a few seconds later
-    if (!st.players[id].seen) return bet(); // can't look yet (first blind): one blind, then look
+    // Each bot has its own temperament for this hand (fixed for the hand, different next time): how many chaals it
+    // plays before giving up, and whether it looks at once or plays a blind first — so the bots don't look, then
+    // pack, one after another in seat order.
+    const grit = hashOf(st.handId + "|" + id);
     const myBetsNow = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
     const inFor = st.players[id].contributed;
     const rank = activeBots.slice().sort((a, b) => compareHands(st.cards[b], st.cards[a])).indexOf(id);
     const budget = inFor >= st.rules.boot * 12 || st.pot >= st.rules.boot * 40 || pressure >= 4;
+    const stayBets = rank === 0 ? 99 : rank === 1 && left >= 3 ? 2 + (grit % 3) : 1 + (grit % 3); // rank 1: 2-4 chaals, rest: 1-3
+    // On reaching its number it usually packs, sometimes plays one more; past it, or over budget, it is out.
+    const wantsOut = rank !== 0 && (budget || myBetsNow > stayBets || (myBetsNow === stayBets && r.int(100) < 65) || pressure >= (grit % 2 ? 2 : 4) || inFor >= st.rules.boot * (6 + (grit % 7)) || st.pot >= st.rules.boot * (20 + (grit % 10)));
+    if (!st.players[id].seen) {
+      // Looks before anything else when it is about to give up (nobody packs blind); otherwise a blind chaal or
+      // two first, like a player who likes to play blind, then a look.
+      const l = wantsOut || p.blinds >= 2 || (grit >> 3) % 100 < 55 ? look() : null;
+      if (l) return l; // acts on its next move, a few seconds later
+      return bet();
+    }
     if (rank === 0) {
       // The best of the bots: to the show. Once both are seen it asks after a chaal or two (and at once when the
       // human is pushing); against a blind human it calls while the budget lasts, then packs.
@@ -593,14 +611,16 @@ function botMove(s: HandState, ctx: Ctx): Result {
       if (budget) return tryAct("PACK") ?? bet();
       return bet();
     }
-    if (rank === 1 && left >= 3) {
-      // Keeps the best bot company for a couple of rounds, then packs.
-      if (budget || myBetsNow >= 3 || pressure >= 2 || inFor >= st.rules.boot * 5) return tryAct("PACK") ?? bet();
-      return bet();
+    // The others keep the best bot company for a chaal or three (each its own number), then get out — usually by
+    // packing, now and then by asking the last bettor (another bot) for a side show, which it loses.
+    if (wantsOut || betAmount(st, id, false).amount > st.rules.boot * 4) {
+      const ss = sideshowCheck(st, id);
+      if (!ss.reason && ss.targetId && st.players[ss.targetId].bot && stack() >= ss.fee * 3 && (grit >> 5) % 100 < 30) {
+        const res = tryAct("SIDESHOW_REQUEST");
+        if (res) return res;
+      }
+      return tryAct("PACK") ?? bet();
     }
-    // The rest: a cheap call or two, then out.
-    const giveUp = pressure >= 2 || inFor >= st.rules.boot * 4 || myBetsNow >= 2 || st.pot >= st.rules.boot * 12 || betAmount(st, id, false).amount > st.rules.boot * 2;
-    if (giveUp) return tryAct("PACK") ?? bet();
     return bet();
   }
 

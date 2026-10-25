@@ -13,6 +13,34 @@ export const AWAY_MS = 60000;
 /** With fewer than two players able to pay the boot, try again this often. */
 const WAIT_RETRY_MS = 4000;
 
+/** Three distinct random cards from `pool` that satisfy `pred` (removed from the pool), or null after `tries` draws. */
+function drawHand(pool: Card[], ri: (n: number) => number, pred: (h: Card[]) => boolean, tries = 400): Card[] | null {
+  if (pool.length < 3) return null;
+  for (let t = 0; t < tries; t++) {
+    const a = ri(pool.length);
+    let b = ri(pool.length - 1);
+    if (b >= a) b++;
+    let c = ri(pool.length - 2);
+    if (c >= Math.min(a, b)) c++;
+    if (c >= Math.max(a, b)) c++;
+    const h = [pool[a], pool[b], pool[c]];
+    if (!pred(h)) continue;
+    for (const x of h) pool.splice(pool.indexOf(x), 1);
+    return h;
+  }
+  return null;
+}
+
+const beats = (a: Card[], b: Card[]) => compareKeys(evaluate(a).key, evaluate(b).key) > 0;
+const category = (h: Card[]) => evaluate(h).key[0]; // 1 high card … 6 trail
+
+/**
+ * A rigged deal, built from random cards so no two hands look alike: in a force_loss deal the human gets a hand worth
+ * playing (usually a pair or better, sometimes just a high card) and the deepest-stacked bot a hand that beats it;
+ * in a force_win deal the human gets a good hand and every bot a lesser one. The other bots get hands around the
+ * human's — some above it (they stay in the hand a while), most below — so the table plays out differently each
+ * time. Any other human at the table gets a hand that can't spoil the result.
+ */
 function buildEngagingTeenPattiDeck(
   seats: Seat[],
   prevDealerSeat: number | null,
@@ -23,6 +51,7 @@ function buildEngagingTeenPattiDeck(
   rng?: Rng
 ): Card[] | undefined {
   if (!outcomeModes) return undefined;
+  const ri = (n: number) => (n <= 1 ? 0 : rng ? rng.int(n) : Math.floor(Math.random() * n));
   const sortedSeats = [...seats].sort((a, b) => a.seat - b.seat);
   const can = (x: Seat) => (x.bot ? botBalances[x.playerId] ?? 0 : balances[x.playerId] ?? 0) >= boot;
   const playing = sortedSeats.filter(can);
@@ -35,173 +64,55 @@ function buildEngagingTeenPattiDeck(
 
   const lossIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_loss");
   const winIdx = orderSeats.findIndex((s) => !s.bot && outcomeModes[s.playerId] === "force_win");
-  const botIndices = orderSeats.map((s, i) => s.bot ? i : -1).filter((i) => i >= 0);
+  const botIndices = orderSeats.map((s, i) => (s.bot ? i : -1)).filter((i) => i >= 0);
+  if (botIndices.length === 0 || (lossIdx < 0 && winIdx < 0)) return undefined;
+  const humanIdx = lossIdx >= 0 ? lossIdx : winIdx;
+  const loss = lossIdx >= 0;
   // The bot dealt the deciding hand is the one with the deepest stack, so it can keep up with a human who raises
   // hard (a short-stacked bot would run out of coins before the show).
   const richestBot = botIndices.reduce((best, i) => ((botBalances[orderSeats[i].playerId] ?? 0) > (botBalances[orderSeats[best].playerId] ?? 0) ? i : best), botIndices[0]);
 
-  if (lossIdx >= 0 && botIndices.length > 0) {
-    // ===== FORCE LOSS: Human gets strong hand, ALL bots get stronger hands =====
-    // Pick a hand combo from varied options so it doesn't look repetitive
-    const roll = rng ? rng.int(100) : Math.floor(Math.random() * 100);
+  const pool = fullDeck();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = ri(i + 1);
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const hands = new Map<number, Card[]>();
 
-    let humanHand: Card[];
-    let bestBotHand: Card[];
-    // Additional strong bot hands for other bots
-    let otherBotHands: Card[][];
+  // The human's hand: worth playing — a pair or better most of the time, otherwise a high card with a face card in it.
+  const wantPair = ri(100) < (loss ? 60 : 75);
+  let human = drawHand(pool, ri, (h) => (wantPair ? category(h) >= 2 && category(h) <= (loss ? 5 : 6) : category(h) === 1 && evaluate(h).key[1] >= 12));
+  if (!human) human = drawHand(pool, ri, () => true)!;
+  // The deciding bot: above the human in a force_loss deal, below it in a force_win deal. If nothing above the
+  // human turns up (they hold near the top), the two swap: the bot takes that hand and the human a lesser one.
+  let key = loss ? drawHand(pool, ri, (h) => beats(h, human!)) : drawHand(pool, ri, (h) => beats(human!, h) && category(h) >= (ri(100) < 60 ? 2 : 1));
+  if (!key && loss) {
+    key = human;
+    human = drawHand(pool, ri, (h) => beats(key!, h) && category(h) >= 2) ?? drawHand(pool, ri, (h) => beats(key!, h))!;
+  }
+  if (!key) key = drawHand(pool, ri, (h) => beats(human!, h))!;
+  hands.set(humanIdx, human);
+  hands.set(richestBot, key);
 
-    if (roll < 30) {
-      // 30%: Human has Pair of Kings (K♠ K♥ 8♦), Best bot has Pair of Aces (A♠ A♦ 9♣)
-      humanHand = [{ r: 13, s: "S" }, { r: 13, s: "H" }, { r: 8, s: "D" }];
-      bestBotHand = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
-      otherBotHands = [
-        [{ r: 13, s: "D" }, { r: 13, s: "C" }, { r: 14, s: "H" }], // Pair of Kings (same but different kicker)
-        [{ r: 12, s: "S" }, { r: 11, s: "D" }, { r: 10, s: "C" }],  // Sequence Q-J-10
-        [{ r: 14, s: "C" }, { r: 12, s: "H" }, { r: 10, s: "D" }],  // High card A-Q-10
-      ];
-    } else if (roll < 50) {
-      // 20%: Human has Sequence (9♠ 10♦ J♣), Best bot has higher Sequence (J♥ Q♦ K♠)
-      humanHand = [{ r: 9, s: "S" }, { r: 10, s: "D" }, { r: 11, s: "C" }];
-      bestBotHand = [{ r: 11, s: "H" }, { r: 12, s: "D" }, { r: 13, s: "S" }];
-      otherBotHands = [
-        [{ r: 12, s: "S" }, { r: 12, s: "H" }, { r: 7, s: "D" }],  // Pair of Queens
-        [{ r: 10, s: "H" }, { r: 11, s: "S" }, { r: 12, s: "C" }],  // Sequence 10-J-Q
-        [{ r: 14, s: "D" }, { r: 13, s: "C" }, { r: 9, s: "H" }],  // High card A-K-9
-      ];
-    } else if (roll < 70) {
-      // 20%: Human has Ace-high Color (A♥ 10♥ 4♥), Best bot has Sequence (10♣ J♦ Q♠)
-      humanHand = [{ r: 14, s: "H" }, { r: 10, s: "H" }, { r: 4, s: "H" }];
-      bestBotHand = [{ r: 10, s: "C" }, { r: 11, s: "D" }, { r: 12, s: "S" }];
-      otherBotHands = [
-        [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 5, s: "C" }],  // Pair of Aces
-        [{ r: 13, s: "D" }, { r: 12, s: "C" }, { r: 11, s: "S" }],  // Sequence K-Q-J
-        [{ r: 14, s: "C" }, { r: 13, s: "H" }, { r: 11, s: "D" }],  // High A-K-J
-      ];
-    } else if (roll < 85) {
-      // 15%: Human has Pair of Aces (A♥ A♦ 6♣), Best bot has Trail of 3s (3♠ 3♥ 3♦) — dramatic!
-      humanHand = [{ r: 14, s: "H" }, { r: 14, s: "D" }, { r: 6, s: "C" }];
-      bestBotHand = [{ r: 3, s: "S" }, { r: 3, s: "H" }, { r: 3, s: "D" }];
-      otherBotHands = [
-        [{ r: 14, s: "S" }, { r: 14, s: "C" }, { r: 10, s: "D" }],  // Pair of Aces (higher kicker)
-        [{ r: 13, s: "S" }, { r: 12, s: "H" }, { r: 11, s: "C" }],  // Sequence K-Q-J
-        [{ r: 12, s: "D" }, { r: 12, s: "C" }, { r: 9, s: "S" }],  // Pair of Queens
-      ];
-    } else {
-      // 15%: Human has Pure Sequence (7♥ 8♥ 9♥), Best bot has higher Pure Sequence (Q♠ K♠ A♠)
-      humanHand = [{ r: 7, s: "H" }, { r: 8, s: "H" }, { r: 9, s: "H" }];
-      bestBotHand = [{ r: 12, s: "S" }, { r: 13, s: "S" }, { r: 14, s: "S" }];
-      otherBotHands = [
-        [{ r: 10, s: "D" }, { r: 11, s: "D" }, { r: 12, s: "D" }], // Pure Sequence 10-J-Q
-        [{ r: 14, s: "D" }, { r: 14, s: "C" }, { r: 11, s: "H" }],  // Pair of Aces
-        [{ r: 13, s: "H" }, { r: 13, s: "D" }, { r: 10, s: "C" }],  // Pair of Kings
-      ];
-    }
-
-    // Pick which bot gets the best hand (first available bot)
-    const primaryBotIdx = richestBot;
-
-    // Collect all assigned cards
-    const usedIds = new Set([...humanHand.map(cardId), ...bestBotHand.map(cardId)]);
-    // Also track used cards from other bot hands we'll assign
-    const assignedBotHands: Map<number, Card[]> = new Map();
-    assignedBotHands.set(primaryBotIdx, bestBotHand);
-
-    // Assign other bot hands, checking for card conflicts
-    let otherHandIdx = 0;
-    for (const bi of botIndices) {
-      if (bi === primaryBotIdx || otherHandIdx >= otherBotHands.length) continue;
-      const hand = otherBotHands[otherHandIdx];
-      // Check if any cards conflict with already used cards
-      const conflict = hand.some((c) => usedIds.has(cardId(c)));
-      if (!conflict) {
-        assignedBotHands.set(bi, hand);
-        hand.forEach((c) => usedIds.add(cardId(c)));
-        otherHandIdx++;
-      } else {
-        otherHandIdx++; // skip this hand combo, try next
-      }
-    }
-
-    // Build remaining deck excluding all assigned cards
-    const rest = fullDeck().filter((c) => !usedIds.has(cardId(c)));
-    for (let i = rest.length - 1; i > 0; i--) {
-      const j = rng ? rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
-      [rest[i], rest[j]] = [rest[j], rest[i]];
-    }
-
-    const evBest = evaluate(bestBotHand);
-    const deck: Card[] = [];
-    let restPtr = 0;
-    for (let i = 0; i < orderSeats.length; i++) {
-      if (i === lossIdx) {
-        deck.push(...humanHand);
-      } else if (assignedBotHands.has(i)) {
-        deck.push(...assignedBotHands.get(i)!);
-      } else {
-        // Random hand for other human players — ensure they can't beat the best bot
-        const chunk = [rest[restPtr++], rest[restPtr++], rest[restPtr++]];
-        if (compareKeys(evaluate(chunk).key, evBest.key) >= 0) {
-          for (let k = restPtr; k < rest.length; k++) {
-            const candidate = [chunk[0], chunk[1], rest[k]];
-            if (compareKeys(evaluate(candidate).key, evBest.key) < 0) {
-              const temp = chunk[2];
-              chunk[2] = rest[k];
-              rest[k] = temp;
-              break;
-            }
-          }
-        }
-        deck.push(...chunk);
-      }
-    }
-    while (restPtr < rest.length) {
-      deck.push(rest[restPtr++]);
-    }
-    return deck;
+  // The other bots: each gets a hand above the human (loss: 45%, win: never) or below it, so some stay a while and
+  // others pack early — in no fixed order.
+  for (const bi of botIndices) {
+    if (bi === richestBot) continue;
+    const above = loss && ri(100) < 45;
+    const h = (above ? drawHand(pool, ri, (x) => beats(x, human!)) : null) ?? drawHand(pool, ri, (x) => beats(human!, x)) ?? drawHand(pool, ri, () => true)!;
+    hands.set(bi, h);
+  }
+  // Any other human: below whichever side is meant to win.
+  const top = loss ? key : human;
+  for (let i = 0; i < orderSeats.length; i++) {
+    if (hands.has(i)) continue;
+    hands.set(i, drawHand(pool, ri, (x) => beats(top, x)) ?? drawHand(pool, ri, () => true)!);
   }
 
-  if (winIdx >= 0 && botIndices.length > 0) {
-    // ===== FORCE WIN: Give human a dominant hand =====
-    const humanHand: Card[] = [{ r: 14, s: "S" }, { r: 14, s: "D" }, { r: 9, s: "C" }];
-    const botHand: Card[] = [{ r: 13, s: "S" }, { r: 13, s: "H" }, { r: 8, s: "D" }];
-    const usedIds = new Set([...humanHand.map(cardId), ...botHand.map(cardId)]);
-    const rest = fullDeck().filter((c) => !usedIds.has(cardId(c)));
-    for (let i = rest.length - 1; i > 0; i--) {
-      const j = rng ? rng.int(i + 1) : Math.floor(Math.random() * (i + 1));
-      [rest[i], rest[j]] = [rest[j], rest[i]];
-    }
-    const evHuman = evaluate(humanHand);
-    const deck: Card[] = [];
-    let restPtr = 0;
-    const primaryBotIdx = richestBot;
-    for (let i = 0; i < orderSeats.length; i++) {
-      if (i === winIdx) {
-        deck.push(...humanHand);
-      } else if (i === primaryBotIdx) {
-        deck.push(...botHand);
-      } else {
-        const chunk = [rest[restPtr++], rest[restPtr++], rest[restPtr++]];
-        if (compareKeys(evaluate(chunk).key, evHuman.key) >= 0) {
-          for (let k = restPtr; k < rest.length; k++) {
-            const candidate = [chunk[0], chunk[1], rest[k]];
-            if (compareKeys(evaluate(candidate).key, evHuman.key) < 0) {
-              const temp = chunk[2];
-              chunk[2] = rest[k];
-              rest[k] = temp;
-              break;
-            }
-          }
-        }
-        deck.push(...chunk);
-      }
-    }
-    while (restPtr < rest.length) {
-      deck.push(rest[restPtr++]);
-    }
-    return deck;
-  }
-
-  return undefined;
+  const deck: Card[] = [];
+  for (let i = 0; i < orderSeats.length; i++) deck.push(...hands.get(i)!);
+  deck.push(...pool);
+  return deck;
 }
 
 export interface TableSeat {
