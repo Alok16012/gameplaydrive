@@ -275,27 +275,30 @@ const BOT_NAMES = ["Rahul", "Priya", "Aman", "Sneha", "Vikram", "Pooja", "Arjun"
 const BOT_EMOJI = ["👨🏽", "👩🏻", "🧔🏾", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👱🏽‍♂️", "👩🏾", "🧑🏽‍🦰", "👨🏿", "👩🏼‍🦰", "🧕🏽"];
 
 /**
- * A bot's table stack: sized to the table's pot limit, like a player who sat down with about a pot's worth —
- * between half the pot limit and the limit plus 3,000, most of them nearer the low end, and never the same twice.
- * lo/hi also decide when a bot leaves: below lo/3 it is nearly broke, above hi it has won past the pot limit and cashes out —
- * either way a new bot with a fresh stack takes the seat. (Without a pot limit, a few hundred boots.)
+ * A bot's table stack: a little under the table's pot limit — 15% to 20% below it — rounded to a believable figure
+ * and never the same as another bot's at the table. lo/hi also decide when a bot leaves: below lo/3 it is nearly
+ * broke, above the pot limit it has won big and cashes out — either way a new bot with a fresh stack takes the
+ * seat. (Without a pot limit, a few hundred boots.)
  */
 export function botStackRange(boot: number, potCap?: number | null) {
-  if (potCap) return { lo: Math.max(boot * 20, Math.round(potCap * 0.5)), hi: potCap + 3000 };
+  if (potCap) return { lo: Math.max(boot * 20, Math.round(potCap * 0.8)), hi: Math.max(boot * 20, Math.round(potCap * 0.85)) };
   return { lo: Math.max(boot * 500, 100_000), hi: Math.max(boot * 2500, 2_500_000) };
 }
 
-export function botStack(boot: number, rng: Rng, potCap?: number | null) {
+export function botStack(boot: number, rng: Rng, potCap?: number | null, avoid?: Set<number>) {
   const { lo, hi } = botStackRange(boot, potCap);
-  const u = rng.int(1_000_000) / 1_000_000;
-  // Skewed low, and rounded to a believable figure (nearest 50 at small boots, nearest 500 at big ones).
+  // Rounded to a believable figure (nearest 50 at small boots, nearest 500 at big ones); re-rolled while it matches
+  // another bot's stack at the table.
   const step = boot >= 500 ? 500 : 50;
-  return Math.max(lo, Math.round((lo + (hi - lo) * u * u) / step) * step);
-}
+  const roll = () => Math.min(hi, Math.max(lo, Math.round((lo + (hi - lo) * (rng.int(1_000_000) / 1_000_000)) / step) * step));
+  let v = roll();
+  for (let i = 0; avoid?.has(v) && i < 30; i++) v = roll();
+  return v;
+};
 
 const botStays = (boot: number, bal: number, potCap?: number | null) => {
   const { lo, hi } = botStackRange(boot, potCap);
-  return bal >= Math.max(boot * 4, lo / 3) && bal <= hi;
+  return bal >= Math.max(boot * 4, lo / 3) && bal <= (potCap ?? hi);
 };
 
 /** Public tables keep six seats busy with bots; private tables never get any. */
@@ -304,6 +307,7 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
   const seats = [...t.seats];
   const taken = new Set(seats.map((s) => s.seat));
   const used = new Set(seats.map((s) => s.name));
+  const stacks = new Set(seats.filter((s) => s.bot).map((s) => s.bal ?? 0));
   let seat = 0;
   while (seats.length < TABLE_SEATS) {
     while (taken.has(seat)) seat++;
@@ -311,7 +315,9 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
     let name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     for (let i = 0; used.has(name) && i < 20; i++) name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     used.add(name);
-    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: botStack(t.boot, rng, t.rules.potCap), stack: 1, lastSeen: now });
+    const bal = botStack(t.boot, rng, t.rules.potCap, stacks);
+    stacks.add(bal);
+    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal, stack: 1, lastSeen: now });
   }
   return { ...t, seats: seats.sort((a, b) => a.seat - b.seat) };
 }

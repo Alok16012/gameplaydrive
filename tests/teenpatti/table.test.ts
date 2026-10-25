@@ -190,20 +190,20 @@ test("house bots: the human wins only small pots and loses at a show; force_loss
   }
 });
 
-test("bot stacks: every bot gets its own stack sized to the pot limit (half of it up to the limit + 3,000), none alike, and the boot comes off it at once", () => {
+test("bot stacks: every bot gets its own stack 15-20% under the pot limit, none alike, and the boot comes off it at once", () => {
   for (const [boot, potCap] of [[50, 15_000], [100, 30_000], [500, 125_000], [1000, 165_000]] as const) {
     const rng = seeded(9);
     let t: TableState = { ...fresh(), boot, rules: { ...RULES, boot, maxBaseStake: boot * 128, potCap } };
     t = fillBots(sitDown(t, human("a"), 0).table, rng, 0);
     const stacks = t.seats.filter((s) => s.bot).map((s) => s.bal!);
     assert.equal(new Set(stacks).size, stacks.length, `stacks should differ at boot ${boot}: ${stacks}`);
-    for (const b of stacks) assert.ok(b >= potCap * 0.5 && b <= potCap + 3000, `stack ${b} out of range for pot limit ${potCap}`);
+    for (const b of stacks) assert.ok(b >= potCap * 0.8 && b <= potCap * 0.85, `stack ${b} out of range for pot limit ${potCap}`);
     // A bot from before (a 10-lakh stack) is replaced at the next hand by one sized to the table.
     const old = { ...t.seats.find((s) => s.bot)!, bal: 1_000_000 };
     const t2 = { ...t, seats: t.seats.map((s) => (s.playerId === old.playerId ? old : s)) };
     const adv2 = advanceTable(t2, { now: 1000, balances: { a: 10_000_000 }, rng });
     assert.ok(!adv2.table.seats.some((s) => s.playerId === old.playerId), "the lakh-stack bot should have left");
-    assert.ok(adv2.table.seats.filter((s) => s.bot).every((s) => s.bal! <= potCap + 3000), "its replacement is sized to the table");
+    assert.ok(adv2.table.seats.filter((s) => s.bot).every((s) => s.bal! <= potCap * 0.85), "its replacement is sized to the table");
     const adv = advanceTable(t, { now: 1000, balances: { a: 10_000_000 }, rng });
     for (const s of adv.table.seats.filter((x) => x.bot)) assert.equal(adv.table.hand!.botBalances[s.playerId], s.bal! - boot);
   }
