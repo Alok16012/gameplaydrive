@@ -76,6 +76,20 @@ const PAYOUTS: { title: string; limit: string; rows: [string, string][] }[] = [
 // dealer: player, dealer up-card, player, hole card; then each hit; then the hole card turns over and the dealer
 // draws one card at a time. The result and the new balance only show once the last card is down.
 interface Frame { dealer: Card[]; hands: Card[][]; hole: boolean; ms: number }
+
+/** Phones and short windows: smaller cards and betting circles so the whole table and the action buttons fit on one
+ *  screen without scrolling (an iPhone is 852px tall; the full-size table needs about 900). */
+function useCompact() {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-height: 900px), (max-width: 420px)");
+    const on = () => setCompact(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return compact;
+}
 const DEAL_MS = 850;    // each card of the opening deal
 const HIT_MS = 800;     // a card you asked for
 const REVEAL_MS = 1200; // the dealer turns the hole card
@@ -283,38 +297,49 @@ export function Blackjack({ nav }: { nav: Nav }) {
     betting && bet > 0 ? stakes[spot] : spot === "main" ? (playing || done ? v?.bet ?? 0 : 0) : (playing || done ? (v?.side?.[spot]?.bet ?? 0) : 0);
 
   const net = (v?.payout ?? 0) + (v?.side?.bi?.pay ?? 0) - staked - (v?.side?.bi?.bet ?? 0);
-  const spotPos: Record<Spot, React.CSSProperties> = {
-    t3: { left: "14%", top: 0 },
-    pp: { right: "14%", top: 0 },
-    main: { left: "50%", top: 46, transform: "translateX(-50%)" },
-    h3: { left: 0, top: 96 },
-    bi: { right: 0, top: 96 },
-  };
+  const compact = useCompact();
+  const cardSize = compact ? "md" : "lg";
+  const cardRow = compact ? "min-h-[74px]" : "min-h-[96px]";
+  const spotPos: Record<Spot, React.CSSProperties> = compact
+    ? {
+        t3: { left: "14%", top: 0 },
+        pp: { right: "14%", top: 0 },
+        main: { left: "50%", top: 36, transform: "translateX(-50%)" },
+        h3: { left: 0, top: 78 },
+        bi: { right: 0, top: 78 },
+      }
+    : {
+        t3: { left: "14%", top: 0 },
+        pp: { right: "14%", top: 0 },
+        main: { left: "50%", top: 46, transform: "translateX(-50%)" },
+        h3: { left: 0, top: 96 },
+        bi: { right: 0, top: 96 },
+      };
 
   return (
     <div className="pb-6 fadein min-h-dvh flex flex-col">
       <Header
         title="Blackjack"
-        sub="Pays 3:2 • Dealer stands on 17 • Side bets: 21+3, Perfect Pairs, Hot 3, Bust It"
+        sub="Pays 3:2 • Dealer stands on 17 • Four side bets"
         onBack={nav.back}
         right={<div className="text-right"><div className="text-[10px] text-white/50">Balance</div><Money n={total - (betting ? bet : 0)} className="text-sm font-semibold text-neon-400" /></div>}
       />
 
       <div className="px-4">
         {/* Table */}
-        <div className="rounded-[28px] felt p-4 pb-3 relative overflow-hidden" style={{ minHeight: 470 }}>
+        <div className={`rounded-[28px] felt relative overflow-hidden ${compact ? "p-3 pb-2" : "p-4 pb-3"}`} style={{ minHeight: compact ? 0 : 470 }}>
           {/* the shoe */}
           <div className="absolute right-3 top-3 w-10 h-14 rounded-md bg-gradient-to-b from-[#7f1d1d] to-[#450a0a] border border-black/40 shadow-lg rotate-[8deg]">
             <div className="absolute inset-1 rounded-sm border border-white/20 bg-[repeating-linear-gradient(45deg,#991b1b_0_4px,#7f1d1d_4px_8px)]" />
           </div>
           <div className="text-center text-[10px] tracking-[0.3em] text-white/40 uppercase">Dealer</div>
-          <div className="flex justify-center mt-2 min-h-[96px]">
+          <div className={`flex justify-center mt-2 ${cardRow}`}>
             {dealerCards.map((c, i) => (
               <span key={i} className={i ? "-ml-6" : ""}>
-                <PlayingCard card={c} size="lg" className={`shadow-xl ${i === 1 ? "flip" : "dealin-d"}`} />
+                <PlayingCard card={c} size={cardSize} className={`shadow-xl ${i === 1 ? "flip" : "dealin-d"}`} />
               </span>
             ))}
-            {holeDown && <span className="-ml-6"><PlayingCard faceDown size="lg" className="dealin-d shadow-xl" /></span>}
+            {holeDown && <span className="-ml-6"><PlayingCard faceDown size={cardSize} className="dealin-d shadow-xl" /></span>}
           </div>
           <div className="text-center mt-1.5 h-6">{dealerCards.length > 0 && <span className="pill px-2.5 py-0.5 text-[12px] bg-black/40">{dealerTotal}</span>}</div>
 
@@ -325,10 +350,10 @@ export function Blackjack({ nav }: { nav: Nav }) {
               const active = playing && !dealing && v?.active === hi && hands.length > 1;
               return (
                 <div key={hi} className={`flex flex-col items-center rounded-2xl py-2 ${active ? "bg-white/10 ring-2 ring-gold-300/70" : ""}`}>
-                  <div className="flex justify-center min-h-[96px]">
+                  <div className={`flex justify-center ${cardRow}`}>
                     {h.cards.map((c, i) => (
                       <span key={i} className={`inline-block ${i ? (hands.length > 1 ? "-ml-7" : "-ml-6") : ""} ${h.doubled && i === 2 ? "rotate-90 ml-1" : ""}`}>
-                        <PlayingCard card={c} size={hands.length > 1 ? "md" : "lg"} className="dealin shadow-xl" />
+                        <PlayingCard card={c} size={hands.length > 1 ? (compact ? "sm" : "md") : cardSize} className="dealin shadow-xl" />
                       </span>
                     ))}
                   </div>
@@ -352,13 +377,13 @@ export function Blackjack({ nav }: { nav: Nav }) {
             >
               ◎ ALL SIDE BETS
             </button>
-            <div className="relative mt-2 w-full max-w-[320px]" style={{ height: 178 }}>
+            <div className="relative mt-2 w-full max-w-[320px]" style={{ height: compact ? 148 : 178 }}>
               {(["t3", "pp", "main", "h3", "bi"] as Spot[]).map((spot) => (
                 <div key={spot} className="absolute" style={spotPos[spot]}>
                   {spot === "main" ? (
-                    <BetSpot label="BET" odds="" amount={shown("main")} onTap={betting ? () => place("main") : undefined} />
+                    <BetSpot label="BET" odds="" amount={shown("main")} compact={compact} onTap={betting ? () => place("main") : undefined} />
                   ) : (
-                    <BetSpot label={SIDE_INFO[spot].label} odds={SIDE_INFO[spot].odds} amount={shown(spot)} small result={sideShown(spot)} onTap={betting ? () => place(spot) : undefined} />
+                    <BetSpot label={SIDE_INFO[spot].label} odds={SIDE_INFO[spot].odds} amount={shown(spot)} small compact={compact} result={sideShown(spot)} onTap={betting ? () => place(spot) : undefined} />
                   )}
                 </div>
               ))}
@@ -377,8 +402,8 @@ export function Blackjack({ nav }: { nav: Nav }) {
 
         {playing ? (
           <div className="grid grid-cols-2 gap-2.5 mt-3">
-            <button disabled={locked} onClick={() => call("bj_act", { p_action: "hit" })} className="btn-green rounded-2xl py-3.5 font-bold">HIT</button>
-            <button disabled={locked} onClick={() => call("bj_act", { p_action: "stand" })} className="rounded-2xl py-3.5 font-bold bg-rose-600 active:scale-[.98] disabled:opacity-50">STAND</button>
+            <button disabled={locked} onClick={() => call("bj_act", { p_action: "hit" })} className="btn-green rounded-2xl py-3 font-bold">HIT</button>
+            <button disabled={locked} onClick={() => call("bj_act", { p_action: "stand" })} className="rounded-2xl py-3 font-bold bg-rose-600 active:scale-[.98] disabled:opacity-50">STAND</button>
             <button disabled={locked || !v?.can_double} onClick={() => call("bj_act", { p_action: "double" })} className="rounded-2xl py-3 font-bold bg-gradient-to-b from-amber-300 to-orange-500 text-slate-900 active:scale-[.98] disabled:opacity-35">DOUBLE</button>
             <button disabled={locked || !v?.can_split} onClick={() => call("bj_act", { p_action: "split" })} className="rounded-2xl py-3 font-bold bg-sky-600 active:scale-[.98] disabled:opacity-35">SPLIT</button>
           </div>
@@ -410,7 +435,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
             </button>
           </>
         )}
-        <div className="text-center text-[12px] text-white/35 mt-3 leading-relaxed">
+        <div className={`text-center text-[12px] text-white/35 mt-3 leading-relaxed ${compact ? "hidden" : ""}`}>
           Six decks, shuffled by the server for every hand. Split one pair once; split aces get one card each.<br />
           Side bets up to your main bet. Perfect Pairs, 21+3 and Hot 3 are paid on the deal; Bust It when the dealer is done.
         </div>
@@ -440,11 +465,11 @@ export function Blackjack({ nav }: { nav: Nav }) {
 }
 
 /** A betting circle on the felt: your stack, and (for side bets) what it paid. */
-function BetSpot({ label, odds, amount, small, result, onTap }: { label: string; odds: string; amount: number; small?: boolean; result?: SideResult; onTap?: () => void }) {
-  const size = small ? 68 : 92;
+function BetSpot({ label, odds, amount, small, compact, result, onTap }: { label: string; odds: string; amount: number; small?: boolean; compact?: boolean; result?: SideResult; onTap?: () => void }) {
+  const size = small ? (compact ? 58 : 68) : compact ? 80 : 92;
   const won = !!result && (result.pay ?? 0) > 0;
   return (
-    <div className="flex flex-col items-center gap-1" style={{ width: small ? 92 : 110 }}>
+    <div className="flex flex-col items-center gap-1" style={{ width: small ? (compact ? 80 : 92) : compact ? 96 : 110 }}>
       <button
         data-sfx="off"
         disabled={!onTap}
@@ -453,7 +478,7 @@ function BetSpot({ label, odds, amount, small, result, onTap }: { label: string;
         style={{ width: size, height: size, border: `2px solid ${won ? "#fde047" : "rgba(253,230,138,.55)"}`, background: "rgba(0,0,0,.18)" }}
       >
         {amount > 0 ? (
-          <span className="pop"><Chip value={amount >= 1000 ? `${Math.round(amount / 100) / 10}K` : amount} color={amount >= 1000 ? "#d97706" : amount >= 500 ? "#7c3aed" : amount >= 100 ? "#e11d48" : amount >= 50 ? "#16a34a" : "#2563eb"} size={small ? 40 : 50} /></span>
+          <span className="pop"><Chip value={amount >= 1000 ? `${Math.round(amount / 100) / 10}K` : amount} color={amount >= 1000 ? "#d97706" : amount >= 500 ? "#7c3aed" : amount >= 100 ? "#e11d48" : amount >= 50 ? "#16a34a" : "#2563eb"} size={small ? (compact ? 34 : 40) : compact ? 44 : 50} /></span>
         ) : (
           <span className="px-1">
             <span className={`block font-bold text-gold-200/90 leading-tight ${small ? "text-[9.5px]" : "text-[15px]"}`}>{label}</span>
