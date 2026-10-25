@@ -577,6 +577,11 @@ function botMove(s: HandState, ctx: Ctx): Result {
     return res.ok ? res : null;
   };
 
+  // Someone is all in and that is the bet to match: everyone matches it — the full amount, or every coin they have
+  // when that is less (a call for less puts the bot all in too). Nobody folds to an all-in.
+  const facingAllIn = call > 0 && active(s).some((pid) => pid !== id && s.players[pid].allIn && s.players[pid].bet >= s.betLevel);
+  if (facingAllIn) return callOrCheck();
+
   // No human left: wrap up fast — everyone but the closer folds, the closer checks or calls.
   if (activeHumans.length === 0) {
     if (!isCloser && activeBots.length > 1) return act("FOLD");

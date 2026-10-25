@@ -229,13 +229,34 @@ test("a short-stacked bot facing a shove goes all in for its stack; what it can'
   assert.equal(g.balances.p0, 80000);
   assert.equal(g.s.botBalances.p1, 38000);
 
-  // With the worse hand the bot doesn't call a shove it would lose: it folds, and you win just the antes.
+  // An all-in has to be matched even with the worse hand: the bot calls all in for its 19,990 and loses it.
   const g2 = game(2, ["AS AH", "2C 3D"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 100000, p1: 20000 }, bots: ["p1"] });
   ok(act(g2, "p0", "RAISE", { to: 99990 }));
   tick(g2, 5000);
-  assert.equal(g2.s.settlement!.reason, "LAST_STANDING");
-  assert.equal(g2.s.players.p1.status, "FOLDED");
-  assert.equal(g2.balances.p0, 100000 - 10 - 99990 + (100010 - Math.floor(100010 * 0.05)));
+  assert.equal(g2.s.settlement!.reason, "SHOWDOWN");
+  assert.equal(g2.s.players.p1.allIn, true);
+  assert.deepEqual(g2.s.settlement!.winners, [{ playerId: "p0", amount: 38000 }]);
+  assert.equal(g2.balances.p0, 80000 + 38000);
+  assert.equal(g2.s.botBalances.p1, 0);
+});
+
+test("an all-in must be matched: every bot puts in the all-in amount, or everything it has when that is less", () => {
+  // You (110) shove 100 with rags; three bots with better hands match it; the bot with only 60 goes all in for 50.
+  const g = game(4, ["2C 3D", "AS AH", "KS KH", "QS QH"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 110, p1: 100000, p2: 60, p3: 100000 }, bots: ["p1", "p2", "p3"] });
+  ok(act(g, "p0", "RAISE", { to: 100 }));
+  // The bots match it; p1 and p3 still have chips and check the later streets down between themselves.
+  for (let i = 0; i < 20 && g.s.phase === "PLAYING"; i++) tick(g, 5000);
+  assert.equal(g.s.phase, "COMPLETED");
+  assert.equal(g.s.settlement!.reason, "SHOWDOWN");
+  assert.ok(g.s.players.p1.contributed >= 110 && g.s.players.p3.contributed >= 110, "both big stacks matched the 100 (and may have bet more between themselves later)");
+  assert.equal(g.s.players.p1.status, "ACTIVE");
+  assert.equal(g.s.players.p3.status, "ACTIVE");
+  assert.equal(g.s.players.p2.contributed, 60, "p2 had 50 left after the boot: all of it goes in");
+  assert.equal(g.s.players.p2.allIn, true);
+  assert.equal(g.s.players.p0.contributed, 110);
+  // Every layer goes to p1 (aces): the main pot all four reached, the side pot of the three, and anything p3 put in on top.
+  assert.deepEqual(g.s.settlement!.winners.map((w) => w.playerId), ["p1"]);
+  assert.equal(g.s.settlement!.returned?.length ?? 0, 0);
 });
 
 test("a short all-in raise does not reopen the betting for those who already acted; others still have to match it", () => {
