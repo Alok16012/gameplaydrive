@@ -43,6 +43,12 @@ const moveTxt = (m: Move, me: number | null) =>
 
 const dropPts = (mode: RummyMode, middle: boolean) => (mode === "pool201" ? (middle ? 50 : 25) : middle ? 40 : 20);
 
+// The table just left and the leave call still in flight: the next join waits for it and skips that table, so
+// "Exit" followed by joining the same stake never lands the player back at the table they left (its finished game
+// on screen) while the server was still processing the leave.
+let lastLeft: string | null = null;
+let pendingLeave: Promise<unknown> | null = null;
+
 export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: askedDeals, code, cards = 13, avoid }: { nav: Nav; mode: RummyMode; stake: number; deals: number; code?: string; cards?: 13 | 21; avoid?: string }) {
   const maxPts = cards === 21 ? 120 : 80;
   const gameName = cards === 21 ? "21 Card Rummy" : "Rummy";
@@ -148,8 +154,10 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     (async () => {
       const args = { p_mode: askedMode, p_stake: askedStake, p_deals: askedMode === "deals" ? askedDeals : 0, p_code: code ?? null, p_cards: cards };
       // "Join another table": skip the table just left (needs 030_rummy_join_another.sql; without it, join as before).
-      let { data, error } = await joinOnce("rm_join", avoid ? { ...args, p_avoid: avoid } : args);
-      if (error && avoid && /rm_join|function|schema cache/i.test(errText(error))) ({ data, error } = await joinOnce("rm_join", args));
+      if (pendingLeave) { try { await pendingLeave; } catch { /* the join goes ahead regardless */ } pendingLeave = null; }
+      const skip = avoid ?? lastLeft ?? undefined;
+      let { data, error } = await joinOnce("rm_join", skip ? { ...args, p_avoid: skip } : args);
+      if (error && skip && /rm_join|function|schema cache/i.test(errText(error))) ({ data, error } = await joinOnce("rm_join", args));
       if (!alive) return;
       if (error) return setErr(errText(error));
       tableId.current = data as string;
@@ -299,6 +307,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     const old = tableId.current;
     // Leave first and wait for it — joining before the leave lands put you back at this same table.
     if (old) {
+      lastLeft = old;
       const { error } = await supabase().rpc("rm_leave", { p_table: old });
       if (error) { setMoving(false); return showToast(errText(error)); }
     }
@@ -311,7 +320,12 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   // result sheet (or Exit) gives the seat up.
 
   const leave = () => {
-    if (tableId.current) fire(supabase().rpc("rm_leave", { p_table: tableId.current }));
+    if (tableId.current) {
+      lastLeft = tableId.current;
+      const q = Promise.resolve(supabase().rpc("rm_leave", { p_table: tableId.current }));
+      pendingLeave = q;
+      fire(q);
+    }
     clearActive();
     nav.back();
   };
