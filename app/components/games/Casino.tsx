@@ -154,17 +154,19 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     return () => clearInterval(t);
   }, []);
 
-  // Other players' bets trickle in during betting.
+  // Other players' bets trickle in during betting — the more people in the room, the bigger each one. (The pool on a
+  // side shows these plus your own bet on it, so your bet can never be more than the pool.)
   useEffect(() => {
     if (phase !== "betting") return;
     const t = setInterval(() => {
       setCrowd((c) => {
         const s = sides[Math.floor(Math.random() * sides.length)].id;
-        return { ...c, [s]: (c[s] ?? 0) + CHIPS[Math.floor(Math.random() * 4)].v };
+        const heads = Math.max(1, Math.round(online / 40));
+        return { ...c, [s]: (c[s] ?? 0) + CHIPS[Math.floor(Math.random() * 4)].v * heads };
       });
     }, 450);
     return () => clearInterval(t);
-  }, [phase, sides]);
+  }, [phase, sides, online]);
 
   // Round state machine
   useEffect(() => {
@@ -336,7 +338,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
               >
                 <div className="font-semibold">{s.label}</div>
                 <div className="text-[11px] text-white/70">{s.odds}</div>
-                <div className="text-[10px] text-white/45 mt-1">Pool {inr(crowd[s.id] ?? 0)}</div>
+                <div className="text-[10px] text-white/45 mt-1">Pool {inr((crowd[s.id] ?? 0) + my)}</div>
                 {my > 0 && (
                   <div className="absolute -top-2.5 -right-2 pop">
                     <span className="pill px-2 py-0.5 text-[11px] font-bold bg-gold-400 text-slate-900 shadow">{inr(my)}</span>
