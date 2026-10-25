@@ -20,6 +20,28 @@ const BET_SECS = 25;
 const SPIN_MS = 9000;
 const RESULT_MS = 3800;
 const MAX_STAKE = 100000;
+/** One whole round, betting to next betting. */
+const ROUND_MS = BET_SECS * 1000 + SPIN_MS + 300 + RESULT_MS;
+const ROOM_KEY = "rl_room";
+/** A spin nobody bet on: 0 about once in forty, like the server's wheel. */
+const wheelNumber = () => (Math.random() < 1 / 40 ? 0 : 1 + Math.floor(Math.random() * 36));
+/** The room as it was when this screen was last open: the last numbers, the round number, and when. The wheel keeps
+ *  turning while nobody is watching, so on return the rounds missed in between are filled in — the history strip
+ *  never shows the same old numbers after a refresh. */
+function loadRoom(): { hist: number[]; round: number } | null {
+  try {
+    const raw = localStorage.getItem(ROOM_KEY);
+    if (!raw) return null;
+    const r = JSON.parse(raw) as { hist: number[]; round: number; at: number };
+    if (!Array.isArray(r.hist) || typeof r.round !== "number" || typeof r.at !== "number") return null;
+    const missed = Math.min(40, Math.max(0, Math.floor((Date.now() - r.at) / ROUND_MS)));
+    const hist = [...Array.from({ length: missed }, wheelNumber), ...r.hist].slice(0, 20);
+    return { hist, round: r.round + missed };
+  } catch { return null; }
+}
+function saveRoom(hist: number[], round: number) {
+  try { localStorage.setItem(ROOM_KEY, JSON.stringify({ hist: hist.slice(0, 20), round, at: Date.now() })); } catch { /* private mode etc. */ }
+}
 const CHIPS: { v: number; c: string }[] = [
   { v: 20, c: "#16a34a" },
   { v: 50, c: "#0d9488" },
@@ -97,13 +119,19 @@ export function Roulette({ nav }: { nav: Nav }) {
   const anim = useRef(0);
   useEffect(() => () => cancelAnimationFrame(anim.current), []);
   const [round, setRound] = useState(() => 40000 + Math.floor(Math.random() * 900));
+  const roomLoaded = useRef(false);
   const betsRef = useRef(bets);
   betsRef.current = bets;
   const busy = useRef(false);
 
+  // The last numbers: the room as it was left (with the rounds missed since filled in); for a first visit, the
+  // player's own spins from the server.
   useEffect(() => {
-    supabase().rpc("rl_history").then(({ data }) => Array.isArray(data) && data.length && setHist(data as number[]));
+    const room = loadRoom();
+    if (room) { setHist(room.hist); setRound(room.round); roomLoaded.current = true; return; }
+    supabase().rpc("rl_history").then(({ data }) => { if (!roomLoaded.current && Array.isArray(data) && data.length) setHist(data as number[]); });
   }, []);
+  useEffect(() => { if (hist.length) saveRoom(hist, round); }, [hist, round]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 200);
     return () => clearInterval(t);
@@ -191,7 +219,7 @@ export function Roulette({ nav }: { nav: Nav }) {
           applyBalance(r.balance);
           go(r.number, r.payout, r.stake, release);
         });
-      } else go(Math.floor(Math.random() * 37), 0, 0, () => {});
+      } else go(wheelNumber(), 0, 0, () => {});
     } else if (phase === "result") {
       setBets([]);
       setCrowd([]);
