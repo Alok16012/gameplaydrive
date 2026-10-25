@@ -345,11 +345,12 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
           ))}
 
           <div className="absolute left-[10%] right-[10%] top-[13%] bottom-[17%] felt-oval">
-            <div className="absolute inset-x-0 top-[44%] text-center text-[20px] font-black tracking-[0.35em] text-white/10">TEEN PATTI</div>
+            <div className="absolute inset-x-0 top-[72%] text-center text-[20px] font-black tracking-[0.35em] text-white/10">TEEN PATTI</div>
           </div>
 
-          {/* Pot and status */}
-          <div className="absolute left-1/2 top-[36%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-center z-10 w-[44%]">
+          {/* Pot and status — centred on the felt, below the top seats' name tags and above your cards, so nothing
+              overlaps on a phone (the stage is only ~290px tall there). */}
+          <div className="absolute left-1/2 top-[48%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-center z-10 w-[44%]">
             {!resp ? (
               <div className="text-[13px] text-white/80">Finding a table…</div>
             ) : !liveHand ? (
