@@ -3,7 +3,7 @@
 import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, LogOut, Menu, Plus } from "lucide-react";
+import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, LogOut, Menu, Plus, Trophy } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
 import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
@@ -727,6 +727,18 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               <ArrowDownUp size={17} /> Sort
             </button>
           </div>
+        )}
+        {/* Between Drop and Exit: declare — with the card to put on the show slot selected, it opens the same check
+            as dropping a card on "Show"; without one it says what to do. */}
+        {inDeal && (
+          <button
+            disabled={!myTurn || v?.phase !== "discard" || busy}
+            onClick={() => (canDiscard ? setConfirm("declare") : showToast("Select the card to put on Show, then tap Declare"))}
+            className={`absolute z-20 bottom-2 rounded-full border-2 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 shadow-md active:scale-95 transition-all disabled:opacity-40 ${canDiscard ? "border-gold-300 bg-gold-500 text-black animate-pulse" : "border-gold-300/70 bg-black/30 text-gold-200"}`}
+            style={{ right: "calc(3% + 96px)" }}
+          >
+            <Trophy size={18} /> Declare
+          </button>
         )}
         {/* Bottom-right: exit the table (asks first) */}
         <button onClick={() => setExitAsk(true)} className="absolute z-20 bottom-2 right-[3%] rounded-full border-2 border-rose-300/80 px-3.5 py-1.5 text-[15px] font-bold flex items-center gap-1.5 bg-black/40 text-rose-200 shadow-md active:scale-95 transition-all">
