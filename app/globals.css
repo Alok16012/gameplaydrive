@@ -237,3 +237,18 @@ body {
 /* Ludo turn clock: the ring empties over the turn, green → amber → red. */
 @keyframes ludo-timer { from { stroke-dashoffset: 0; stroke: #22c55e; } 55% { stroke: #facc15; } 80% { stroke: #ef4444; } to { stroke-dashoffset: 100; stroke: #ef4444; } }
 .ludo-timer { animation: ludo-timer linear forwards; }
+
+/* Poker room (styled after native poker apps): dark room, tall green stadium-shaped felt with a dark rim. */
+.pk-room {
+  background: radial-gradient(90% 60% at 50% 40%, #16211b 0%, #0b100d 70%, #060806 100%);
+}
+.pk-felt {
+  border-radius: 9999px;
+  background: radial-gradient(55% 45% at 50% 42%, #2f9f6c 0%, #237a52 55%, #1a5f3f 100%);
+  box-shadow:
+    inset 0 0 60px rgba(0, 0, 0, 0.45),
+    0 0 0 10px #2a2f2c,
+    0 0 0 13px #15191a,
+    0 0 0 14px rgba(255, 255, 255, 0.06),
+    0 20px 40px rgba(0, 0, 0, 0.6);
+}
