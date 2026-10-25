@@ -275,13 +275,13 @@ const BOT_NAMES = ["Rahul", "Priya", "Aman", "Sneha", "Vikram", "Pooja", "Arjun"
 const BOT_EMOJI = ["👨🏽", "👩🏻", "🧔🏾", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👱🏽‍♂️", "👩🏾", "🧑🏽‍🦰", "👨🏿", "👩🏼‍🦰", "🧕🏽"];
 
 /**
- * A bot's table stack: sized to the table's pot limit, like a player who sat down with a few pots' worth — between
- * 0.6× and 3× the pot limit, most of them nearer the low end, and never the same twice. lo/hi also decide when a
- * bot leaves: below lo/3 it is nearly broke, above 2·hi it has won big and cashes out — either way a new bot with a
- * fresh stack takes the seat. (Without a pot limit, a few hundred boots.)
+ * A bot's table stack: sized to the table's pot limit, like a player who sat down with about a pot's worth —
+ * between half the pot limit and the limit plus 3,000, most of them nearer the low end, and never the same twice.
+ * lo/hi also decide when a bot leaves: below lo/3 it is nearly broke, above hi it has won past the pot limit and cashes out —
+ * either way a new bot with a fresh stack takes the seat. (Without a pot limit, a few hundred boots.)
  */
 export function botStackRange(boot: number, potCap?: number | null) {
-  if (potCap) return { lo: Math.max(boot * 20, Math.round(potCap * 0.6)), hi: potCap * 3 };
+  if (potCap) return { lo: Math.max(boot * 20, Math.round(potCap * 0.5)), hi: potCap + 3000 };
   return { lo: Math.max(boot * 500, 100_000), hi: Math.max(boot * 2500, 2_500_000) };
 }
 
@@ -295,7 +295,7 @@ export function botStack(boot: number, rng: Rng, potCap?: number | null) {
 
 const botStays = (boot: number, bal: number, potCap?: number | null) => {
   const { lo, hi } = botStackRange(boot, potCap);
-  return bal >= Math.max(boot * 4, lo / 3) && bal <= hi * 2;
+  return bal >= Math.max(boot * 4, lo / 3) && bal <= hi;
 };
 
 /** Public tables keep six seats busy with bots; private tables never get any. */

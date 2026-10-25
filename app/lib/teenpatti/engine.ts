@@ -605,6 +605,15 @@ function botMove(s: HandState, ctx: Ctx): Result {
   }
 
   if (isCloser || left <= 2) {
+    // Out of coins for the next chaal: a real player would call for the show, or fold if the show isn't allowed yet
+    // (the other side is still blind). A bot's stack never goes below zero.
+    if (stack() < betAmount(st, id, false).amount) {
+      if (!st.players[id].seen) {
+        const l = look();
+        if (l) return l;
+      }
+      return tryAct("SHOW") ?? tryAct("PACK") ?? bet();
+    }
     if (left === 2) {
       const opp = active(st).find((x) => x !== id)!;
       if (st.players[opp].seen) {
