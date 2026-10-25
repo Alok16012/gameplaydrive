@@ -1,7 +1,7 @@
 "use client";
 
 import { sfx, useResultSound, useSoundOnRise } from "../../lib/sound";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { History, RotateCcw, Repeat, Undo2, Users } from "lucide-react";
 import { useLiveCount } from "../../lib/liveCount";
 import { deck, gameById, inr, rankValue, randomCard, type Card, type GameId } from "../../lib/data";
@@ -17,6 +17,9 @@ const BET_SECS = 10;
 // Dragon Tiger: the Tiger card opens this long after the Dragon card, for suspense.
 // Dragon Tiger: the Dragon card opens at once; a 3-2-1 count runs on the table and then the Tiger card opens.
 const DT_TIGER_DELAY_MS = 3000;
+/** The most a player may stake on one side (the header says so; the pools open above it). */
+const MAX_BET = 10000;
+
 const CHIPS: { v: number; c: string }[] = [
   { v: 10, c: "#2563eb" },
   { v: 50, c: "#16a34a" },
@@ -141,7 +144,15 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [roundNo, setRoundNo] = useState(() => 88200 + Math.floor(Math.random() * 90));
   const online = useLiveCount(Math.floor(game.online / 40));
   const [won, setWon] = useState<number | null>(null);
-  const [crowd, setCrowd] = useState<Record<string, number>>({});
+  // The crowd's money on each side. A round opens with every side already holding several times the table's max bet
+  // (the room's players are in before you), so no bet of yours can ever be more than the pool it joins.
+  const seedCrowd = useCallback((): Record<string, number> => {
+    const heads = Math.max(1, Math.round(online / 40));
+    const out: Record<string, number> = {};
+    for (const s of sides) out[s.id] = Math.round((MAX_BET * (2 + Math.random() * 4) * heads) / 100) * 100;
+    return out;
+  }, [online, sides]);
+  const [crowd, setCrowd] = useState<Record<string, number>>(() => seedCrowd());
   const [hist, setHist] = useState<string[]>(() => Array.from({ length: 20 }, () => playRound(gameId).winner));
   const betsRef = useRef(bets);
   betsRef.current = bets;
@@ -216,14 +227,14 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
       setEndsAt(Date.now() + 3500);
     } else if (phase === "result") {
       setBets([]);
-      setCrowd({});
+      setCrowd(seedCrowd());
       setWon(null);
       setRound(null);
       setRoundNo((n) => n + 1);
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
     }
-  }, [now, endsAt, phase, round, gameId, roundNo, showToast, applyBalance, holdWinnings]);
+  }, [now, endsAt, phase, round, gameId, roundNo, showToast, applyBalance, holdWinnings, seedCrowd]);
 
   // Sounds: the two Dragon Tiger cards land, and a win / lose cue when the round settles.
   useEffect(() => {
