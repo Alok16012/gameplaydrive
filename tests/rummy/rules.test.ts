@@ -32,11 +32,13 @@ test("13 cards: three identical cards are not a 3 Naali either", () => {
   assert.equal(sc.valid, false);
 });
 
-test("21 cards: a Double and a 3 Naali keep their names and the 8-Doubles rummy still works", () => {
+test("21 cards: a Double shows as invalid and counts as points (no 8-Doubles rummy); a 3 Naali keeps its name", () => {
   const dubs: RCard[][] = Array.from({ length: 8 }, (_, i) => [c(String(2 + i), "♣", 100 + i * 2), c(String(2 + i), "♣", 101 + i * 2)]);
   const rest: RCard[][] = [[c("A", "♠", 1), c("2", "♠", 2), c("3", "♠", 3)], [c("K", "♥", 4), c("Q", "♦", 5)]];
   const sc = scoreGroups([...dubs, ...rest], "7");
-  assert.equal(sc.kinds[0], "dublee");
-  assert.equal(sc.valid, true);
-  assert.equal(sc.points, 0);
+  assert.equal(sc.kinds[0], "invalid");
+  assert.equal(sc.valid, false);
+  assert.ok(sc.points > 0);
+  const tun: RCard[][] = [[c("5", "♦", 50), c("5", "♦", 51), c("5", "♦", 52)]];
+  assert.equal(scoreGroups([...tun, ...dubs, ...rest], "7").kinds[0], "tunnela");
 });

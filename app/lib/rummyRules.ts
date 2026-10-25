@@ -68,14 +68,15 @@ export function scoreGroups(groups: Card[][], wild: string): { points: number; v
   const sum = (gs: Card[][]) => gs.flat().reduce((a, c) => a + cardPoints(c, wild), 0);
   const count = groups.reduce((a, g) => a + g.length, 0);
   // 21 Card Rummy (the hand size picks the rules): 3 pure sequences needed (a 3 Naali counts as one); without them every
-  // card counts; max 120. 3 Naali ×3 or 8 Doubles is a rummy on its own.
+  // card counts; max 120. 3 Naali ×3 is a rummy on its own. A pair of identical cards (a "Double") is nothing on
+  // its own here either — it shows as invalid and counts as points, like any two loose cards.
   if (count >= 20) {
-    const tun = kinds.filter((k) => k === "tunnela").length;
-    const dub = kinds.filter((k) => k === "dublee").length;
-    if (count === 21 && (tun >= 3 || dub >= 8)) return { points: 0, valid: true, kinds };
+    const kinds21 = kinds.map((k) => (k === "dublee" ? "invalid" : k));
+    const tun = kinds21.filter((k) => k === "tunnela").length;
+    if (count === 21 && tun >= 3) return { points: 0, valid: true, kinds: kinds21 };
     const good = (k: GroupKind) => k === "pure" || k === "impure" || k === "set" || k === "tunnela";
-    const points = pure + tun < 3 ? sum(groups) : sum(groups.filter((_, i) => !good(kinds[i])));
-    return { points: Math.min(points, 120), valid: count === 21 && pure + tun >= 3 && kinds.every(good), kinds };
+    const points = pure + tun < 3 ? sum(groups) : sum(groups.filter((_, i) => !good(kinds21[i])));
+    return { points: Math.min(points, 120), valid: count === 21 && pure + tun >= 3 && kinds21.every(good), kinds: kinds21 };
   }
   // 13 Card Rummy: a 3 Naali or a Double is nothing special — three identical cards or a pair of them are just
   // loose cards — so they are shown and scored as invalid.
