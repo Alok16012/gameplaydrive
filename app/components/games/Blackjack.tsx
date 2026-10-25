@@ -79,16 +79,18 @@ interface Frame { dealer: Card[]; hands: Card[][]; hole: boolean; ms: number }
 
 /** Phones and short windows: smaller cards and betting circles so the whole table and the action buttons fit on one
  *  screen without scrolling (an iPhone is 852px tall; the full-size table needs about 900). */
-function useCompact() {
-  const [compact, setCompact] = useState(false);
+function useCompact(): { compact: boolean; tight: boolean } {
+  const [m, setM] = useState({ compact: false, tight: false });
   useEffect(() => {
-    const mq = window.matchMedia("(max-height: 900px), (max-width: 420px)");
-    const on = () => setCompact(mq.matches);
+    const c = window.matchMedia("(max-height: 900px), (max-width: 420px)");
+    const t = window.matchMedia("(max-height: 800px)");
+    const on = () => setM({ compact: c.matches, tight: t.matches });
     on();
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
+    c.addEventListener("change", on);
+    t.addEventListener("change", on);
+    return () => { c.removeEventListener("change", on); t.removeEventListener("change", on); };
   }, []);
-  return compact;
+  return m;
 }
 const DEAL_MS = 850;    // each card of the opening deal
 const HIT_MS = 800;     // a card you asked for
@@ -297,10 +299,10 @@ export function Blackjack({ nav }: { nav: Nav }) {
     betting && bet > 0 ? stakes[spot] : spot === "main" ? (playing || done ? v?.bet ?? 0 : 0) : (playing || done ? (v?.side?.[spot]?.bet ?? 0) : 0);
 
   const net = (v?.payout ?? 0) + (v?.side?.bi?.pay ?? 0) - staked - (v?.side?.bi?.bet ?? 0);
-  const compact = useCompact();
-  const cardSize = compact ? "md" : "lg";
-  const cardRow = compact ? "min-h-[74px]" : "min-h-[96px]";
-  const spotPos: Record<Spot, React.CSSProperties> = compact
+  const { compact, tight } = useCompact();
+  const cardSize = tight ? "md" : "lg";
+  const cardRow = tight ? "min-h-[74px]" : "min-h-[96px]";
+  const spotPos: Record<Spot, React.CSSProperties> = tight
     ? {
         t3: { left: "14%", top: 0 },
         pp: { right: "14%", top: 0 },
@@ -325,9 +327,9 @@ export function Blackjack({ nav }: { nav: Nav }) {
         right={<div className="text-right"><div className="text-[10px] text-white/50">Balance</div><Money n={total - (betting ? bet : 0)} className="text-sm font-semibold text-neon-400" /></div>}
       />
 
-      <div className="px-4">
-        {/* Table */}
-        <div className={`rounded-[28px] felt relative overflow-hidden ${compact ? "p-3 pb-2" : "p-4 pb-3"}`} style={{ minHeight: compact ? 0 : 470 }}>
+      <div className="px-4 flex-1 flex flex-col">
+        {/* Table: on a phone it grows to fill the screen above the buttons, with the betting spots at its foot */}
+        <div className={`rounded-[28px] felt relative overflow-hidden flex flex-col ${compact ? "flex-1 p-3 pb-2" : "p-4 pb-3"}`} style={{ minHeight: compact ? 0 : 470 }}>
           {/* the shoe */}
           <div className="absolute right-3 top-3 w-10 h-14 rounded-md bg-gradient-to-b from-[#7f1d1d] to-[#450a0a] border border-black/40 shadow-lg rotate-[8deg]">
             <div className="absolute inset-1 rounded-sm border border-white/20 bg-[repeating-linear-gradient(45deg,#991b1b_0_4px,#7f1d1d_4px_8px)]" />
@@ -345,7 +347,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
 
           <div className="my-2 text-center text-[10.5px] text-gold-300/70 tracking-wide">BLACKJACK PAYS 3 TO 2 • DEALER STANDS ON ALL 17s</div>
 
-          <div className={`grid gap-3 ${hands.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+          <div className={`grid gap-3 ${hands.length > 1 ? "grid-cols-2" : "grid-cols-1"} ${compact ? "my-auto" : ""}`}>
             {hands.map((h, hi) => {
               const active = playing && !dealing && v?.active === hi && hands.length > 1;
               return (
@@ -353,7 +355,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
                   <div className={`flex justify-center ${cardRow}`}>
                     {h.cards.map((c, i) => (
                       <span key={i} className={`inline-block ${i ? (hands.length > 1 ? "-ml-7" : "-ml-6") : ""} ${h.doubled && i === 2 ? "rotate-90 ml-1" : ""}`}>
-                        <PlayingCard card={c} size={hands.length > 1 ? (compact ? "sm" : "md") : cardSize} className="dealin shadow-xl" />
+                        <PlayingCard card={c} size={hands.length > 1 ? (tight ? "sm" : "md") : cardSize} className="dealin shadow-xl" />
                       </span>
                     ))}
                   </div>
@@ -368,7 +370,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
           </div>
 
           {/* Betting spots: the four side bets around the main bet, like Infinite Blackjack */}
-          <div className="mt-2 flex flex-col items-center">
+          <div className="mt-auto pt-2 flex flex-col items-center">
             <button
               data-sfx="off"
               disabled={!betting}
@@ -377,13 +379,13 @@ export function Blackjack({ nav }: { nav: Nav }) {
             >
               ◎ ALL SIDE BETS
             </button>
-            <div className="relative mt-2 w-full max-w-[320px]" style={{ height: compact ? 148 : 178 }}>
+            <div className="relative mt-2 w-full max-w-[320px]" style={{ height: tight ? 148 : 178 }}>
               {(["t3", "pp", "main", "h3", "bi"] as Spot[]).map((spot) => (
                 <div key={spot} className="absolute" style={spotPos[spot]}>
                   {spot === "main" ? (
-                    <BetSpot label="BET" odds="" amount={shown("main")} compact={compact} onTap={betting ? () => place("main") : undefined} />
+                    <BetSpot label="BET" odds="" amount={shown("main")} compact={tight} onTap={betting ? () => place("main") : undefined} />
                   ) : (
-                    <BetSpot label={SIDE_INFO[spot].label} odds={SIDE_INFO[spot].odds} amount={shown(spot)} small compact={compact} result={sideShown(spot)} onTap={betting ? () => place(spot) : undefined} />
+                    <BetSpot label={SIDE_INFO[spot].label} odds={SIDE_INFO[spot].odds} amount={shown(spot)} small compact={tight} result={sideShown(spot)} onTap={betting ? () => place(spot) : undefined} />
                   )}
                 </div>
               ))}
