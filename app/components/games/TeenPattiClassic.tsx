@@ -448,7 +448,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
                   title={me?.canSee?.ok ? "Tap cards to see" : undefined}
                 >
                   {(myCards ?? [undefined, undefined, undefined]).map((c, i) => (
-                    <PlayingCard key={i} card={c ? ui(c) : undefined} faceDown={!c} size="lg" className={`${c ? "flip" : ""} ${meInHand.status === "PACKED" ? "opacity-50" : ""}`} style={{ transform: `rotate(${(i - 1) * 7}deg) translateY(${Math.abs(i - 1) * 5}px)` }} />
+                    <PlayingCard key={i} card={c ? ui(c) : undefined} faceDown={!c} size="lg" className={`w-[58px]! h-[81px]! text-base! ${c ? "flip" : ""} ${meInHand.status === "PACKED" ? "opacity-50" : ""}`} style={{ transform: `rotate(${(i - 1) * 7}deg) translateY(${Math.abs(i - 1) * 5}px)` }} />
                   ))}
                 </div>
                 <div className="mt-1 text-[12px] text-white/85 bg-black/45 rounded px-2">
