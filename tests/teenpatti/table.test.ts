@@ -124,7 +124,7 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
   let t = fillBots(sitDown(fresh(), human("h"), 0).table, rng, 0);
   const bal: Record<string, number> = { h: 10_000_000 };
   const pay = (ledger: { playerId: string; bot: boolean; amount: number }[]) => { for (const e of ledger) if (!e.bot) bal[e.playerId] += e.amount; };
-  const out: { won: boolean; reason: string; actions: number; pot: number; botSideshows: number; blindPacks: number; minBotBal: number }[] = [];
+  const out: { won: boolean; reason: string; actions: number; pot: number; botSideshows: number; blindPacks: number; instantPacks: number; minBotBal: number }[] = [];
   let now = 1000, seen: string | null = null;
   for (let guard = 0; guard < 200_000 && t.handNo <= hands; guard++) {
     now += 1000;
@@ -152,6 +152,9 @@ function playHands(modes: Record<string, string> | undefined, hands: number, see
         won: st.winners.some((w) => w.playerId === "h"), reason: st.reason, actions: h.actionCount, pot: h.pot,
         botSideshows: h.events.filter((e) => e.type === "SIDESHOW_REQUEST" && bot(e.playerId)).length,
         blindPacks: h.events.filter((e) => e.type === "PACK" && bot(e.playerId) && !h!.events.some((x) => x.seq < e.seq && x.playerId === e.playerId && x.type === "SEE")).length,
+        // A bot that looks and packs in the same instant looks like a blind pack on screen: looking must come first,
+        // with a real pause before the pack.
+        instantPacks: h.events.filter((e) => e.type === "PACK" && bot(e.playerId) && h!.events.some((x) => x.playerId === e.playerId && x.type === "SEE" && e.at - x.at < 1000)).length,
         minBotBal: Math.min(...Object.values(h.botBalances)),
       });
     }
@@ -178,6 +181,7 @@ test("house bots: the human wins only small pots and loses at a show; force_loss
     // (Under force_win every bot is beaten and packs early, so there is nobody to ask for a side show.)
     if (name !== "force_win") assert.ok(res.reduce((s, r) => s + r.botSideshows, 0) > 0, `${name}: bots never asked for a side show`);
     assert.equal(res.reduce((s, r) => s + r.blindPacks, 0), 0, `${name}: a bot packed without looking`);
+    assert.equal(res.reduce((s, r) => s + r.instantPacks, 0), 0, `${name}: a bot looked and packed in the same instant`);
     assert.ok(res.every((r) => r.minBotBal >= 0), `${name}: a bot's stack went below zero`);
   }
 });

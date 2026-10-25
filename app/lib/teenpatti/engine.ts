@@ -494,11 +494,17 @@ function botMove(s: HandState, ctx: Ctx): Result {
     }
     return null;
   };
-  /** Look at the cards once the blind-chaal rule allows it. */
-  const see = () => {
-    if (st.players[id].seen) return;
+  /**
+   * Look at the cards once the blind-chaal rule allows it. Looking is a move of its own: the bot is shown as seen
+   * and acts again 1.5-4 s later, like a player who picks up their cards and thinks — never "see and pack" in the
+   * same instant, which looked like packing blind.
+   */
+  const look = (): Result | null => {
+    if (st.players[id].seen) return null;
     const res = act("SEE_CARDS");
-    if (res.ok) st = res.state;
+    if (!res.ok) return null;
+    res.state.botActAt = ctx.now + botDelay(res.state, r);
+    return res;
   };
   // BET_MIN is always legal for a bot on its turn (bots' stacks are never checked and the minimum never exceeds the
   // table maximum), so these fallbacks never pack.
@@ -515,12 +521,15 @@ function botMove(s: HandState, ctx: Ctx): Result {
   if (activeHumans.length === 0 && activeBots.length > 1) {
     let best = activeBots[0];
     for (const b of activeBots) if (compareHands(st.cards[b], st.cards[best]) > 0) best = b;
+    // Nobody packs or shows without looking first (one blind if it can't look yet).
+    const l = look();
+    if (l) return l;
+    if (!st.players[id].seen) return bet();
     if (activeBots.length === 2) {
-      see();
       const show = tryAct("SHOW");
       if (show) return show;
     }
-    if (id !== best) { see(); return tryAct("PACK") ?? bet(); }
+    if (id !== best) return tryAct("PACK") ?? bet();
     return bet();
   }
 
@@ -539,7 +548,10 @@ function botMove(s: HandState, ctx: Ctx): Result {
   const left = active(st).length;
 
   // Like real players, bots play a blind or two before looking (the blind limit makes everyone look by the third).
-  if (!st.players[id].seen && st.players[id].blinds >= minBlindOf(st.rules) && r.int(100) < (isCloser ? 60 : 50)) see();
+  if (!st.players[id].seen && st.players[id].blinds >= minBlindOf(st.rules) && r.int(100) < (isCloser ? 60 : 50)) {
+    const l = look();
+    if (l) return l;
+  }
 
   const p = st.players[id];
   const ev = p.seen ? evaluate(st.cards[id]) : null;
@@ -555,7 +567,8 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // pot is past a modest size. (Tied cards: the one who asks loses, so a tie plays on as a win.)
   const losing = activeHumans.length > 0 && !beatsHumans && !tiesHuman;
   if (losing) {
-    see();
+    const l = look();
+    if (l) return l; // looks first; packs (or calls) on its next move, a few seconds later
     if (!st.players[id].seen) return bet(); // can't look yet (first blind): one blind, then look and pack
     const myBetsNow = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
     const inFor = st.players[id].contributed;
@@ -568,7 +581,8 @@ function botMove(s: HandState, ctx: Ctx): Result {
     if (left === 2) {
       const opp = active(st).find((x) => x !== id)!;
       if (st.players[opp].seen) {
-        see();
+        const l = look();
+        if (l) return l;
         // Both seen: ask for the show — at once when the pot is already big, otherwise after a chaal or two so the
         // pot grows a little first. Never on a tie (the one who asks loses a tie): keep betting until the human asks.
         if (st.players[id].seen && !tiesHuman) {
