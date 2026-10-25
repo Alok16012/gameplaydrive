@@ -470,10 +470,16 @@ function internal(s0: HandState, ctx: Ctx, f: (s: HandState, out: LedgerEntry[])
   return { state: s, ledger: out, ok: true, changed: true };
 }
 
-/** Small string hash (FNV-1a), for per-hand, per-bot traits that must not change between polls. */
+/** Small string hash (FNV-1a with a final mix, so ids that differ in one character land far apart), for per-hand,
+ *  per-bot traits that must not change between polls. */
 function hashOf(s: string) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
   return h >>> 0;
 }
 
@@ -548,7 +554,12 @@ function botMove(s: HandState, ctx: Ctx): Result {
   const toCap = st.rules.potCap !== null ? Math.max(0, st.rules.potCap - st.pot) / 2 : 0;
   const deepest = activeBots.filter((b) => canCover(b, Math.max(nextFew(b), toCap)));
   const deep = activeBots.filter((b) => canCover(b, nextFew(b)));
-  const pool = deepest.length ? deepest : deep.length ? deep : activeBots;
+  // Among the bots holding a hand that beats every human ("house hands"), if any — one of them must carry the hand
+  // to the show, whatever its stack, if the deep-stacked one was knocked out or isn't among them.
+  const houseHand = (b: string) => activeHumans.length > 0 && activeHumans.every((h) => compareHands(st.cards[b], st.cards[h]) > 0);
+  const house = activeBots.filter(houseHand);
+  const pick = (xs: string[]) => (house.length ? xs.filter(houseHand) : xs);
+  const pool = pick(deepest).length ? pick(deepest) : pick(deep).length ? pick(deep) : pick(activeBots).length ? pick(activeBots) : activeBots;
   let closer = pool[0];
   for (const b of pool) if (compareHands(st.cards[b], st.cards[closer]) > 0) closer = b;
   const isCloser = id === closer;
@@ -584,25 +595,31 @@ function botMove(s: HandState, ctx: Ctx): Result {
     const inFor = st.players[id].contributed;
     const rank = activeBots.slice().sort((a, b) => compareHands(st.cards[b], st.cards[a])).indexOf(id);
     const budget = inFor >= st.rules.boot * 12 || st.pot >= st.rules.boot * 40 || pressure >= 4;
-    const stayBets = rank === 0 ? 99 : rank === 1 && left >= 3 ? 2 + (grit % 3) : 1 + (grit % 3); // rank 1: 2-4 chaals, rest: 1-3
+    const stayBets = rank === 0 ? 99 : rank === 1 && left >= 3 ? 2 + (grit % 3) : 1 + (grit % 4); // rank 1: 2-4 chaals, rest: 1-4
     // On reaching its number it usually packs, sometimes plays one more; past it, or over budget, it is out.
-    const wantsOut = rank !== 0 && (budget || myBetsNow > stayBets || (myBetsNow === stayBets && r.int(100) < 65) || pressure >= (grit % 2 ? 2 : 4) || inFor >= st.rules.boot * (6 + (grit % 7)) || st.pot >= st.rules.boot * (20 + (grit % 10)));
+    const wantsOut = rank !== 0 && (budget || myBetsNow > stayBets || (myBetsNow === stayBets && r.int(100) < 65) || pressure >= (grit % 2 ? 2 : 4) || inFor >= st.rules.boot * (6 + (grit % 7)) || st.pot >= st.rules.boot * (16 + (grit % 24)));
     if (!st.players[id].seen) {
       // Looks before anything else when it is about to give up (nobody packs blind); otherwise a blind chaal or
       // two first, like a player who likes to play blind, then a look.
-      const l = wantsOut || p.blinds >= 2 || (grit >> 3) % 100 < 55 ? look() : null;
+      const l = wantsOut || p.blinds >= 2 || (grit >>> 3) % 100 < 55 ? look() : null;
       if (l) return l; // acts on its next move, a few seconds later
       return bet();
     }
     if (rank === 0) {
-      // The best of the bots: to the show. Once both are seen it asks after a chaal or two (and at once when the
-      // human is pushing); against a blind human it calls while the budget lasts, then packs.
+      // The best of the bots plays the hand out heads-up, and how it ends differs from hand to hand: most often it
+      // asks for the show after a chaal or two; sometimes it keeps calling and lets the human ask (asking itself
+      // only when its budget is spent); now and then, against a human holding a pair or better, it packs after a
+      // few chaals instead. Against a blind human it calls while the budget lasts, then packs.
+      const style = (grit >>> 7) % 10; // 0-4 show soon, 5-7 wait for the human, 8-9 pack in the end
       if (left === 2) {
         const opp = active(st).find((x) => x !== id)!;
         if (st.players[opp].seen) {
           const cut = Math.max(st.events.map((e) => e.type).lastIndexOf("PACK"), st.events.map((e) => e.type).lastIndexOf("TIMEOUT"), st.events.map((e) => e.type).lastIndexOf("LEFT"), st.events.map((e) => e.type).lastIndexOf("SIDESHOW_RESULT"));
           const headsUpBets = st.events.slice(cut + 1).filter((e) => e.playerId === id && e.type === "BET").length;
-          if (budget || headsUpBets >= 1 || r.int(100) < 40) {
+          const humanStrong = activeHumans.every((h) => evaluate(st.cards[h]).key[0] >= 2);
+          if (style >= 8 && humanStrong && headsUpBets >= 1 + (grit % 2)) return tryAct("PACK") ?? bet();
+          const showNow = style <= 4 ? headsUpBets >= 1 || r.int(100) < 40 : style <= 7 ? headsUpBets >= 3 + (grit % 3) : headsUpBets >= 4;
+          if (budget || showNow) {
             const show = tryAct("SHOW");
             if (show) return show;
           }
@@ -612,10 +629,12 @@ function botMove(s: HandState, ctx: Ctx): Result {
       return bet();
     }
     // The others keep the best bot company for a chaal or three (each its own number), then get out — usually by
-    // packing, now and then by asking the last bettor (another bot) for a side show, which it loses.
+    // packing, now and then by asking the last bettor for a side show, which it loses: against another bot, or
+    // against the human (whose better cards win it — the bot is the one that packs).
     if (wantsOut || betAmount(st, id, false).amount > st.rules.boot * 4) {
       const ss = sideshowCheck(st, id);
-      if (!ss.reason && ss.targetId && st.players[ss.targetId].bot && stack() >= ss.fee * 3 && (grit >> 5) % 100 < 30) {
+      const askedBefore = st.events.some((e) => e.type === "SIDESHOW_REQUEST" && e.playerId === id);
+      if (!ss.reason && ss.targetId && !askedBefore && stack() >= ss.fee * 3 && (grit >>> 5) % 100 < (st.players[ss.targetId].bot ? 25 : 12)) {
         const res = tryAct("SIDESHOW_REQUEST");
         if (res) return res;
       }
@@ -701,7 +720,8 @@ function botMove(s: HandState, ctx: Ctx): Result {
   // Middling or good cards: sometimes settle it with the last bettor by a side show (the lower hand packs). A human
   // is only asked when their cards are better — the bot is the one that packs, the human stays in for the show.
   const ss = sideshowCheck(st, id);
-  const askable = !!ss.targetId && (st.players[ss.targetId].bot || compareHands(st.cards[id], st.cards[ss.targetId]) < 0);
+  // Never a side show that would knock out another house hand (a bot that beats the human) — those stay for the show.
+  const askable = !!ss.targetId && (st.players[ss.targetId].bot ? !houseHand(ss.targetId) : compareHands(st.cards[id], st.cards[ss.targetId]) < 0);
   if (tier >= 1 && tier <= 2 && !ss.reason && askable && stack() >= ss.fee * 4 && r.int(100) < 25) {
     const res = tryAct("SIDESHOW_REQUEST");
     if (res) return res;
@@ -715,6 +735,9 @@ function botMove(s: HandState, ctx: Ctx): Result {
 function botAcceptsSideshow(s: HandState, id: string, r: Rng) {
   const reqId = s.pending?.requesterId;
   if (reqId && s.cards[reqId] && compareHands(s.cards[id], s.cards[reqId]) >= 0) return r.int(100) < 90;
+  // A bot holding a hand that beats every human never lets a side show it would lose take it out of the hand.
+  const humans = active(s).filter((x) => !s.players[x].bot);
+  if (humans.length && humans.every((h) => compareHands(s.cards[id], s.cards[h]) > 0)) return false;
   const cat = evaluate(s.cards[id]).key[0];
   return cat >= 2 ? r.int(100) < 60 : r.int(100) < 20;
 }
