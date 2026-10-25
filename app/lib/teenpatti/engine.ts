@@ -562,16 +562,43 @@ function botMove(s: HandState, ctx: Ctx): Result {
   const beatsHumans = activeHumans.every((h) => compareHands(st.cards[id], st.cards[h]) > 0);
   const tiesHuman = activeHumans.some((h) => compareHands(st.cards[id], st.cards[h]) === 0);
 
-  // Beaten by the human: no bot feeds a pot it is going to lose. A cheap call or two while the stake is still the
-  // boot, then pack — before the stake doubles, before this bot has more than a few boots in, and always once the
-  // pot is past a modest size. (Tied cards: the one who asks loses, so a tie plays on as a win.)
+  // Beaten by the human (a force_win deal, or the half of fair deals that go the player's way). Nobody feeds a pot
+  // they will lose, but the hand still looks like a hand: the best bot plays it to a show and loses it there, one
+  // more bot keeps it company for a couple of rounds, the rest pack after a cheap call. Every bot stays within a
+  // small budget — no raises, and out before the stake or the pot grows — so the human wins with real cards and a
+  // show on the table, never a pot the bots built.
   const losing = activeHumans.length > 0 && !beatsHumans && !tiesHuman;
   if (losing) {
     const l = look();
-    if (l) return l; // looks first; packs (or calls) on its next move, a few seconds later
-    if (!st.players[id].seen) return bet(); // can't look yet (first blind): one blind, then look and pack
+    if (l) return l; // looks first; acts on its next move, a few seconds later
+    if (!st.players[id].seen) return bet(); // can't look yet (first blind): one blind, then look
     const myBetsNow = st.events.filter((e) => e.playerId === id && e.type === "BET").length;
     const inFor = st.players[id].contributed;
+    const rank = activeBots.slice().sort((a, b) => compareHands(st.cards[b], st.cards[a])).indexOf(id);
+    const budget = inFor >= st.rules.boot * 12 || st.pot >= st.rules.boot * 40 || pressure >= 4;
+    if (rank === 0) {
+      // The best of the bots: to the show. Once both are seen it asks after a chaal or two (and at once when the
+      // human is pushing); against a blind human it calls while the budget lasts, then packs.
+      if (left === 2) {
+        const opp = active(st).find((x) => x !== id)!;
+        if (st.players[opp].seen) {
+          const cut = Math.max(st.events.map((e) => e.type).lastIndexOf("PACK"), st.events.map((e) => e.type).lastIndexOf("TIMEOUT"), st.events.map((e) => e.type).lastIndexOf("LEFT"), st.events.map((e) => e.type).lastIndexOf("SIDESHOW_RESULT"));
+          const headsUpBets = st.events.slice(cut + 1).filter((e) => e.playerId === id && e.type === "BET").length;
+          if (budget || headsUpBets >= 1 || r.int(100) < 40) {
+            const show = tryAct("SHOW");
+            if (show) return show;
+          }
+        }
+      }
+      if (budget) return tryAct("PACK") ?? bet();
+      return bet();
+    }
+    if (rank === 1 && left >= 3) {
+      // Keeps the best bot company for a couple of rounds, then packs.
+      if (budget || myBetsNow >= 3 || pressure >= 2 || inFor >= st.rules.boot * 5) return tryAct("PACK") ?? bet();
+      return bet();
+    }
+    // The rest: a cheap call or two, then out.
     const giveUp = pressure >= 2 || inFor >= st.rules.boot * 4 || myBetsNow >= 2 || st.pot >= st.rules.boot * 12 || betAmount(st, id, false).amount > st.rules.boot * 2;
     if (giveUp) return tryAct("PACK") ?? bet();
     return bet();

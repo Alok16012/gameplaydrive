@@ -168,7 +168,11 @@ test("house bots: the human wins only small pots and loses at a show; force_loss
     const res = playHands(modes, 20, 11);
     // The house's side of every hand: when the human holds the winning cards the bots pack early and the pot stays
     // small; when a bot does, the hand goes to a show and the pot is worth having.
-    for (const r of res.filter((x) => x.won)) assert.ok(r.pot <= 10 * 20, `${name}: the human won a pot the bots built (${r.pot})`);
+    // A won pot stays within the losing bots' budget (about forty boots), and is taken at a show: the best bot plays
+    // it through rather than every bot packing in a row.
+    for (const r of res.filter((x) => x.won)) assert.ok(r.pot <= 10 * 40, `${name}: the human won a pot the bots built (${r.pot})`);
+    const won = res.filter((x) => x.won);
+    assert.ok(won.filter((r) => r.reason === "SHOW").length >= won.length * 0.8, `${name}: hands the human wins should mostly end with a show, not everyone packing`);
     const lost = res.filter((x) => !x.won);
     assert.ok(lost.filter((r) => r.reason === "SHOW").length >= lost.length * 0.9, `${name}: hands the human loses should end with a show`);
     const avg = res.reduce((s, r) => s + r.actions, 0) / res.length;
