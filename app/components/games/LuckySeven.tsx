@@ -37,6 +37,8 @@ const oddsOf = (id: string) => ODDS[id] ?? 12;
 
 type Phase = "betting" | "dealing" | "result";
 type Bet = { side: string; v: number };
+/** The most a player may stake on one side (the server enforces it too). */
+const MAX_BET = 10000;
 
 const value = (r: string) => RANKS.indexOf(r as (typeof RANKS)[number]) + 1;
 /** L / H / T (7) for the results strip. */
@@ -141,9 +143,12 @@ export function LuckySeven({ nav }: { nav: Nav }) {
   const place = (side: string) => {
     if (!open) return;
     if (pending + chip > total) return showToast("Not enough coins — ask your agent");
+    if (mine(side) + chip > MAX_BET) return showToast(`Max ${inr(MAX_BET)} on one bet`);
     sfx.chip();
     setBets((b) => [...b, { side, v: chip }]);
   };
+  /** The most staked on any one side of a set of bets. */
+  const biggestSide = (list: Bet[]) => Math.max(0, ...Object.values(list.reduce<Record<string, number>>((m, b) => ({ ...m, [b.side]: (m[b.side] ?? 0) + b.v }), {})));
 
   const secs = Math.max(0, Math.ceil((endsAt - now) / 1000));
   const result = phase === "result" ? card : null;
@@ -153,7 +158,7 @@ export function LuckySeven({ nav }: { nav: Nav }) {
     <div className="pb-6 fadein min-h-dvh flex flex-col bg-[#24282c]">
       <Header
         title={game.name}
-        sub={`Round #${roundNo} • Min 🪙 10`}
+        sub={`Round #${roundNo} • Min 🪙 10 • Max 🪙 10,000`}
         onBack={nav.back}
         right={
           <div className="text-right">
@@ -275,14 +280,14 @@ export function LuckySeven({ nav }: { nav: Nav }) {
           <button disabled={!open || !bets.length} onClick={() => setBets([])} className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"><Trash2 size={14} /> Clear</button>
           <button
             disabled={!open || !lastBets.length || bets.length > 0}
-            onClick={() => (lastBets.reduce((a, b) => a + b.v, 0) > total ? showToast("Not enough coins to rebet") : setBets(lastBets))}
+            onClick={() => (lastBets.reduce((a, b) => a + b.v, 0) > total ? showToast("Not enough coins to rebet") : biggestSide(lastBets) > MAX_BET ? showToast(`Max ${inr(MAX_BET)} on one bet`) : setBets(lastBets))}
             className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"
           >
             <Repeat size={14} /> Rebet
           </button>
           <button
             disabled={!open || !bets.length}
-            onClick={() => (pending * 2 > total ? showToast("Not enough coins to double") : setBets((b) => [...b, ...b]))}
+            onClick={() => (pending * 2 > total ? showToast("Not enough coins to double") : biggestSide(bets) * 2 > MAX_BET ? showToast(`Max ${inr(MAX_BET)} on one bet`) : setBets((b) => [...b, ...b]))}
             className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1 disabled:opacity-40"
           >
             <RotateCcw size={14} /> Double

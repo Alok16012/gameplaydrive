@@ -248,9 +248,12 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const place = (side: string, v = chip) => {
     if (phase !== "betting") return;
     if (pending + v > total) return showToast("Not enough coins — ask your agent");
+    if (mine(side) + v > MAX_BET) return showToast(`Max ${inr(MAX_BET)} on one bet`);
     sfx.chip();
     setBets((b) => [...b, { side, v }]);
   };
+  /** The most staked on any one side of a set of bets. */
+  const biggestSide = (list: { side: string; v: number }[]) => Math.max(0, ...Object.values(list.reduce<Record<string, number>>((m, b) => ({ ...m, [b.side]: (m[b.side] ?? 0) + b.v }), {})));
 
   const secs = Math.max(0, Math.ceil((endsAt - now) / 1000));
   const tigerIn = Math.max(0, Math.ceil((dealtAt + DT_TIGER_DELAY_MS - now) / 1000)); // seconds until the Tiger card opens
@@ -374,6 +377,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             onClick={() => {
               const sum = lastBets.reduce((a, b) => a + b.v, 0);
               if (sum > total) return showToast("Not enough balance to rebet");
+              if (biggestSide(lastBets) > MAX_BET) return showToast(`Max ${inr(MAX_BET)} on one bet`);
               setBets(lastBets);
             }}
             className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1.5 disabled:opacity-40"
@@ -384,6 +388,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
             disabled={phase !== "betting" || !bets.length}
             onClick={() => {
               if (pending * 2 > total) return showToast("Not enough balance to double");
+              if (biggestSide(bets) * 2 > MAX_BET) return showToast(`Max ${inr(MAX_BET)} on one bet`);
               setBets((b) => [...b, ...b]);
             }}
             className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1.5 disabled:opacity-40"
