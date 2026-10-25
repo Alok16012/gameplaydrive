@@ -214,6 +214,30 @@ test("three stacks, two side pots: each layer goes to the best hand among those 
   assert.deepEqual(st.reveal.sort(), ["p0", "p1", "p2"]);
 });
 
+test("a short-stacked bot facing a shove goes all in for its stack; what it can't match goes back to the player", () => {
+  // You: 1,00,000, bot: 20,000. You shove; the house bot holds the better hand and must call — all in for 19,990.
+  const g = game(2, ["2C 3D", "AS AH"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 100000, p1: 20000 }, bots: ["p1"] });
+  ok(act(g, "p0", "RAISE", { to: 99990 }));
+  tick(g, 5000); // the bot acts
+  assert.equal(g.s.phase, "COMPLETED");
+  assert.equal(g.s.settlement!.reason, "SHOWDOWN");
+  assert.equal(g.s.players.p1.allIn, true);
+  assert.equal(g.s.players.p1.contributed, 20000, "the bot put in every coin it had");
+  const st = g.s.settlement!;
+  assert.equal(st.returned?.find((w) => w.playerId === "p0")?.amount, 80000, "the 80,000 nobody matched comes back to you");
+  assert.deepEqual(st.winners, [{ playerId: "p1", amount: 40000 - 2000 }], "the matched pot is 20,000 each, minus the 5% fee");
+  assert.equal(g.balances.p0, 80000);
+  assert.equal(g.s.botBalances.p1, 38000);
+
+  // With the worse hand the bot doesn't call a shove it would lose: it folds, and you win just the antes.
+  const g2 = game(2, ["AS AH", "2C 3D"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 100000, p1: 20000 }, bots: ["p1"] });
+  ok(act(g2, "p0", "RAISE", { to: 99990 }));
+  tick(g2, 5000);
+  assert.equal(g2.s.settlement!.reason, "LAST_STANDING");
+  assert.equal(g2.s.players.p1.status, "FOLDED");
+  assert.equal(g2.balances.p0, 100000 - 10 - 99990 + (100010 - Math.floor(100010 * 0.05)));
+});
+
 test("a short all-in raise does not reopen the betting for those who already acted; others still have to match it", () => {
   const g = game(3, [], undefined, { balances: { p0: 100000, p1: 100000, p2: 35 } });
   ok(act(g, "p0", "RAISE", { to: 20 }));
