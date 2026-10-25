@@ -207,10 +207,31 @@ export function botStack(boot: number, rng: Rng, potCap?: number | null, avoid?:
   return v;
 };
 
-const botStays = (boot: number, bal: number, potCap?: number | null) => {
-  const { lo, hi } = botStackRange(boot, potCap);
-  return bal >= Math.max(boot * 4, lo / 3) && bal <= (potCap ?? hi);
-};
+/**
+ * Between hands, bots keep their stacks near the table's pot limit, the way regulars top up: one that has slipped
+ * more than ~30% under the limit either adds coins (back to a fresh stack, same seat and name) or leaves; one that
+ * has won past the limit cashes out. Either way the seats show stacks a little under the pot limit, never a few
+ * boots. Returns the bots to keep, with any topped-up stacks.
+ */
+function settleBotStacks(t: TableState, rng: Rng): TableSeat[] {
+  const { lo, hi } = botStackRange(t.boot, t.rules.potCap);
+  const floor = Math.max(t.boot * 4, Math.round(lo * 0.875)); // 70% of the pot limit
+  const cap = t.rules.potCap ?? hi;
+  const stacks = new Set(t.seats.filter((s) => s.bot).map((s) => s.bal ?? 0));
+  const keep: TableSeat[] = [];
+  for (const s of t.seats) {
+    if (!s.bot || s.stack !== 1) continue;
+    const bal = s.bal ?? 0;
+    if (bal > cap) continue; // won past the limit: cashes out
+    if (bal >= floor) { keep.push(s); continue; }
+    if (rng.int(100) < 60) {
+      const fresh = botStack(t.boot, rng, t.rules.potCap, stacks);
+      stacks.add(fresh);
+      keep.push({ ...s, bal: fresh });
+    }
+  }
+  return keep;
+}
 
 /** Public tables keep six seats busy with bots; private tables never get any. */
 export function fillBots(t: TableState, rng: Rng, now: number): TableState {
@@ -278,9 +299,10 @@ export function advanceTable(t0: TableState, ctx: Ctx): Advance {
 
 function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   let t = t0;
-  // Humans who went away leave; bots that are nearly broke or have won big leave; public tables refill with new
-  // bots on fresh stacks.
-  t = { ...t, seats: t.seats.filter((s) => (s.bot ? s.stack === 1 && botStays(t.boot, s.bal ?? 0, t.rules.potCap) : ctx.now - s.lastSeen < AWAY_MS)) };
+  // Humans who went away leave; bots top up, stay or leave by their stack (settleBotStacks); public tables refill
+  // with new bots on fresh stacks.
+  const bots = settleBotStacks(t, ctx.rng);
+  t = { ...t, seats: [...t.seats.filter((s) => !s.bot && ctx.now - s.lastSeen < AWAY_MS), ...bots].sort((a, b) => a.seat - b.seat) };
   t = fillBots(t, ctx.rng, ctx.now);
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
