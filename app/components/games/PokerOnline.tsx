@@ -147,8 +147,8 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
     if (lastDeal && e.seq < lastDeal.seq && !["FOLD", "TIMEOUT", "LEFT"].includes(e.type)) return null;
     switch (e.type) {
       case "CHECK": return "Check";
-      case "CALL": return `Call ${inr(e.amount ?? 0)}`;
-      case "RAISE": return `Raise ${inr(e.amount ?? 0)}`;
+      case "CALL": return e.note === "All in" ? `All in ${inr(e.amount ?? 0)}` : `Call ${inr(e.amount ?? 0)}`;
+      case "RAISE": return e.note === "All in" ? `All in ${inr(e.amount ?? 0)}` : `Raise ${inr(e.amount ?? 0)}`;
       case "FOLD": return "Folded";
       case "TIMEOUT": return e.note === "Checked" ? "Check" : "Timed out";
       case "LEFT": return "Left";
@@ -270,9 +270,9 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
                       ))}
                     </div>
                   )}
-                  {(p?.handName || tagText) && (
-                    <div className={`absolute left-1/2 -translate-x-1/2 -bottom-1.5 z-10 text-[9px] font-semibold pill px-1.5 py-px whitespace-nowrap ${p?.handName ? "bg-gold-300 text-slate-900" : folded ? "bg-rose-600 text-white" : "bg-sky-500 text-white"}`}>
-                      {p?.handName ?? tagText}
+                  {(p?.handName || tagText || (p?.allIn && !folded)) && (
+                    <div className={`absolute left-1/2 -translate-x-1/2 -bottom-1.5 z-10 text-[9px] font-semibold pill px-1.5 py-px whitespace-nowrap ${p?.handName ? "bg-gold-300 text-slate-900" : folded ? "bg-rose-600 text-white" : p?.allIn ? "bg-orange-500 text-white" : "bg-sky-500 text-white"}`}>
+                      {p?.handName ?? (p?.allIn && !folded ? "ALL IN" : tagText)}
                     </div>
                   )}
                 </div>
@@ -331,7 +331,7 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
               </div>
               <input type="range" min={me.raise.min} max={me.raise.max} step={raiseStep} value={raiseAmt} onChange={(e) => setRaiseAmt(Number(e.target.value))} className="w-full mt-2 accent-[#4ade80]" />
               <div className="grid grid-cols-4 gap-1.5 mt-2">
-                {([["Min", me.raise.min], ["2×", me.raise.min * 2], ["Pot", Math.max(me.raise.min, v!.pot)], ["Max", me.raise.max]] as const).map(([l, val]) => (
+                {([["Min", me.raise.min], ["2×", me.raise.min * 2], ["Pot", Math.max(me.raise.min, v!.pot)], ["All in", me.raise.max]] as const).map(([l, val]) => (
                   <button key={l} onClick={() => setRaiseAmt(Math.max(me.raise.min, Math.min(me.raise.max, val)))} className="pill bg-white/10 py-1.5 text-[11px]">{l}</button>
                 ))}
               </div>
@@ -347,13 +347,15 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
         <div className="shrink-0 px-3 pt-2 pb-3 bg-black/45 border-t border-white/10" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
           {me?.inHand && meInHand?.status === "ACTIVE" && liveHand ? (
             <>
-              <div className="text-center text-[11px] text-white/50 mb-1.5">{me.toCall > 0 ? `${inr(me.toCall)} to call` : "Nothing to call"}</div>
+              <div className="text-center text-[11px] text-white/50 mb-1.5">{me.toCall > 0 ? (me.call.allIn ? `${inr(me.toCall)} to call — you have ${inr(me.call.amount)}: all in or fold` : `${inr(me.toCall)} to call`) : "Nothing to call"}</div>
               <div className="grid grid-cols-3 gap-2">
                 <Btn opt={me.fold} label="Fold" className="bg-[#8b1d2c] border-white/15 py-3 text-sm" onClick={() => act("FOLD")} />
                 {me.toCall > 0
-                  ? <Btn opt={me.call} label="Call" amount={me.call.amount} className="bg-sky-600 border-sky-300/30 py-2 text-sm" onClick={() => act("CALL")} />
+                  ? <Btn opt={me.call} label={me.call.allIn ? "All in" : "Call"} amount={me.call.amount} className={`${me.call.allIn ? "bg-orange-600 border-orange-300/40" : "bg-sky-600 border-sky-300/30"} py-2 text-sm`} onClick={() => act("CALL")} />
                   : <Btn opt={me.check} label="Check" className="bg-sky-600 border-sky-300/30 py-3 text-sm" onClick={() => act("CHECK")} />}
-                <Btn opt={me.raise} label={raising ? "Close" : "Raise"} className="bg-[#3d7a1f] border-lime-300/30 py-3 text-sm" onClick={openRaise} />
+                {me.raise.allIn
+                  ? <Btn opt={me.raise} label="All in" amount={me.raise.max} className="bg-orange-600 border-orange-300/40 py-2 text-sm" onClick={() => act("RAISE", me.raise.max)} />
+                  : <Btn opt={me.raise} label={raising ? "Close" : "Raise"} className="bg-[#3d7a1f] border-lime-300/30 py-3 text-sm" onClick={openRaise} />}
               </div>
             </>
           ) : (
@@ -388,6 +390,9 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
               ))}
             </div>
           )}
+          {settled.returned && settled.returned.length > 0 && (
+            <div className="text-[12px] text-white/60 mt-3">{settled.returned.map((r) => `${inr(r.amount)} back to ${nameOf(r.playerId)} (not matched)`).join(" • ")}</div>
+          )}
           <div className="text-[12px] text-white/40 mt-3">Pot {inr(v.pot)} • Platform fee {v.rules.rakePct}%</div>
         </ResultSheet>
       )}
@@ -408,7 +413,7 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
           </div>
           <div>
             <div className="font-semibold text-white mb-1">Play</div>
-            <div className="text-[12px]">Everyone puts in the boot and gets two cards. Betting goes round after the deal, after the flop (3 board cards), the turn (4th) and the river (5th), starting from the seat after the dealer. On your turn: check (nothing to call), call, raise (to at least double the bet, at most 100× the boot and what you hold) or fold. A player who can&apos;t cover a call has to fold. At the showdown the best five cards out of your two and the five on the board win; equal hands split the pot. Out of time: fold if there is something to call, otherwise check.</div>
+            <div className="text-[12px]">Everyone puts in the boot and gets two cards. Betting goes round after the deal, after the flop (3 board cards), the turn (4th) and the river (5th), starting from the seat after the dealer. On your turn: check (nothing to call), call, raise (to at least double the bet, at most 100× the boot and what you hold) or fold. A player who can&apos;t cover a call can go all in for what they have: they are then in for a share of the pot up to what they matched, and any bet nobody could match goes back to whoever made it. At the showdown the best five cards out of your two and the five on the board win; equal hands split the pot. Out of time: fold if there is something to call, otherwise check.</div>
           </div>
           <div>
             <div className="font-semibold text-white mb-1">Private tables</div>

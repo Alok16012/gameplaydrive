@@ -56,6 +56,8 @@ export interface HandPlayer extends Seat {
   bet: number;
   /** Has acted since the last raise this round. */
   acted: boolean;
+  /** Every coin in: skipped for the rest of the hand, in for a share of the pot up to what they matched. */
+  allIn: boolean;
   foldReason: "FOLD" | "TIMEOUT" | "LEFT" | null;
 }
 
@@ -73,6 +75,8 @@ export interface LedgerEntry {
 export interface Settlement {
   reason: "LAST_STANDING" | "SHOWDOWN" | "VOID";
   winners: { playerId: string; amount: number }[];
+  /** Uncalled chips given back (an all-in nobody could fully match), per player. */
+  returned?: { playerId: string; amount: number }[];
   /** Players whose cards are public. */
   reveal: string[];
   /** Platform fee kept from the pot. */
@@ -195,15 +199,19 @@ export function balanceOf(s: HandState, ctx: Ctx, id: string) {
   return s.players[id].bot ? s.botBalances[id] ?? 0 : ctx.balances[id] ?? 0;
 }
 
-function pay(s: HandState, out: LedgerEntry[], id: string, kind: LedgerKind, amount: number) {
+function pay(s: HandState, out: LedgerEntry[], id: string, kind: LedgerKind, amount: number, balanceBefore?: number) {
   assertInt(amount);
   const p = s.players[id];
-  const e: LedgerEntry = { key: `${kind}:${s.ledger.length + 1}:${id}`, playerId: id, bot: p.bot, kind, amount: -amount };
-  s.ledger.push(e);
-  out.push(e);
-  p.contributed = assertInt(p.contributed + amount);
-  s.pot = assertInt(s.pot + amount);
-  if (p.bot) s.botBalances[id] = (s.botBalances[id] ?? 0) - amount;
+  if (amount > 0) {
+    const e: LedgerEntry = { key: `${kind}:${s.ledger.length + 1}:${id}`, playerId: id, bot: p.bot, kind, amount: -amount };
+    s.ledger.push(e);
+    out.push(e);
+    p.contributed = assertInt(p.contributed + amount);
+    s.pot = assertInt(s.pot + amount);
+    if (p.bot) s.botBalances[id] = (s.botBalances[id] ?? 0) - amount;
+  }
+  // Nothing left behind: all in — no more decisions this hand, in for a share of the pot up to what was matched.
+  if (balanceBefore !== undefined && balanceBefore - amount <= 0) p.allIn = true;
 }
 
 function credit(s: HandState, out: LedgerEntry[], id: string, kind: "PAYOUT" | "REFUND", amount: number) {
@@ -237,17 +245,20 @@ function nextToAct(s: HandState, fromId: string): string | null {
   for (let k = 1; k <= s.order.length; k++) {
     const id = s.order[(i + k) % s.order.length];
     const p = s.players[id];
-    if (p.status === "ACTIVE" && !p.acted) return id;
+    if (p.status === "ACTIVE" && !p.allIn && !p.acted) return id;
   }
   return null;
 }
+
+/** Players still in who can still make a decision (not all in). */
+const canAct = (s: HandState) => active(s).filter((id) => !s.players[id].allIn);
 
 function beginRound(s: HandState, now: number, rng: Rng) {
   for (const id of s.order) { s.players[id].bet = 0; s.players[id].acted = false; }
   s.betLevel = 0;
   s.raises = 0;
   s.botRaises = 0;
-  const first = s.order.find((id) => s.players[id].status === "ACTIVE") ?? null;
+  const first = s.order.find((id) => s.players[id].status === "ACTIVE" && !s.players[id].allIn) ?? null;
   setTurn(s, first, now, rng);
 }
 
@@ -289,7 +300,7 @@ export function startHand(inp: StartInput): Result | null {
     turnId: null, turnDeadline: null, botActAt: null, betLevel: 0, raises: 0, botRaises: 0, pot: 0,
     ledger: [], events: [], processed: {}, settlement: null, botBalances: { ...inp.botBalances }, createdAt: inp.now,
   };
-  for (const x of orderSeats) s.players[x.playerId] = { ...x, status: "ACTIVE", contributed: 0, bet: 0, acted: false, foldReason: null };
+  for (const x of orderSeats) s.players[x.playerId] = { ...x, status: "ACTIVE", contributed: 0, bet: 0, acted: false, allIn: false, foldReason: null };
 
   const deck = inp.deck ?? shuffle(fullDeck(), inp.rng);
   orderSeats.forEach((x, i) => { s.cards[x.playerId] = deck.slice(i * 2, i * 2 + 2); });
@@ -305,29 +316,69 @@ export function startHand(inp: StartInput): Result | null {
   }
   const out: LedgerEntry[] = [];
   for (const id of s.order) {
-    pay(s, out, id, "BOOT", inp.rules.boot);
+    const bal = s.players[id].bot ? inp.botBalances[id] ?? 0 : inp.balances[id] ?? 0;
+    pay(s, out, id, "BOOT", inp.rules.boot, bal);
     event(s, inp.now, { type: "BOOT", playerId: id, amount: inp.rules.boot });
   }
   s.phase = "PLAYING";
   beginRound(s, inp.now, inp.rng);
+  // Everyone (but one at most) all in from the ante: nothing to bet, straight to the cards.
+  if (canAct(s).length <= 1) runOut(s, out, inp.now);
   return { state: s, ledger: out, ok: true, changed: true };
 }
 
 // ------------------------------------------------------------------------------------------------- settlement
 
-function settle(s: HandState, out: LedgerEntry[], now: number, reason: Settlement["reason"], winners: string[], reveal: string[]) {
-  const rake = Math.floor((s.pot * s.rules.rakePct) / 100);
-  const pool = s.pot - rake;
-  const share = Math.floor(pool / winners.length);
-  let rest = pool - share * winners.length;
-  const amounts = new Map(winners.map((w) => [w, share]));
-  // Odd chips one at a time to the tied winners, clockwise after the dealer (s.order already starts there).
-  for (const id of s.order) {
-    if (rest === 0) break;
-    if (amounts.has(id)) { amounts.set(id, amounts.get(id)! + 1); rest--; }
+/**
+ * Pay out the pot, in layers (side pots): a player who went all in for less is only in for the part of the pot they
+ * matched. Each layer goes to the best hand among the players still in who put that much in; a layer that only one
+ * player reached is their own uncalled money and goes straight back to them (no fee). `rank` orders the players
+ * still in, higher = better; with one player left they win every layer they are in.
+ */
+function settle(s: HandState, out: LedgerEntry[], now: number, reason: Settlement["reason"], rank: (id: string) => number[], reveal: string[]) {
+  const left = active(s);
+  const won = new Map<string, number>();
+  const back = new Map<string, number>();
+  let rake = 0;
+  const levels = [...new Set(left.map((id) => s.players[id].contributed))].sort((a, b) => a - b);
+  let prev = 0;
+  for (const level of levels) {
+    let layer = 0;
+    for (const id of s.order) layer += Math.max(0, Math.min(s.players[id].contributed, level) - prev);
+    const eligible = left.filter((id) => s.players[id].contributed >= level);
+    if (eligible.length === 1 && reason === "SHOWDOWN") {
+      // Only one player this deep at the showdown: the others' part of the layer is theirs, the rest is their own
+      // bet that nobody could match — it goes straight back. (When everyone else folded, the whole pot is won.)
+      const others = layer - (level - prev);
+      const fee = Math.floor((others * s.rules.rakePct) / 100);
+      rake += fee;
+      if (others - fee > 0) won.set(eligible[0], (won.get(eligible[0]) ?? 0) + others - fee);
+      back.set(eligible[0], (back.get(eligible[0]) ?? 0) + (level - prev));
+    } else {
+      const fee = Math.floor((layer * s.rules.rakePct) / 100);
+      rake += fee;
+      const pool = layer - fee;
+      let best = rank(eligible[0]);
+      for (const id of eligible) if (compareKeys(rank(id), best) > 0) best = rank(id);
+      const winners = eligible.filter((id) => compareKeys(rank(id), best) === 0);
+      const share = Math.floor(pool / winners.length);
+      let rest = pool - share * winners.length;
+      for (const id of winners) won.set(id, (won.get(id) ?? 0) + share);
+      // Odd chips one at a time to the tied winners, clockwise after the dealer (s.order already starts there).
+      for (const id of s.order) {
+        if (rest === 0) break;
+        if (winners.includes(id)) { won.set(id, won.get(id)! + 1); rest--; }
+      }
+    }
+    prev = level;
   }
-  for (const [id, amt] of amounts) credit(s, out, id, "PAYOUT", amt);
-  s.settlement = { reason, winners: [...amounts].map(([playerId, amount]) => ({ playerId, amount })), reveal, rake, at: now };
+  for (const [id, amt] of won) credit(s, out, id, "PAYOUT", amt);
+  for (const [id, amt] of back) credit(s, out, id, "REFUND", amt);
+  s.settlement = {
+    reason, winners: [...won].filter(([, amount]) => amount > 0).map(([playerId, amount]) => ({ playerId, amount })),
+    returned: [...back].filter(([, amount]) => amount > 0).map(([playerId, amount]) => ({ playerId, amount })),
+    reveal, rake, at: now,
+  };
   s.phase = "COMPLETED";
   s.turnId = null;
   s.turnDeadline = null;
@@ -340,19 +391,28 @@ function showdown(s: HandState, out: LedgerEntry[], now: number) {
   const left = active(s);
   event(s, now, { type: "SHOWDOWN" });
   const keys = new Map(left.map((id) => [id, evaluate([...s.cards[id], ...s.board]).key]));
-  let best = keys.get(left[0])!;
-  for (const k of keys.values()) if (compareKeys(k, best) > 0) best = k;
-  const winners = left.filter((id) => compareKeys(keys.get(id)!, best) === 0);
-  settle(s, out, now, "SHOWDOWN", winners, left);
+  settle(s, out, now, "SHOWDOWN", (id) => keys.get(id)!, left);
+}
+
+/** No betting left (everyone but one at most is all in): turn the rest of the board and show down. */
+function runOut(s: HandState, out: LedgerEntry[], now: number) {
+  while (s.stage < 3) {
+    s.stage += 1;
+    event(s, now, { type: "DEAL", note: STAGE_NAMES[s.stage] });
+  }
+  s.turnId = null; s.turnDeadline = null; s.botActAt = null;
+  showdown(s, out, now);
 }
 
 /** After an action by the player on turn: one survivor wins; otherwise the next to act, or the next street. */
 function afterAction(s: HandState, out: LedgerEntry[], now: number, rng: Rng, from: string) {
   const left = active(s);
-  if (left.length === 1) return settle(s, out, now, "LAST_STANDING", left, []);
+  if (left.length === 1) return settle(s, out, now, "LAST_STANDING", () => [1], []);
   const next = nextToAct(s, from);
   if (next) return setTurn(s, next, now, rng);
-  // Betting round over: turn the next card(s), or show down after the river.
+  // Betting round over: with nobody left to bet against, run the board out; otherwise the next card(s), or the
+  // showdown after the river.
+  if (canAct(s).length <= 1) return runOut(s, out, now);
   s.stage += 1;
   if (s.stage >= 4) return showdown(s, out, now);
   event(s, now, { type: "DEAL", note: STAGE_NAMES[s.stage] });
@@ -546,8 +606,9 @@ function botMove(s: HandState, ctx: Ctx): Result {
     return callOrCheck();
   }
 
-  // Supporting bots: play their cards. Fold weak hands against a bet, call fair hands, raise strong ones.
-  if (call > bal) return act("FOLD");
+  // Supporting bots: play their cards. Fold weak hands against a bet, call fair hands, raise strong ones; a bet
+  // bigger than the stack is called all in only with a strong hand.
+  if (call > bal) return strength > 0.8 ? callOrCheck() : act("FOLD");
   if (r.int(1000) < Math.round(foldChance(strength, call, s.rules.boot, board.length === 0) * 1000)) return act("FOLD");
   const raiseChance = strength > 0.8 ? 45 : strength > 0.65 ? 22 : strength > 0.45 ? 8 : 3;
   if (r.int(100) < raiseChance) {
@@ -615,12 +676,15 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
     case "CHECK":
     case "CALL": {
       if (cmd.type === "CHECK" && call > 0) return reject(s, "CANNOT_CHECK", `There is ${call} to call`);
-      if (balanceOf(s, ctx, id) < call) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins to call");
+      const bal = balanceOf(s, ctx, id);
+      if (call > 0 && bal <= 0) return reject(s, "INSUFFICIENT_CHIPS", "No coins left to call with");
+      // Can't cover the call: all in for what's there, in for a share of the pot up to that much.
+      const amount = Math.min(call, bal);
       return internal(s, ctx, (x, out) => {
         if (call > 0) {
-          pay(x, out, id, "BET", call);
-          x.players[id].bet = x.betLevel;
-          event(x, ctx.now, { type: "CALL", playerId: id, amount: call });
+          pay(x, out, id, "BET", amount, bal);
+          x.players[id].bet += amount;
+          event(x, ctx.now, { type: "CALL", playerId: id, amount, note: x.players[id].allIn ? "All in" : undefined });
         } else event(x, ctx.now, { type: "CHECK", playerId: id });
         x.players[id].acted = true;
         afterAction(x, out, ctx.now, ctx.rng, id);
@@ -630,19 +694,33 @@ function applyInternal(state: HandState, cmd: Command, ctx: Ctx): Result {
     case "RAISE": {
       const to = cmd.to;
       if (s.raises >= s.rules.maxRaises) return reject(s, "RAISE_LIMIT", "No more raises this round — call or fold");
-      const { min, max } = raiseRange(s, id, balanceOf(s, ctx, id));
+      const bal = balanceOf(s, ctx, id);
+      const { min, max } = raiseRange(s, id, bal);
       if (typeof to !== "number" || !Number.isSafeInteger(to)) return reject(s, "RAISE_RANGE", "Pick a raise amount");
-      if (max < min) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins to raise");
-      if (to < min || to > max) return reject(s, "RAISE_RANGE", `Raise to between ${min} and ${max}`);
+      // Everything in: a raise for less than the minimum is allowed when it is every coin the player has (it does
+      // not reopen the betting for those who already acted, as in any card room).
+      const shove = to === p.bet + bal && to > s.betLevel && to <= s.rules.maxBet;
+      if (!shove) {
+        if (max < min && p.bet + bal > s.betLevel) return reject(s, "RAISE_RANGE", `Short of a full raise: all in to ${p.bet + bal}, call or fold`);
+        if (max < min) return reject(s, "INSUFFICIENT_CHIPS", "Not enough coins to raise");
+        if (to < min || to > max) return reject(s, "RAISE_RANGE", `Raise to between ${min} and ${max}`);
+      }
       const amount = to - p.bet;
+      const full = to >= min;
       return internal(s, ctx, (x, out) => {
-        pay(x, out, id, "BET", amount);
+        pay(x, out, id, "BET", amount, bal);
         x.players[id].bet = to;
         x.betLevel = to;
-        x.raises++;
-        if (x.players[id].bot) x.botRaises++;
-        for (const o of x.order) x.players[o].acted = o === id;
-        event(x, ctx.now, { type: "RAISE", playerId: id, amount: to });
+        if (full) {
+          x.raises++;
+          if (x.players[id].bot) x.botRaises++;
+          for (const o of x.order) x.players[o].acted = o === id;
+        } else {
+          // Short all-in: the others only need to match it; whoever has acted stays acted.
+          for (const o of x.order) if (x.players[o].bet < to) x.players[o].acted = o === id;
+          x.players[id].acted = true;
+        }
+        event(x, ctx.now, { type: "RAISE", playerId: id, amount: to, note: x.players[id].allIn ? "All in" : undefined });
         afterAction(x, out, ctx.now, ctx.rng, id);
       });
     }
@@ -659,7 +737,9 @@ function leave(s0: HandState, id: string, ctx: Ctx): Result {
     event(s, ctx.now, { type: "LEFT", playerId: id });
     if (s.turnId === id) return afterAction(s, out, ctx.now, ctx.rng, id);
     const left = active(s);
-    if (left.length === 1) settle(s, out, ctx.now, "LAST_STANDING", left, []);
+    if (left.length === 1) settle(s, out, ctx.now, "LAST_STANDING", () => [1], []);
+    // The one who left was the last player who could still bet: nothing to wait for, run the board out.
+    else if (s.turnId === null && canAct(s).length <= 1 && s.phase === "PLAYING") runOut(s, out, ctx.now);
   });
 }
 
@@ -675,7 +755,7 @@ export function checkInvariants(s: HandState) {
   if (keys.size !== s.ledger.length) throw new Error("duplicate ledger key");
   const payouts = s.ledger.filter((e) => e.kind === "PAYOUT").reduce((t, e) => t + e.amount, 0);
   const refunds = s.ledger.filter((e) => e.kind === "REFUND").reduce((t, e) => t + e.amount, 0);
-  if (s.phase === "COMPLETED" && payouts + (s.settlement?.rake ?? 0) !== s.pot) throw new Error(`payouts ${payouts} + fee != pot ${s.pot}`);
+  if (s.phase === "COMPLETED" && payouts + refunds + (s.settlement?.rake ?? 0) !== s.pot) throw new Error(`payouts ${payouts} + returned ${refunds} + fee != pot ${s.pot}`);
   if (s.phase === "VOIDED" && refunds !== s.pot) throw new Error(`refunds ${refunds} != pot ${s.pot}`);
   if (s.phase !== "COMPLETED" && payouts) throw new Error("payout before settlement");
   for (const id of s.order) {

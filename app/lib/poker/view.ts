@@ -11,7 +11,7 @@ export interface OptionView { amount: number; ok: boolean; reason: string | null
 
 export interface PlayerView {
   playerId: string; name: string; seat: number; bot: boolean;
-  status: "ACTIVE" | "FOLDED"; foldReason: string | null; contributed: number; bet: number;
+  status: "ACTIVE" | "FOLDED"; foldReason: string | null; contributed: number; bet: number; allIn: boolean;
   isTurn: boolean; isDealer: boolean;
   /** Only at a permitted reveal. */
   cards: Card[] | null;
@@ -29,8 +29,11 @@ export interface HandView {
     playerId: string; inHand: boolean; status: "ACTIVE" | "FOLDED" | null;
     cards: Card[] | null; handName: string | null;
     toCall: number;
-    fold: OptionView; check: OptionView; call: OptionView;
-    raise: OptionView & { min: number; max: number };
+    fold: OptionView; check: OptionView;
+    /** `allIn`: the call takes every coin (for less than the full call when the stack is short). */
+    call: OptionView & { allIn: boolean };
+    /** `allIn`: the only raise possible is every coin (short of a full raise). */
+    raise: OptionView & { min: number; max: number; allIn: boolean };
   } | null;
   settlement: (Omit<Settlement, "reveal"> & { reveal: { playerId: string; cards: Card[]; handName: string }[] }) | null;
   events: HandEvent[];
@@ -47,7 +50,7 @@ export function viewFor(s: HandState, viewerId: string | null, balance: number):
     const p = s.players[id];
     const shown = reveal.has(id);
     return {
-      playerId: id, name: p.name, seat: p.seat, bot: p.bot, status: p.status, foldReason: p.foldReason, contributed: p.contributed, bet: p.bet,
+      playerId: id, name: p.name, seat: p.seat, bot: p.bot, status: p.status, foldReason: p.foldReason, contributed: p.contributed, bet: p.bet, allIn: p.allIn,
       isTurn: s.turnId === id, isDealer: p.seat === s.dealerSeat,
       cards: shown ? s.cards[id] : null, handName: shown ? nameOf(s.cards[id]) : null,
     };
@@ -60,21 +63,26 @@ export function viewFor(s: HandState, viewerId: string | null, balance: number):
     const turnReason = !live ? "The hand is over" : meP.status !== "ACTIVE" ? "You have folded" : s.turnId !== viewerId ? "Not your turn" : null;
     const call = toCall(s, viewerId);
     const bal = meP.bot ? s.botBalances[viewerId] ?? 0 : balance;
-    const { min, max } = raiseRange(s, viewerId, bal);
+    const range = raiseRange(s, viewerId, bal);
+    // Short of a full raise: the only raise is all in (when that is more than the current bet).
+    const shoveOnly = range.max < range.min && meP.bet + bal > s.betLevel && meP.bet + bal <= s.rules.maxBet;
+    const min = shoveOnly ? meP.bet + bal : range.min;
+    const max = shoveOnly ? meP.bet + bal : range.max;
     const raiseReason = turnReason ?? (s.raises >= s.rules.maxRaises ? "No more raises this round" : max < min ? "Not enough coins to raise" : null);
+    const callAmt = Math.min(call, bal);
     me = {
       playerId: viewerId, inHand: true, status: meP.status,
       cards: myCards, handName: nameOf(myCards),
       toCall: call,
       fold: { amount: 0, ok: myTurn, reason: turnReason },
       check: { amount: 0, ok: myTurn && call === 0, reason: turnReason ?? (call > 0 ? `${call} to call` : null) },
-      call: { amount: call, ok: myTurn && call > 0 && bal >= call, reason: turnReason ?? (call === 0 ? "Nothing to call" : bal < call ? "Not enough coins" : null) },
-      raise: { amount: min, ok: myTurn && !raiseReason, reason: raiseReason, min, max: Math.max(min, max) },
+      call: { amount: callAmt, ok: myTurn && call > 0 && bal > 0, reason: turnReason ?? (call === 0 ? "Nothing to call" : bal <= 0 ? "No coins left" : null), allIn: call > 0 && bal <= call },
+      raise: { amount: min, ok: myTurn && !raiseReason, reason: raiseReason, min, max: Math.max(min, max), allIn: shoveOnly },
     };
   } else if (viewerId) {
     const no = (r: string): OptionView => ({ amount: 0, ok: false, reason: r });
     const r = "You join from the next hand";
-    me = { playerId: viewerId, inHand: false, status: null, cards: null, handName: null, toCall: 0, fold: no(r), check: no(r), call: no(r), raise: { ...no(r), min: 0, max: 0 } };
+    me = { playerId: viewerId, inHand: false, status: null, cards: null, handName: null, toCall: 0, fold: no(r), check: no(r), call: { ...no(r), allIn: false }, raise: { ...no(r), min: 0, max: 0, allIn: false } };
   }
 
   return {

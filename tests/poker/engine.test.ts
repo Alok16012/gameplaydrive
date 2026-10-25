@@ -136,12 +136,13 @@ test("raise limits: at least double the bet (or 2× boot), at most maxBet / what
   bad(act(g, "p0", "RAISE", { to: 15 }), "RAISE_RANGE");
   bad(act(g, "p0", "RAISE", { to: 1010 }), "RAISE_RANGE");
   ok(act(g, "p0", "RAISE", { to: 20 }));
-  bad(act(g, "p1", "RAISE", { to: 30 }), "INSUFFICIENT_CHIPS");
+  bad(act(g, "p1", "RAISE", { to: 30 }), "RAISE_RANGE");
   const v = viewFor(g.s, "p1", g.balances.p1);
-  assert.equal(v.me!.raise.min, 40);
-  assert.equal(v.me!.raise.ok, false, "p1 has 25 left after the boot, so can't reach the minimum raise");
-  assert.equal(v.me!.raise.reason, "Not enough coins to raise");
-  bad(act(g, "p1", "RAISE", { to: 40 }), "INSUFFICIENT_CHIPS");
+  assert.equal(v.me!.raise.min, 25, "p1 has 25 left after the boot: short of the minimum raise (40), the only raise is all in");
+  assert.equal(v.me!.raise.allIn, true);
+  assert.equal(v.me!.raise.ok, true);
+  assert.equal(v.me!.raise.reason, null, "all in is on offer");
+  bad(act(g, "p1", "RAISE", { to: 40 }), "RAISE_RANGE");
   ok(act(g, "p1", "CALL"));
   assert.equal(g.s.stage, 1);
   // maxRaises (a fresh hand where both are rich)
@@ -157,17 +158,82 @@ test("raise limits: at least double the bet (or 2× boot), at most maxBet / what
   assert.equal(g2.s.pot, 20 + 160 + 160);
 });
 
-test("a player who can't cover the call may only fold (no side pots); a timeout folds them", () => {
+test("short stack: calling a bigger bet puts you all in for what you have; a timeout still folds you", () => {
   const g = game(2, [], undefined, { balances: { p0: 100000, p1: 15 } });
   ok(act(g, "p0", "RAISE", { to: 20 }));
-  bad(act(g, "p1", "CALL"), "INSUFFICIENT_CHIPS");
   const v = viewFor(g.s, "p1", g.balances.p1);
-  assert.equal(v.me!.call.ok, false);
+  assert.equal(v.me!.call.ok, true);
+  assert.equal(v.me!.call.allIn, true);
+  assert.equal(v.me!.call.amount, 5, "only the 5 coins left go in");
   assert.equal(v.me!.fold.ok, true);
   tick(g, 15000);
   assert.equal(g.s.phase, "COMPLETED");
   assert.equal(g.s.players.p1.foldReason, "TIMEOUT");
   assert.equal(g.s.settlement!.winners[0].playerId, "p0");
+});
+
+test("all in for less (A shoves 1 lakh, B has 5,000): B wins only what they matched, A gets the rest back", () => {
+  // p0: A♠ A♥ beats p1: 2♣ 3♦ on a dry board; then the other way round.
+  for (const [hands, winner] of [[["AS AH", "2C 3D"], "p0"], [["2C 3D", "AS AH"], "p1"]] as const) {
+    const g = game(2, [...hands], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 100000, p1: 5000 } });
+    ok(act(g, "p0", "RAISE", { to: 99990 })); // every coin left after the 10 ante
+    assert.equal(g.s.players.p0.allIn, true);
+    const v = viewFor(g.s, "p1", g.balances.p1);
+    assert.equal(v.me!.call.allIn, true);
+    assert.equal(v.me!.call.amount, 4990);
+    ok(act(g, "p1", "CALL"));
+    assert.equal(g.s.players.p1.allIn, true);
+    // Nobody left to bet: the board runs out and the hand is shown down.
+    assert.equal(g.s.phase, "COMPLETED");
+    assert.equal(g.s.settlement!.reason, "SHOWDOWN");
+    const st = g.s.settlement!;
+    const wonBy = (id: string) => st.winners.find((w) => w.playerId === id)?.amount ?? 0;
+    const backTo = (id: string) => st.returned?.find((w) => w.playerId === id)?.amount ?? 0;
+    // The matched pot is 5,000 + 5,000; 5% fee → 9,500 to the winner. A's unmatched 95,000 goes back to A, no fee.
+    assert.equal(wonBy(winner), 9500);
+    assert.equal(backTo("p0"), 95000);
+    assert.equal(st.rake, 500);
+    assert.equal(g.balances.p0, winner === "p0" ? 100000 - 5000 + 9500 : 95000);
+    assert.equal(g.balances.p1, winner === "p1" ? 9500 : 0);
+  }
+});
+
+test("three stacks, two side pots: each layer goes to the best hand among those who put that much in", () => {
+  // p0 (500) has aces, p1 (2,000) kings, p2 (2,000) rags. p0 wins the main pot (500 × 3), p1 the side pot (1,500 × 2).
+  const g = game(3, ["AS AH", "KS KH", "2C 3D"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 500, p1: 2000, p2: 2000 } });
+  ok(act(g, "p0", "RAISE", { to: 490 }));
+  ok(act(g, "p1", "RAISE", { to: 1990 }));
+  ok(act(g, "p2", "CALL"));
+  assert.equal(g.s.phase, "COMPLETED");
+  const st = g.s.settlement!;
+  const wonBy = (id: string) => st.winners.find((w) => w.playerId === id)?.amount ?? 0;
+  assert.equal(wonBy("p0"), 1500 - 75);
+  assert.equal(wonBy("p1"), 3000 - 150);
+  assert.equal(wonBy("p2"), 0);
+  assert.equal(st.rake, 225);
+  assert.deepEqual(st.reveal.sort(), ["p0", "p1", "p2"]);
+});
+
+test("a short all-in raise does not reopen the betting for those who already acted; others still have to match it", () => {
+  const g = game(3, [], undefined, { balances: { p0: 100000, p1: 100000, p2: 35 } });
+  ok(act(g, "p0", "RAISE", { to: 20 }));
+  ok(act(g, "p1", "CALL"));
+  // p2 has 25 left: the minimum raise is to 40, but all in to 25 is allowed.
+  bad(act(g, "p2", "RAISE", { to: 30 }), "RAISE_RANGE");
+  const v = viewFor(g.s, "p2", g.balances.p2);
+  assert.equal(v.me!.raise.allIn, true);
+  assert.equal(v.me!.raise.min, 25);
+  ok(act(g, "p2", "RAISE", { to: 25 }));
+  assert.equal(g.s.betLevel, 25);
+  assert.equal(g.s.raises, 1, "a short all-in is not a full raise");
+  // p0 and p1 match the extra 5 (a call, not a chance to raise again — they had acted at 20).
+  assert.equal(g.s.turnId, "p0");
+  ok(act(g, "p0", "CALL"));
+  ok(act(g, "p1", "CALL"));
+  // p2 is all in and sits out the betting; the two big stacks bet the flop between themselves.
+  assert.equal(g.s.stage, 1);
+  assert.equal(g.s.turnId, "p0");
+  assert.equal(g.s.players.p2.allIn, true);
 });
 
 test("timeout with nothing to call checks instead of folding", () => {
