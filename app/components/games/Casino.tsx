@@ -144,14 +144,9 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const [roundNo, setRoundNo] = useState(() => 88200 + Math.floor(Math.random() * 90));
   const online = useLiveCount(Math.floor(game.online / 40));
   const [won, setWon] = useState<number | null>(null);
-  // The crowd's money on each side. A round opens with every side already holding several times the table's max bet
-  // (the room's players are in before you), so no bet of yours can ever be more than the pool it joins.
-  const seedCrowd = useCallback((): Record<string, number> => {
-    const heads = Math.max(1, Math.round(online / 40));
-    const out: Record<string, number> = {};
-    for (const s of sides) out[s.id] = Math.round((MAX_BET * (2 + Math.random() * 4) * heads) / 100) * 100;
-    return out;
-  }, [online, sides]);
+  // The crowd's money on each side: every round opens at 0 and fills up as the room's players bet. The pool on a
+  // side shows this plus your own bet on it, so your bet is never more than the pool it joins.
+  const seedCrowd = useCallback((): Record<string, number> => Object.fromEntries(sides.map((s) => [s.id, 0])), [sides]);
   const [crowd, setCrowd] = useState<Record<string, number>>(() => seedCrowd());
   const [hist, setHist] = useState<string[]>(() => Array.from({ length: 20 }, () => playRound(gameId).winner));
   const betsRef = useRef(bets);
@@ -165,19 +160,21 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     return () => clearInterval(t);
   }, []);
 
-  // Other players' bets trickle in during betting — the more people in the room, the bigger each one. (The pool on a
-  // side shows these plus your own bet on it, so your bet can never be more than the pool.)
+  // Other players' bets come in during betting — a rush in the first seconds, then a trickle — and the more people
+  // in the room, the bigger each one.
   useEffect(() => {
     if (phase !== "betting") return;
     const t = setInterval(() => {
       setCrowd((c) => {
         const s = sides[Math.floor(Math.random() * sides.length)].id;
         const heads = Math.max(1, Math.round(online / 40));
-        return { ...c, [s]: (c[s] ?? 0) + CHIPS[Math.floor(Math.random() * 4)].v * heads };
+        const left = Math.max(0, Math.min(1, (endsAt - Date.now()) / (BET_SECS * 1000))); // 1 at the open, 0 at the close
+        const rush = 1 + 4 * left * left;
+        return { ...c, [s]: (c[s] ?? 0) + Math.round((CHIPS[Math.floor(Math.random() * 4)].v * heads * rush) / 10) * 10 };
       });
-    }, 450);
+    }, 350);
     return () => clearInterval(t);
-  }, [phase, sides, online]);
+  }, [phase, sides, online, endsAt]);
 
   // Round state machine
   useEffect(() => {
