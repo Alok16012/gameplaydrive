@@ -94,6 +94,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     ro.current.observe(el);
   }, []);
   const S = Math.max(0.8, Math.min(1.8, Math.min(stage.w / 844, stage.h / 390)));
+  // Small phones held sideways (under ~720px across): the bottom-row buttons lose their padding and Exit its label,
+  // so Group, Sort, Drop, Declare and Exit all fit without overlapping.
+  const tight = stage.w < 720;
 
   const take = useCallback((view: View) => {
     offset.current = new Date(view.server_now).getTime() - Date.now();
@@ -700,10 +703,21 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             <div className={`-mt-1.5 relative rounded-full bg-[#141814] border px-2.5 py-0.5 text-[12px] whitespace-nowrap ${myTurn ? "border-neon-400/70" : "border-white/15"}`}>{tagText(mySeat, true)}</div>
           </div>
         )}
+        {/* Bottom-right of the avatar: Drop and Declare side by side (mirrors Group/Sort on the left); Exit sits at
+            the far right. Compact enough that all four fit on a 360px-tall phone held sideways. */}
         {inDeal && (
-          <button disabled={!myTurn || v?.phase !== "draw" || busy} onClick={() => setConfirm("drop")} className="absolute z-20 bottom-2 rounded-full border-2 border-white/85 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 bg-black/30 disabled:opacity-40" style={{ left: "calc(50% + " + Math.round(70 * S) + "px)" }}>
-            <Hand size={18} /> Drop
-          </button>
+          <div className="absolute z-20 bottom-2 flex items-center gap-2" style={{ left: "calc(50% + " + Math.round(70 * S) + "px)" }}>
+            <button disabled={!myTurn || v?.phase !== "draw" || busy} onClick={() => setConfirm("drop")} className={`rounded-full border-2 border-white/85 py-1.5 font-bold flex items-center gap-1.5 bg-black/30 shadow-md active:scale-95 transition-all disabled:opacity-40 ${tight ? "px-2.5 text-[13px]" : "px-3 sm:px-4 text-[14px] sm:text-[16px]"}`}>
+              <Hand size={16} /> Drop
+            </button>
+            <button
+              disabled={!myTurn || v?.phase !== "discard" || busy}
+              onClick={() => (canDiscard ? setConfirm("declare") : showToast("Select the card to put on Show, then tap Declare"))}
+              className={`rounded-full border-2 py-1.5 font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-all disabled:opacity-40 ${tight ? "px-2.5 text-[13px]" : "px-3 sm:px-4 text-[14px] sm:text-[16px]"} ${canDiscard ? "border-gold-300 bg-gold-500 text-black animate-pulse" : "border-gold-300/70 bg-black/30 text-gold-200"}`}
+            >
+              <Trophy size={16} /> Declare
+            </button>
+          </div>
         )}
 
         {/* Bottom-left: sort and group in sequence next to user profile */}
@@ -714,7 +728,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           >
             <button
               onClick={makeGroup}
-              className={`rounded-full border-2 px-3.5 sm:px-4 py-1.5 text-[15px] sm:text-[16px] font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-all ${
+              className={`rounded-full border-2 py-1.5 font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition-all ${tight ? "px-2.5 text-[13px]" : "px-3.5 sm:px-4 text-[15px] sm:text-[16px]"} ${
                 sel.length ? "border-white bg-white/20 text-white" : "border-white/85 bg-black/40 text-white/90"
               }`}
             >
@@ -722,27 +736,15 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             </button>
             <button
               onClick={sortHand}
-              className="rounded-full border-2 border-white/85 px-3.5 sm:px-4 py-1.5 text-[15px] sm:text-[16px] font-bold flex items-center gap-1.5 bg-black/40 text-white/90 shadow-md active:scale-95 transition-all"
+              className={`rounded-full border-2 border-white/85 py-1.5 font-bold flex items-center gap-1.5 bg-black/40 text-white/90 shadow-md active:scale-95 transition-all ${tight ? "px-2.5 text-[13px]" : "px-3.5 sm:px-4 text-[15px] sm:text-[16px]"}`}
             >
               <ArrowDownUp size={17} /> Sort
             </button>
           </div>
         )}
-        {/* Between Drop and Exit: declare — with the card to put on the show slot selected, it opens the same check
-            as dropping a card on "Show"; without one it says what to do. */}
-        {inDeal && (
-          <button
-            disabled={!myTurn || v?.phase !== "discard" || busy}
-            onClick={() => (canDiscard ? setConfirm("declare") : showToast("Select the card to put on Show, then tap Declare"))}
-            className={`absolute z-20 bottom-2 rounded-full border-2 px-4 py-1.5 text-[16px] font-bold flex items-center gap-2 shadow-md active:scale-95 transition-all disabled:opacity-40 ${canDiscard ? "border-gold-300 bg-gold-500 text-black animate-pulse" : "border-gold-300/70 bg-black/30 text-gold-200"}`}
-            style={{ right: "calc(3% + 96px)" }}
-          >
-            <Trophy size={18} /> Declare
-          </button>
-        )}
         {/* Bottom-right: exit the table (asks first) */}
-        <button onClick={() => setExitAsk(true)} className="absolute z-20 bottom-2 right-[3%] rounded-full border-2 border-rose-300/80 px-3.5 py-1.5 text-[15px] font-bold flex items-center gap-1.5 bg-black/40 text-rose-200 shadow-md active:scale-95 transition-all">
-          <LogOut size={17} /> Exit
+        <button onClick={() => setExitAsk(true)} aria-label="Exit the table" className={`absolute z-20 bottom-2 right-[2%] rounded-full border-2 border-rose-300/80 py-1.5 font-bold flex items-center gap-1.5 bg-black/40 text-rose-200 shadow-md active:scale-95 transition-all ${tight ? "px-2.5 text-[13px]" : "px-3 sm:px-3.5 text-[14px] sm:text-[15px]"}`}>
+          <LogOut size={16} />{!tight && " Exit"}
         </button>
         {!inDeal && v && mode !== "points" && (
           <div className="absolute left-[3%] bottom-3 z-20 text-[11px] text-white/45 max-w-[30%]">Leaving mid-deal counts as a drop and forfeits the match</div>
