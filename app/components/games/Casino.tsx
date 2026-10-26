@@ -166,7 +166,12 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     if (phase !== "betting") return;
     const t = setInterval(() => {
       setCrowd((c) => {
-        const s = sides[Math.floor(Math.random() * sides.length)].id;
+        // Few people back a long shot: the Tie pool takes a trickle of small chips and stops around 1,500-2,000.
+        const main = sides.filter((x) => x.id !== "tie");
+        const tieCap = 1500 + ((roundNo * 7919) % 500); // 1,500-2,000, fixed for the round
+        const tie = sides.some((x) => x.id === "tie") && (c.tie ?? 0) < tieCap && Math.random() < 0.08;
+        if (tie) return { ...c, tie: Math.min(tieCap, (c.tie ?? 0) + CHIPS[Math.floor(Math.random() * 2)].v * (1 + Math.floor(Math.random() * 3))) };
+        const s = main[Math.floor(Math.random() * main.length)].id;
         // The crowd's money dwarfs any one player's bet (a side can take 10,000; the crowd puts in several times that
         // on every side), so which pool is bigger is the crowd's doing, not the player's — it says nothing about
         // which side the player backed, and so nothing about the result.
@@ -177,7 +182,7 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
       });
     }, 350);
     return () => clearInterval(t);
-  }, [phase, sides, online, endsAt]);
+  }, [phase, sides, online, endsAt, roundNo]);
 
   // Round state machine
   useEffect(() => {
