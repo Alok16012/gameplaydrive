@@ -36,6 +36,8 @@ export interface TableState {
   handNo: number;
   hand: HandState | null;
   nextHandAt: number | null;
+  /** A fixed number of filled seats (tests); left out, the table's size drifts with seatTarget(). */
+  size?: number;
 }
 
 export type TableLedgerEntry = LedgerEntry & { handId: string; handNo: number };
@@ -125,17 +127,30 @@ function hashOf(s: string) {
   return h >>> 0;
 }
 
-/** How long a bot stays at a table before it gets up: 2 to 5 minutes, its own figure. */
-const botStayMs = (playerId: string) => 120_000 + (hashOf(playerId) % 180_000);
+/** How long a bot stays at a table before it gets up: 3 to 5 minutes, its own figure. */
+const botStayMs = (playerId: string) => 180_000 + (hashOf(playerId) % 120_000);
+
+/**
+ * How many seats a public table has filled right now: 3 to 6 (mostly 4 or 5), its own figure for each 4-minute
+ * stretch — so a table is rarely full, and its size drifts as players come and go.
+ */
+const SEAT_TARGETS = [3, 4, 4, 5, 5, 6];
+export const seatTarget = (tableId: string, now: number, size?: number) => size ?? SEAT_TARGETS[hashOf(`${tableId}:${Math.floor(now / 240_000)}`) % SEAT_TARGETS.length];
 
 /**
  * Bots come and go like real players: between hands, bots that have sat past their stay leave — at most two per
  * hand, the longest-overdue first — and fillBots() seats newcomers with fresh names and stacks in their place. A
  * bot's lastSeen is the time it sat down (only humans' lastSeen moves with their polls).
  */
-function rotateBots(bots: TableSeat[], now: number): TableSeat[] {
+function rotateBots(bots: TableSeat[], now: number, humans = 0, target = TABLE_SEATS): TableSeat[] {
   const due = bots.filter((s) => now - s.lastSeen > botStayMs(s.playerId)).sort((a, b) => (now - a.lastSeen - botStayMs(a.playerId)) < (now - b.lastSeen - botStayMs(b.playerId)) ? 1 : -1);
   const leaving = new Set(due.slice(0, 2).map((s) => s.playerId));
+  // More players than the table wants just now: the longest-seated bots get up too (still two at most per hand).
+  const over = humans + bots.length - leaving.size - Math.max(target, humans + 1, 2);
+  if (over > 0) {
+    const rest = bots.filter((s) => !leaving.has(s.playerId)).sort((a, b) => a.lastSeen - b.lastSeen);
+    for (const s of rest.slice(0, Math.min(over, 2 - leaving.size))) leaving.add(s.playerId);
+  }
   return bots.filter((s) => !leaving.has(s.playerId));
 }
 
@@ -151,7 +166,9 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
   const used = new Set(seats.map((s) => s.name));
   const stacks = new Set(seats.filter((s) => s.bot).map((s) => s.bal ?? 0));
   let seat = 0;
-  while (seats.length < TABLE_SEATS) {
+  // Fill up to the table's size for now (never fewer than two players, never more than six seats).
+  const want = Math.min(TABLE_SEATS, Math.max(seatTarget(t.id, now, t.size), seats.filter((s) => !s.bot).length + 1, 2));
+  while (seats.length < want) {
     while (taken.has(seat)) seat++;
     taken.add(seat);
     let name = BOT_NAMES[rng.int(BOT_NAMES.length)];
@@ -262,7 +279,8 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   let t = t0;
   // Humans who went away leave; bots that are nearly broke, have won big, or predate the stack change leave; public
   // tables refill with new bots on fresh stacks.
-  const bots = rotateBots(settleBotStacks(t, ctx.rng), ctx.now);
+  const humansHere = t.seats.filter((s) => !s.bot && ctx.now - s.lastSeen < AWAY_MS).length;
+  const bots = rotateBots(settleBotStacks(t, ctx.rng), ctx.now, humansHere, seatTarget(t.id, ctx.now, t.size));
   t = { ...t, seats: [...t.seats.filter((s) => !s.bot && ctx.now - s.lastSeen < AWAY_MS), ...bots].sort((a, b) => a.seat - b.seat) };
   t = fillBots(t, ctx.rng, ctx.now);
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
