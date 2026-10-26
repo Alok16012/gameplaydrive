@@ -1,13 +1,12 @@
 "use client";
 
 import { SupportCard } from "./SupportCard";
-import { IpAlertsBell } from "./IpAlerts";
-import { WinAlertsBell } from "./WinAlerts";
+import { AlertsBadge, AlertsView } from "./AlertsView";
 import { recordLogin } from "../lib/loginEvent";
 import { useAutoUpdate } from "../lib/autoUpdate";
 import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { useEffect, useMemo, useState } from "react";
-import {
+import { Bell,
   BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Check, ChevronDown, Copy, Eye, Pencil, RefreshCw, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
@@ -26,7 +25,7 @@ import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePassword
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "whatsapp" | "audit";
+type Section = "dashboard" | "alerts" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "whatsapp" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -56,6 +55,7 @@ export default function AdminApp() {
 
   const all: { id: Section; label: string; icon: React.ReactNode; roles: Role[] }[] = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
+    { id: "alerts", label: "Alerts", icon: <Bell size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "outcome", label: "Win / Loss Control", icon: <Sliders size={18} />, roles: ["superadmin"] },
     { id: "cricket", label: "Cricket Results", icon: <Trophy size={18} />, roles: ["superadmin"] },
     { id: "whatsapp", label: "Contact for ID (WhatsApp)", icon: <MessageCircle size={18} className="text-[#25d366]" />, roles: ["superadmin", "admin"] },
@@ -138,7 +138,7 @@ export default function AdminApp() {
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm ${sec === n.id ? "bg-neon-400/15 text-neon-400 font-medium" : "text-white/70 hover:bg-white/5"
                   }`}
               >
-                {n.icon}{n.label}
+                {n.icon}{n.label}{n.id === "alerts" && <AlertsBadge me={me} />}
               </button>
             );
           })}
@@ -146,10 +146,6 @@ export default function AdminApp() {
         <div className="rounded-xl bg-white/5 px-3 py-2.5 mb-2 mt-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-medium truncate">{me.name}</div>
-            <div className="flex items-center gap-3 shrink-0">
-              <WinAlertsBell me={me} className="text-white/70 hover:text-white" />
-              <IpAlertsBell me={me} className="text-white/70 hover:text-white" />
-            </div>
           </div>
           <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.code}</div>
           <div className="text-xs text-gold-300 mt-1">{me.role === "superadmin" ? "Creates coins" : coins(me.coins)}</div>
@@ -170,7 +166,6 @@ export default function AdminApp() {
           <div className="px-4 pt-4 flex items-center justify-between">
             <Brand role={me.role} />
             <div className="flex items-center gap-2">
-              <IpAlertsBell me={me} className="p-1.5 rounded-lg bg-white/5 text-white/70 hover:text-white" />
               <button
                 onClick={() => setChangeMyPwOpen(true)}
                 className="p-1.5 rounded-lg bg-white/5 text-white/70 hover:text-white"
@@ -183,12 +178,13 @@ export default function AdminApp() {
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 py-3">
             {nav.map((n) => (
-              <button key={n.id} onClick={() => setSec(n.id)} className={`pill px-3 py-1.5 text-xs whitespace-nowrap ${sec === n.id ? "btn-green" : "bg-white/5"}`}>{n.label}</button>
+              <button key={n.id} onClick={() => setSec(n.id)} className={`pill px-3 py-1.5 text-xs whitespace-nowrap flex items-center gap-1.5 ${sec === n.id ? "btn-green" : "bg-white/5"}`}>{n.label}{n.id === "alerts" && <AlertsBadge me={me} />}</button>
             ))}
           </div>
         </div>
         <div className="p-4 lg:p-8 max-w-6xl">
           {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
+          {sec === "alerts" && <AlertsView me={me} />}
           {sec === "outcome" && <OutcomeControlView me={me} accounts={accounts} />}
           {sec === "cricket" && <CricketResultsView me={me} accounts={accounts} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
