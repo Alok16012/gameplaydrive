@@ -850,16 +850,16 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
             const startOf = LPLAYERS.find((pl) => pl.start === i);
             const safeOwner = SAFE.has(i) && !startOf ? LPLAYERS[Math.floor(((i + 52 - 8) % 52) / 13)] : null;
             return (
-              <div key={i} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: startOf ? startOf.color : "#fff", boxShadow: "inset 0 0 0 0.5px #b9c2d0" }}>
+              <div key={i} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: startOf ? startOf.color : "#fff", boxShadow: "inset 0 0 0 0.6px #8f9bab" }}>
                 {startOf && <span className="text-white/90 text-[9px] font-black" style={{ transform: `rotate(${turns * 90}deg)` }}>▶</span>}
-                {safeOwner && <Star size={13} fill={safeOwner.color} color={safeOwner.dark} strokeWidth={1.2} />}
+                {safeOwner && <Star size={14} fill="#cfd6df" color="#7d8896" strokeWidth={1.4} />}
               </div>
             );
           })}
           {LPLAYERS.map((pl, p) => (
             <div key={p}>
               {pl.home.map(([r0, c0], i) => { const [r, c] = at(r0, c0); return (
-                <div key={i} className="absolute" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: pl.color, boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.18)" }} />
+                <div key={i} className="absolute" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%`, background: pl.color, boxShadow: "inset 0 0 0 0.6px rgba(0,0,0,.22)" }} />
               ); })}
               {/* yard: coloured square, white panel, four token spots */}
               <div className="absolute p-[0.9%]" style={{ top: `${at(p === 0 || p === 1 ? 0 : 9, p === 0 || p === 3 ? 0 : 9, 6)[0] * CELL}%`, left: `${at(p === 0 || p === 1 ? 0 : 9, p === 0 || p === 3 ? 0 : 9, 6)[1] * CELL}%`, width: `${6 * CELL}%`, height: `${6 * CELL}%`, background: `linear-gradient(145deg, ${pl.color}, ${pl.dark})` }}>
@@ -868,13 +868,15 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
               </div>
               {pl.yard.map(([r0, c0], i) => { const [r, c] = at(r0, c0); return (
                 <div key={`s${i}`} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%` }}>
-                  <div className="w-[86%] h-[86%] rounded-full" style={{ background: `radial-gradient(circle at 50% 40%, ${pl.color}55, ${pl.color}22 60%)`, boxShadow: `inset 0 0 0 2px ${pl.color}` }} />
+                  <div className="w-[90%] h-[90%] rounded-full" style={{ background: "radial-gradient(circle at 50% 35%, #fff 0%, #eef1f5 70%, #dde2e9 100%)", boxShadow: `0 0 0 3px ${pl.color}, inset 0 2px 4px rgba(0,0,0,.22)` }} />
                 </div>
               ); })}
             </div>
           ))}
           {/* centre: the four home triangles */}
-          <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from ${45 + turns * 90}deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)`, boxShadow: "inset 0 0 10px rgba(0,0,0,.35)" }} />
+          <div className="absolute" style={{ top: `${6 * CELL}%`, left: `${6 * CELL}%`, width: `${3 * CELL}%`, height: `${3 * CELL}%`, background: `conic-gradient(from ${45 + turns * 90}deg, ${LPLAYERS[2].color} 0 90deg, ${LPLAYERS[3].color} 90deg 180deg, ${LPLAYERS[0].color} 180deg 270deg, ${LPLAYERS[1].color} 270deg 360deg)`, boxShadow: "inset 0 0 10px rgba(0,0,0,.35)" }}>
+            <div className="absolute inset-0" style={{ background: "radial-gradient(circle at 50% 50%, rgba(255,255,255,.35) 0%, rgba(255,255,255,0) 55%)" }} />
+          </div>
           {/* tokens: positioned with transforms (GPU) and a hop on every square they land on */}
           {tokens.map((row, p) =>
             !inPlay(p) ? null : row.map((prog, i) => {
@@ -902,17 +904,24 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
                 >
                   <span key={prog} className={`relative block w-full h-full ${prog >= 0 ? "hop" : ""}`} style={{ animationDuration: `${LUDO_STEP_MS}ms` }}>
                     {glow && <span className="absolute left-1/2 bottom-[8%] -translate-x-1/2 w-[80%] h-[34%] rounded-full pulse-ring" style={{ background: "rgba(255,255,255,.55)" }} />}
-                    <svg viewBox="0 0 40 52" className="absolute left-1/2 bottom-[14%] drop-shadow-[0_3px_2px_rgba(0,0,0,.45)]" style={{ width: `${86 * small}%`, height: `${112 * small}%`, transform: `translateX(-50%) scale(${glow ? 1.1 : 1})`, transition: "transform .15s" }}>
+                    <svg viewBox="0 0 40 56" className="absolute left-1/2 bottom-[10%] drop-shadow-[0_3px_2px_rgba(0,0,0,.45)]" style={{ width: `${88 * small}%`, height: `${123 * small}%`, transform: `translateX(-50%) scale(${glow ? 1.1 : 1})`, transition: "transform .15s" }}>
                       <defs>
-                        <linearGradient id={`pin${p}`} x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0" stopColor="#fff" stopOpacity=".55" />
-                          <stop offset=".35" stopColor={LPLAYERS[p].color} />
+                        <radialGradient id={`pin${p}`} cx="35%" cy="28%" r="75%">
+                          <stop offset="0" stopColor="#fff" stopOpacity=".9" />
+                          <stop offset=".22" stopColor={LPLAYERS[p].color} />
+                          <stop offset="1" stopColor={LPLAYERS[p].dark} />
+                        </radialGradient>
+                        <linearGradient id={`base${p}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0" stopColor={LPLAYERS[p].color} />
                           <stop offset="1" stopColor={LPLAYERS[p].dark} />
                         </linearGradient>
                       </defs>
-                      <path d="M20 50 C9 35 4 27 4 18 A16 16 0 1 1 36 18 C36 27 31 35 20 50 Z" fill={`url(#pin${p})`} stroke="#fff" strokeWidth="2.5" />
-                      <circle cx="20" cy="18" r="8" fill="#fff" />
-                      <circle cx="20" cy="18" r="4.6" fill={LPLAYERS[p].color} />
+                      {/* base disc the pin stands on */}
+                      <ellipse cx="20" cy="50" rx="13" ry="4.6" fill={`url(#base${p})`} stroke="#fff" strokeWidth="1.6" />
+                      <path d="M20 49 C10 36 5 28 5 18 A15 15 0 1 1 35 18 C35 28 30 36 20 49 Z" fill={`url(#pin${p})`} stroke="#fff" strokeWidth="2.4" />
+                      <circle cx="20" cy="18" r="7.4" fill="#fff" />
+                      <circle cx="20" cy="18" r="4.4" fill={LPLAYERS[p].color} />
+                      <ellipse cx="14" cy="10.5" rx="4.2" ry="2.6" fill="#fff" opacity=".55" transform="rotate(-30 14 10.5)" />
                     </svg>
                   </span>
                 </button>
