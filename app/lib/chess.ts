@@ -353,3 +353,51 @@ export function bestMove(p: Pos, opt: number | { ms?: number; maxDepth?: number;
   }
   return best;
 }
+
+/**
+ * The engine's verdict on a position for the side to move: its best move and the score in centipawns (mates are
+ * ±100000-ish). Used by the game review. Searches for about `ms` milliseconds.
+ */
+export function analyse(p: Pos, ms = 120): { move: Move | null; score: number; scoreOf: (m: Move) => number | null } {
+  let root = order(legalMoves(p));
+  let all: { m: Move; sc: number }[] = [];
+  const scoreOf = (m: Move) => all.find((x) => same(x.m, m) && x.m.promo === m.promo)?.sc ?? null;
+  if (!root.length) return { move: null, score: inCheck(p) ? -100000 : 0, scoreOf };
+  killers = [];
+  nodes = 0;
+  deadline = Date.now() + ms;
+  let best = root[0];
+  let score = 0;
+  for (let d = 1; d <= 8; d++) {
+    try {
+      // Full window: every root move gets an exact score, so a played move can be compared with the best at the
+      // same depth.
+      const scores: { m: Move; sc: number }[] = [];
+      for (const m of root) scores.push({ m, sc: -search(makeMove(p, m), d - 1, -Infinity, Infinity, 1) });
+      scores.sort((a, b) => b.sc - a.sc);
+      root = scores.map((x) => x.m);
+      best = scores[0].m;
+      score = scores[0].sc;
+      all = scores;
+      if (Math.abs(score) > 90000) break;
+    } catch (e) {
+      if (e instanceof TimeUp) break;
+      throw e;
+    }
+  }
+  deadline = Infinity;
+  return { move: best, score, scoreOf };
+}
+
+/** Winning chances (0-100) for a centipawn score, the curve open-source review tools use. */
+export const winPct = (cp: number) => 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * Math.max(-2000, Math.min(2000, cp)))) - 1);
+
+export type MoveClass = "best" | "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
+/** How good a move was, from the score before it (best play) and after it, both from the mover's side. */
+export function classify(before: number, after: number, wasBest: boolean): { cls: MoveClass; accuracy: number } {
+  const loss = Math.max(0, Math.min(2000, before) - Math.min(2000, after));
+  const drop = Math.max(0, winPct(before) - winPct(after));
+  const accuracy = Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * drop) - 3.1669));
+  const cls: MoveClass = wasBest || loss <= 10 ? "best" : loss <= 30 ? "excellent" : loss <= 70 ? "good" : loss <= 150 ? "inaccuracy" : loss <= 300 ? "mistake" : "blunder";
+  return { cls, accuracy };
+}
