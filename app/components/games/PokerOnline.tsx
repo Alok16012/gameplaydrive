@@ -57,6 +57,7 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
   const [raising, setRaising] = useState(false);
   const [raiseAmt, setRaiseAmt] = useState(0);
   const [peek, setPeek] = useState(false); // result sheet closed to look at the table
+  const [flash, setFlash] = useState<string | null>(null); // "FLOP — Rahul acts first": shown for a moment when a new street opens
   const [sheetHand, setSheetHand] = useState(0);
   const tableId = useRef<string | null>(null);
   const offset = useRef(0); // server clock − local clock
@@ -94,6 +95,20 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
   const tbl = resp?.table ?? null;
   useSoundOnRise(tbl?.handNo ?? 0, () => dealSound(8, 90));
   useSoundOnRise(v?.phase === "PLAYING" ? v.stage : 0, () => dealSound(v?.stage === 1 ? 3 : 1));
+  // A new street: say so, and who opens it (the first player after the dealer, as in any hold'em room — the last
+  // raiser of the street before doesn't act again, so this is not a skipped turn).
+  const lastStage = useRef<{ hand: string; stage: number } | null>(null);
+  useEffect(() => {
+    if (!v || v.phase !== "PLAYING") return;
+    const prev = lastStage.current;
+    lastStage.current = { hand: v.handId, stage: v.stage };
+    if (!prev || prev.hand !== v.handId || v.stage <= prev.stage || v.stage < 1 || v.stage > 3) return;
+    const opener = v.turnId ? (v.turnId === v.me?.playerId ? "you act first" : `${seats.find((s) => s.playerId === v.turnId)?.name ?? "…"} acts first`) : "";
+    setFlash(`${STAGE_NAMES[v.stage].toUpperCase()} — new betting round${opener ? `, ${opener}` : ""}`);
+    const t = window.setTimeout(() => setFlash(null), 2200);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v?.handId, v?.stage, v?.phase]);
   useSoundOnRise(v?.pot ?? 0, sfx.chip);
   useEffect(() => { if (v?.phase === "COMPLETED" && tbl && sheetHand !== tbl.handNo) { setSheetHand(tbl.handNo); setPeek(false); } }, [v?.phase, tbl, sheetHand]);
   useEffect(() => { if (!v || v.turnId !== v.me?.playerId) setRaising(false); }, [v]);
@@ -215,6 +230,9 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
             <div className="absolute inset-x-0 top-[47%] text-center text-[15px] font-black tracking-[0.4em] text-white/10">HOLD&apos;EM</div>
           </div>
 
+          {flash && (
+            <div className="absolute left-1/2 top-[22%] -translate-x-1/2 z-30 pill px-4 py-1.5 text-[12px] font-bold bg-gold-400 text-slate-900 shadow-lg pop whitespace-nowrap pointer-events-none">{flash}</div>
+          )}
           {/* Board, pot and status */}
           <div className="absolute left-1/2 top-[40%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-center z-10 w-[70%]">
             {!resp ? (
