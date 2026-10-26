@@ -585,3 +585,15 @@ test("bot stacks: every bot gets its own stack of 30-40 boots, none alike, and t
     assert.ok(adv2.table.seats.filter((s) => s.bot).every((s) => s.bal! <= boot * 40));
   }
 });
+
+test("bots come and go: a bot past its 2-5 minute stay leaves between hands, at most two per hand", () => {
+  const rng = seeded(21);
+  let t: TableState = { ...fresh(), boot: 200, rules: { ...TRULES, boot: 200, maxBet: 20_000 } };
+  t = fillBots(sitDown(t, human("a"), 0).table, rng, 0);
+  const before = t.seats.filter((s) => s.bot).map((s) => s.playerId);
+  const later = 10 * 60_000;
+  const adv = advanceTable({ ...t, seats: t.seats.map((s) => (s.bot ? s : { ...s, lastSeen: later })) }, { now: later, balances: { a: 10_000_000 }, rng });
+  const after = adv.table.seats.filter((s) => s.bot).map((s) => s.playerId);
+  assert.equal(after.length, 5);
+  assert.equal(before.filter((id) => !after.includes(id)).length, 2, "exactly two bots left");
+});

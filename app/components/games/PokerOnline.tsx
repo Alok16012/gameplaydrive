@@ -62,8 +62,13 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
   const offset = useRef(0); // server clock − local clock
   const polling = useRef(false);
 
+  const newest = useRef({ hand: 0, version: 0 }); // the latest state seen, so a slow poll reply is never applied over a newer one
   const take = useCallback((r: PokerTableResponse) => {
     offset.current = r.table.serverNow - Date.now();
+    const hand = r.table.handNo, version = r.view?.version ?? 0;
+    const n = newest.current;
+    if (hand < n.hand || (hand === n.hand && version < n.version)) return; // overtaken (a poll that started before an action)
+    newest.current = { hand, version };
     setResp(r);
     applyBalance(r.balance);
   }, [applyBalance]);

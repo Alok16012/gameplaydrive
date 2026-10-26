@@ -233,6 +233,28 @@ function settleBotStacks(t: TableState, rng: Rng): TableSeat[] {
   return keep;
 }
 
+/** Small string hash (FNV-1a with a final mix), for per-bot traits that must not change between loads. */
+function hashOf(s: string) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/** How long a bot stays at a table before it gets up: 2 to 5 minutes, its own figure. */
+const botStayMs = (playerId: string) => 120_000 + (hashOf(playerId) % 180_000);
+
+/**
+ * Bots come and go like real players: between hands, bots that have sat past their stay leave — at most two per
+ * hand, the longest-overdue first — and fillBots() seats newcomers with fresh names and stacks in their place. A
+ * bot's lastSeen is the time it sat down (only humans' lastSeen moves with their polls).
+ */
+function rotateBots(bots: TableSeat[], now: number): TableSeat[] {
+  const due = bots.filter((s) => now - s.lastSeen > botStayMs(s.playerId)).sort((a, b) => (now - a.lastSeen - botStayMs(a.playerId)) < (now - b.lastSeen - botStayMs(b.playerId)) ? 1 : -1);
+  const leaving = new Set(due.slice(0, 2).map((s) => s.playerId));
+  return bots.filter((s) => !leaving.has(s.playerId));
+}
+
 /** Public tables keep six seats busy with bots; private tables never get any. */
 export function fillBots(t: TableState, rng: Rng, now: number): TableState {
   if (t.code) return t;
@@ -301,7 +323,7 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   let t = t0;
   // Humans who went away leave; bots top up, stay or leave by their stack (settleBotStacks); public tables refill
   // with new bots on fresh stacks.
-  const bots = settleBotStacks(t, ctx.rng);
+  const bots = rotateBots(settleBotStacks(t, ctx.rng), ctx.now);
   t = { ...t, seats: [...t.seats.filter((s) => !s.bot && ctx.now - s.lastSeen < AWAY_MS), ...bots].sort((a, b) => a.seat - b.seat) };
   t = fillBots(t, ctx.rng, ctx.now);
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
