@@ -218,7 +218,7 @@ test("a short-stacked bot facing a shove goes all in for its stack; what it can'
   // You: 1,00,000, bot: 20,000. You shove; the house bot holds the better hand and must call — all in for 19,990.
   const g = game(2, ["2C 3D", "AS AH"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 100000, p1: 20000 }, bots: ["p1"] });
   ok(act(g, "p0", "RAISE", { to: 99990 }));
-  tick(g, 5000); // the bot acts
+  tick(g, 13500); // the bot acts (it thinks at most the turn clock minus 1.5 s)
   assert.equal(g.s.phase, "COMPLETED");
   assert.equal(g.s.settlement!.reason, "SHOWDOWN");
   assert.equal(g.s.players.p1.allIn, true);
@@ -232,7 +232,7 @@ test("a short-stacked bot facing a shove goes all in for its stack; what it can'
   // An all-in has to be matched even with the worse hand: the bot calls all in for its 19,990 and loses it.
   const g2 = game(2, ["AS AH", "2C 3D"], "7D 9C JH 4S 8H", { rules: { maxBet: 200000 }, balances: { p0: 100000, p1: 20000 }, bots: ["p1"] });
   ok(act(g2, "p0", "RAISE", { to: 99990 }));
-  tick(g2, 5000);
+  tick(g2, 13500);
   assert.equal(g2.s.settlement!.reason, "SHOWDOWN");
   assert.equal(g2.s.players.p1.allIn, true);
   assert.deepEqual(g2.s.settlement!.winners, [{ playerId: "p0", amount: 38000 }]);
