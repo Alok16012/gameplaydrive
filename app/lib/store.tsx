@@ -85,7 +85,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (!uid) return;
     const [{ data: w }, { data: l }] = await Promise.all([
       sb.from("wallets").select("coins").eq("user_id", uid).maybeSingle(),
-      sb.from("ledger").select("id, amount, kind, note, created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(300),
+      sb.from("ledger").select("id, amount, kind, note, created_at").eq("user_id", uid).order("id", { ascending: false }).limit(300), // id: the order they were written, even within one second
     ]);
     if (w) setBal(Math.max(0, w.coins - held.current));
     setTxns(((l ?? []) as LedgerRow[]).map(toTxn));

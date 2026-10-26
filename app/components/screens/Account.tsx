@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { prettyNumber, useSupport, whatsappLink } from "../../lib/support";
 import { setPref, useSoundPrefs } from "../../lib/sound";
 import { BadgeCheck, ChevronRight, CircleHelp, Clock3, FileCheck2, Globe, HeartHandshake, History, LogOut, Mail, MessageCircle, Settings as SettingsIcon, ShieldCheck, Wallet as WalletIcon, ChevronDown, Phone, Landmark, IdCard, KeyRound } from "lucide-react";
-import { FAQS, GAMES, inr, type Txn } from "../../lib/data";
+import { FAQS, GAMES, inr } from "../../lib/data";
+import { groupRounds } from "../../lib/history";
 import { useStore } from "../../lib/store";
 import { GameThumb } from "../GameArt";
 import { Avatar, Header, Toggle } from "../ui";
@@ -62,40 +63,6 @@ export function More({ nav }: { nav: Nav }) {
       {changePwOpen && <ChangePasswordModal onClose={() => setChangePwOpen(false)} />}
     </div>
   );
-}
-
-/** Rounds from the coin ledger, oldest first: each bet and payout joins its game's current round. A new round starts at
- *  an Entry / Boot / Buy-in, at a different hand number, or at a bet after the round already paid out. */
-function groupRounds(txns: Txn[]) {
-  type Round = { id: string; game: string; desc: string; when: string; hand?: string; staked: number; paid: number; paidOut: boolean; lastAt: number; settled: boolean };
-  const rounds: Round[] = [];
-  const open: Record<string, Round> = {};
-  for (const t of [...txns].reverse()) {
-    const parts = t.sub.split(" • ");
-    const game = parts[0];
-    const when = parts[parts.length - 1];
-    const desc = parts.slice(1, -1).join(" • ");
-    const hand = desc.match(/(?:Hand|Round|Spin) #\d+/)?.[0];
-    let r = open[game];
-    const start = /\b(entry|boot|buy-in)\b/i.test(desc);
-    if (!r || (t.amount < 0 && (start || r.paidOut)) || (hand && r.hand && hand !== r.hand)) {
-      // A new round of the same game means the previous one is over, paid or not.
-      if (r) r.settled = true;
-      r = { id: t.id, game, desc: desc.replace(/(^| • )(Buy-in \(max loss\)|Entry|Buy-in returned)$/i, ""), when, hand, staked: 0, paid: 0, paidOut: false, lastAt: 0, settled: false };
-      open[game] = r;
-      rounds.push(r);
-    }
-    if (!r.hand && hand) r.hand = hand;
-    if (t.amount < 0) r.staked -= t.amount;
-    else { r.paid += t.amount; r.paidOut = true; }
-    r.when = when;
-    r.lastAt = t.at ? new Date(t.at).getTime() : 0;
-  }
-  // A round with no payout is lost once a newer round of that game exists, or it has been quiet for a while
-  // (a Rummy deal or Pool match pays nothing back to a player who loses everything they put in).
-  const quiet = Date.now() - 20 * 60 * 1000;
-  for (const r of rounds) if (!r.settled && r.lastAt && r.lastAt < quiet) r.settled = true;
-  return rounds.reverse();
 }
 
 // What was bet and how it came out, per round, from /api/my-history (keys as in detailKey).
