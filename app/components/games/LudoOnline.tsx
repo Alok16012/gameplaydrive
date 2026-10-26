@@ -8,7 +8,7 @@ import { errText, joinOnce, supabase } from "../../lib/supabase";
 import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
 import { sfx } from "../../lib/sound";
 import { Avatar, Header, Money } from "../ui";
-import { DiceFace, LPLAYERS, LUDO_STEP_MS, LUDO_TURN_SECS, LudoBoardSurface, ludoColourAt, ludoOnSafe, ludoTurns } from "./Board";
+import { LPLAYERS, LUDO_STEP_MS, LUDO_TURN_SECS, LudoBoardSurface, LudoSeatPanel, ludoColourAt, ludoOnSafe, ludoTurns } from "./Board";
 import type { Nav } from "../nav";
 
 // Ludo with friends: a private table run by the database (supabase/migrations/028_ludo_private.sql). The host
@@ -201,34 +201,19 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     }
   })();
 
-  const badge = (c: number, align: "left" | "right") => {
+  const badge = (c: number, align: "left" | "right", top = false) => {
     const si = seatOfColour(c);
     if (si < 0 || !v) return <span />;
     const s = v.seats[si];
-    const pl = LPLAYERS[c];
     const active = v.status === "playing" && v.turn === si;
-    const home = s.tokens.filter((x) => x === 56).length;
-    const elapsed = LUDO_TURN_SECS - Math.min(LUDO_TURN_SECS, secsLeft);
+    const canRoll = !!s.me && myTurn && v.phase === "roll" && !busy && !done;
     return (
-      <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""} ${s.left ? "opacity-40" : ""}`}>
-        <div className={`relative rounded-full p-[3px] ${active ? "shadow-[0_0_16px_4px_rgba(255,255,255,.35)]" : ""}`} style={{ background: pl.color }}>
-          <Avatar size={34} emoji={s.emoji} />
-          {active && (
-            <svg key={`${v.seq}-${v.turn}`} viewBox="0 0 52 52" className="absolute -inset-[6px] w-[calc(100%+12px)] h-[calc(100%+12px)] -rotate-90 pointer-events-none">
-              <circle cx="26" cy="26" r="24" fill="none" stroke="rgba(0,0,0,.35)" strokeWidth="4" />
-              <circle cx="26" cy="26" r="24" fill="none" strokeWidth="4" strokeLinecap="round" pathLength={100} strokeDasharray="100" className="ludo-timer" style={{ animationDuration: `${LUDO_TURN_SECS}s`, animationDelay: `-${elapsed}s` }} />
-            </svg>
-          )}
-          {active && !s.me && v.dice && <div className="absolute -bottom-1 -right-1 scale-[.42] origin-bottom-right"><DiceFace v={v.dice} size={56} /></div>}
-        </div>
-        <div className="min-w-0">
-          <div className={`text-[12px] font-semibold truncate max-w-[110px] ${active ? "text-white" : "text-white/70"}`}>{s.me ? "You" : s.name}{s.left ? " • left" : ""}</div>
-          <div className="text-[10px] text-white/50 flex items-center gap-1" style={{ justifyContent: align === "right" ? "flex-end" : undefined }}>
-            {[0, 1, 2, 3].map((k) => <span key={k} className="w-1.5 h-1.5 rounded-full" style={{ background: k < home ? pl.color : "rgba(255,255,255,.18)" }} />)}
-            <span className="ml-0.5">{home}/4 home</span>
-          </div>
-        </div>
-      </div>
+      <LudoSeatPanel
+        colour={c} name={s.me ? "You" : s.name} emoji={s.emoji} align={align} top={top} dim={!!s.left} note={s.left ? "left" : undefined}
+        active={active} timerKey={active ? `${v.seq}-${v.turn}` : null}
+        dice={v.dice ?? v.last?.dice ?? null} rolling={!!s.me && rolling} canRoll={canRoll} onRoll={() => act("roll")}
+        home={s.tokens.filter((x) => x === 56).length}
+      />
     );
   };
 
@@ -293,7 +278,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
           </div>
         ) : (
           <>
-            <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(ludoColourAt(0, turns), "left")}{badge(ludoColourAt(1, turns), "right")}</div>
+            <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{badge(ludoColourAt(0, turns), "left", true)}{badge(ludoColourAt(1, turns), "right", true)}</div>
             <LudoBoardSurface
               tokens={shown}
               inPlay={inPlay}
@@ -303,19 +288,8 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
               blinkYard={myTurn && v?.phase === "roll" && !busy && !done ? myColour : null}
             />
             <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{badge(ludoColourAt(3, turns), "left")}{badge(ludoColourAt(2, turns), "right")}</div>
-            <div className="mt-4 flex flex-col items-center">
-              <div className="relative">
-              {myTurn && v?.phase === "roll" && !busy && !done && <span className="absolute -left-12 top-1/2 text-[34px] leading-none nudge-x pointer-events-none" aria-hidden>👉</span>}
-              <button
-                onClick={() => act("roll")}
-                disabled={!myTurn || v?.phase !== "roll" || busy}
-                className={`rounded-2xl p-2 active:scale-95 transition-[transform,opacity] ${!myTurn || v?.phase !== "roll" ? "opacity-45" : "pulse-ring"}`}
-                style={{ background: `linear-gradient(145deg,${LPLAYERS[myColour].color},${LPLAYERS[myColour].dark})`, boxShadow: "0 8px 18px rgba(0,0,0,.45)" }}
-              >
-                <DiceFace v={v?.dice ?? v?.last?.dice ?? 6} rolling={rolling} size={68} />
-              </button>
-              </div>
-              <div className="text-sm font-semibold mt-2.5">
+            <div className="mt-3 flex flex-col items-center">
+              <div className="text-sm font-semibold">
                 {done ? "Game over" : mySeat?.left ? "You're out — you missed 3 turns" : myTurn ? (v?.phase === "move" ? "Choose a glowing token" : "Your turn — tap the dice") : `${nameOf(v?.turn ?? undefined)}'s turn`}
                 {v?.status === "playing" && <span className="text-white/50 font-normal"> • {Math.ceil(secsLeft)}s</span>}
               </div>

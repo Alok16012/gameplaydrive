@@ -321,6 +321,56 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A player's seat beside the board, as in Ludo King: the avatar (with the turn clock round it) and, next to it on
+ * the board side, that player's own dice box. The dice shows only on the player's turn; on yours the box glows, a
+ * hand points at it and tapping it rolls. Name and tokens home sit under (or over) the pair.
+ */
+export function LudoSeatPanel({ colour, name, emoji, align, top, active, timerKey, dice, rolling, canRoll, onRoll, home, bot, dim, note }: {
+  colour: number; name: string; emoji?: string; align: "left" | "right"; top?: boolean; active: boolean; timerKey: string | number | null;
+  dice: number | null; rolling?: boolean; canRoll?: boolean; onRoll?: () => void; home: number; bot?: boolean; dim?: boolean; note?: string;
+}) {
+  const pl = LPLAYERS[colour];
+  const info = (
+    <div className={`min-w-0 ${align === "right" ? "text-right" : ""}`}>
+      <div className={`text-[12px] font-semibold truncate max-w-[120px] ${active ? "text-white" : "text-white/70"}`}>{name}{bot && <BotTag />}{note ? <span className="text-white/50 font-normal"> • {note}</span> : null}</div>
+      <div className="text-[10px] text-white/50 flex items-center gap-1" style={{ justifyContent: align === "right" ? "flex-end" : undefined }}>
+        {[0, 1, 2, 3].map((k) => <span key={k} className="w-1.5 h-1.5 rounded-full" style={{ background: k < home ? pl.color : "rgba(255,255,255,.18)" }} />)}
+        <span className="ml-0.5">{home}/4 home</span>
+      </div>
+    </div>
+  );
+  return (
+    <div className={`flex flex-col gap-1 ${align === "right" ? "items-end" : "items-start"} ${dim ? "opacity-40" : ""}`}>
+      {top && info}
+      <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse" : ""}`}>
+        <div className={`relative rounded-full p-[3px] transition-shadow ${active ? "shadow-[0_0_16px_4px_rgba(255,255,255,.35)]" : ""}`} style={{ background: pl.color }}>
+          <Avatar size={36} emoji={emoji} />
+          {active && timerKey !== null && (
+            <svg key={timerKey} viewBox="0 0 52 52" className="absolute -inset-[6px] w-[calc(100%+12px)] h-[calc(100%+12px)] -rotate-90 pointer-events-none">
+              <circle cx="26" cy="26" r="24" fill="none" stroke="rgba(0,0,0,.35)" strokeWidth="4" />
+              <circle cx="26" cy="26" r="24" fill="none" strokeWidth="4" strokeLinecap="round" pathLength={100} strokeDasharray="100" className="ludo-timer" style={{ animationDuration: `${LUDO_TURN_SECS}s` }} />
+            </svg>
+          )}
+        </div>
+        <div className="relative">
+          {canRoll && <span className="absolute left-1/2 -top-9 text-[28px] leading-none nudge-y pointer-events-none" aria-hidden>👇</span>}
+          <button
+            onClick={canRoll ? onRoll : undefined}
+            disabled={!canRoll}
+            aria-label={canRoll ? "Roll the dice" : undefined}
+            className={`w-[52px] h-[52px] rounded-xl grid place-items-center transition-[transform,opacity] ${canRoll ? "pulse-ring active:scale-95" : ""} ${active ? "" : "opacity-35"}`}
+            style={{ background: active ? `linear-gradient(145deg,${pl.color},${pl.dark})` : "rgba(255,255,255,.08)", boxShadow: active ? "0 6px 14px rgba(0,0,0,.45)" : undefined }}
+          >
+            {active && dice !== null ? <DiceFace v={dice} rolling={rolling} size={40} /> : <span className="w-[40px] h-[40px] rounded-lg" style={{ background: "rgba(255,255,255,.06)" }} />}
+          </button>
+        </div>
+      </div>
+      {!top && info}
+    </div>
+  );
+}
+
 export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; rolling?: boolean }) {
   const spots: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   // While rolling the faces flash by quickly (never the same face twice in a row), then it lands on v.
@@ -357,7 +407,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const inPlay = (p: number) => SEATS.includes(p);
   // The board is turned so your (red) yard sits at the bottom-left, next to your dice.
   const TURNS = ludoTurns(0);
-  const corner = (k: number, align: "left" | "right") => { const p = ludoColourAt(k, TURNS); return inPlay(p) ? badge(p, align) : <span />; };
+  const corner = (k: number, align: "left" | "right", top = false) => { const p = ludoColourAt(k, TURNS); return inPlay(p) ? badge(p, align, top) : <span />; };
   const gs = useGameSettings();
   const keep = 1 - feeOf(gs, "ludo", 10);
   PACE = botPace(gs, "ludo");
@@ -697,30 +747,16 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   // and shows the dice.
   // (A plain render function, not a component: a component defined in here would be rebuilt on every render and
   // restart the timer ring.)
-  const badge = (p: number, align: "left" | "right") => {
-    const pl = LPLAYERS[p];
+  const badge = (p: number, align: "left" | "right", top = false) => {
     const active = started && turn === p && winner === null;
-    const home = tokens[p].filter((x) => x === 56).length;
+    const canRoll = p === 0 && started && turn === 0 && !rolling && !moving && !awaitMove && winner === null;
     return (
-      <div className={`flex items-center gap-2 ${align === "right" ? "flex-row-reverse text-right" : ""}`}>
-        <div className={`relative rounded-full p-[3px] transition-shadow ${active ? "shadow-[0_0_16px_4px_rgba(255,255,255,.35)]" : ""}`} style={{ background: pl.color }}>
-          <Avatar size={34} emoji={p === 0 ? "🧑🏽" : ["", "👨🏻", "👩🏽", "🧔🏾"][p]} />
-          {active && clock?.p === p && (
-            <svg key={clock.id} viewBox="0 0 52 52" className="absolute -inset-[6px] w-[calc(100%+12px)] h-[calc(100%+12px)] -rotate-90 pointer-events-none">
-              <circle cx="26" cy="26" r="24" fill="none" stroke="rgba(0,0,0,.35)" strokeWidth="4" />
-              <circle cx="26" cy="26" r="24" fill="none" strokeWidth="4" strokeLinecap="round" pathLength={100} strokeDasharray="100" className="ludo-timer" style={{ animationDuration: `${LUDO_TURN_SECS}s` }} />
-            </svg>
-          )}
-          {active && p !== 0 && <div className="absolute -bottom-1 -right-1 scale-[.42] origin-bottom-right"><DiceFace v={dice} rolling={rolling} size={56} /></div>}
-        </div>
-        <div className="min-w-0">
-          <div className={`text-[12px] font-semibold truncate max-w-[110px] ${active ? "text-white" : "text-white/70"}`}>{names[p]}{p > 0 && <BotTag />}</div>
-          <div className="text-[10px] text-white/50 flex items-center gap-1" style={{ justifyContent: align === "right" ? "flex-end" : undefined }}>
-            {[0, 1, 2, 3].map((k) => <span key={k} className="w-1.5 h-1.5 rounded-full" style={{ background: k < home ? pl.color : "rgba(255,255,255,.18)" }} />)}
-            <span className="ml-0.5">{home}/4 home</span>
-          </div>
-        </div>
-      </div>
+      <LudoSeatPanel
+        colour={p} name={names[p]} emoji={p === 0 ? "🧑🏽" : ["", "👨🏻", "👩🏽", "🧔🏾"][p]} align={align} top={top} bot={p > 0}
+        active={active} timerKey={active && clock?.p === p ? clock.id : null}
+        dice={dice} rolling={rolling} canRoll={canRoll} onRoll={myRoll}
+        home={tokens[p].filter((x) => x === 56).length}
+      />
     );
   };
 
@@ -728,7 +764,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     <div className="min-h-dvh flex flex-col pb-5 fadein" style={{ background: "radial-gradient(120% 70% at 50% 35%, #1d3a8a 0%, #0b1438 60%, #070b22 100%)" }}>
       <Header title="Ludo" sub={`Table #${table} • ${players === 2 ? "1 vs 1" : "4 Players"} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <div className="flex justify-between items-center mb-2 px-1 min-h-[46px]">{corner(0, "left")}{corner(1, "right")}</div>
+        <div className="flex justify-between items-end mb-2 px-1 min-h-[46px]">{corner(0, "left", true)}{corner(1, "right", true)}</div>
 
         <LudoBoardSurface
           tokens={tokens}
@@ -746,15 +782,9 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 
         <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{corner(3, "left")}{corner(2, "right")}</div>
 
-        {/* Your dice */}
-        <div className="mt-4 flex flex-col items-center">
-          <div className="relative">
-          {started && winner === null && turn === 0 && !rolling && !moving && !awaitMove && <span className="absolute -left-12 top-1/2 text-[34px] leading-none nudge-x pointer-events-none" aria-hidden>👉</span>}
-          <button onClick={myRoll} disabled={!started || turn !== 0 || rolling || moving || awaitMove} className={`rounded-2xl p-2 active:scale-95 transition-[transform,opacity] ${!started || turn !== 0 || moving || awaitMove ? "opacity-45" : ""} ${started && turn === 0 && !rolling && !moving && !awaitMove ? "pulse-ring" : ""}`} style={{ background: "linear-gradient(145deg,#ef4444,#991b1b)", boxShadow: "0 8px 18px rgba(0,0,0,.45)" }}>
-            <DiceFace v={dice} rolling={rolling} size={68} />
-          </button>
-          </div>
-          <div className="text-sm font-semibold mt-2.5">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
+        {/* Turn status (your dice is in your corner, next to your photo) */}
+        <div className="mt-3 flex flex-col items-center">
+          <div className="text-sm font-semibold">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
           <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{msg}</div>
           {started && winner === null && !gaveUp && (
             <button onClick={() => setAskExit(true)} className="mt-4 pill px-4 py-2 text-xs font-semibold bg-white/10 text-white/80 inline-flex items-center gap-1.5">

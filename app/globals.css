@@ -258,3 +258,5 @@ body {
 .nudge-x { animation: nudge-x .6s ease-in-out infinite; }
 @keyframes yard-blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
 .yard-blink { animation: yard-blink 1s ease-in-out infinite; }
+@keyframes nudge-y { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 7px); } }
+.nudge-y { animation: nudge-y .6s ease-in-out infinite; }
