@@ -239,10 +239,11 @@ export function DiceFace({ v, size = 56, rolling }: { v: number; size?: number; 
   }, [rolling]);
   const shown = rolling ? face : v;
   return (
-    <div key={rolling ? "r" : "s"} className={`grid grid-cols-3 p-2 gap-0.5 rounded-xl bg-white ${rolling ? "roll" : "dice-land"}`} style={{ width: size, height: size, boxShadow: "inset -3px -3px 6px rgba(0,0,0,.2), 0 6px 14px rgba(0,0,0,.5)" }}>
-      {Array.from({ length: 9 }, (_, i) => (
-        <div key={i} className="grid place-items-center">{spots[shown]?.includes(i) && <div className="w-2.5 h-2.5 rounded-full bg-slate-900" />}</div>
-      ))}
+    // Pips drawn in the dice's own 100×100 box, so they scale with it and always stay inside the face.
+    <div key={rolling ? "r" : "s"} className={`rounded-[22%] bg-white shrink-0 ${rolling ? "roll" : "dice-land"}`} style={{ width: size, height: size, boxShadow: "inset -3px -3px 6px rgba(0,0,0,.2), 0 6px 14px rgba(0,0,0,.5)" }}>
+      <svg viewBox="0 0 100 100" className="block w-full h-full">
+        {(spots[shown] ?? []).map((i) => <circle key={i} cx={26 + (i % 3) * 24} cy={26 + Math.floor(i / 3) * 24} r={9} fill="#0f172a" />)}
+      </svg>
     </div>
   );
 }
