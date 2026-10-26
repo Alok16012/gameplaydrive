@@ -137,8 +137,15 @@ async function fetchOutcomeMode(gameId: string): Promise<"fair" | "force_win" | 
  * - force_win:  Player gets 6s from yard, captures bots, scores home easily; bots miss captures.
  * - fair:       Pure unadulterated certified 1..6 RNG.
  */
-function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair" | "force_win" | "force_loss"): number {
+function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair" | "force_win" | "force_loss", streak = 0): number {
   if (mode === "fair") return 1 + Math.floor(Math.random() * 6);
+  const d = steerDice(p, t, seats, mode);
+  // A 6 right after a 6 only as often as a real dice gives one (1 in 6): steering never strings sixes together.
+  if (d === 6 && streak >= 1 && Math.random() >= 1 / 6) return 1 + Math.floor(Math.random() * 5);
+  return d;
+}
+
+function steerDice(p: number, t: number[][], seats: number[], mode: "fair" | "force_win" | "force_loss"): number {
 
   const rivals = seats.filter((q) => q !== p);
 
@@ -167,7 +174,7 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
       // 1. EARLY & MID GAME OPENING:
       // NEVER lock player in yard! Give realistic 25-32% chance to roll 6 when tokens are in yard
       if (playerInYard > 0 && playerOnTrack < 2) {
-        if (Math.random() < 0.28) return 6;
+        if (Math.random() < 0.2) return 6;
       }
 
       // 2. Score candidate rolls 1..6 to maintain active competition and near-win excitement
@@ -176,10 +183,7 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
         let score = Math.random() * 5;
 
         for (const prog of myToks) {
-          if (prog === -1) {
-            if (d === 6) score += 20; // good incentive to open pieces
-            continue;
-          }
+          if (prog === -1) continue; // opening a token is weighed once, below
           const to = prog + d;
           if (to > 56) continue;
 
@@ -213,6 +217,7 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
           }
         }
 
+        if (d === 6 && playerInYard > 0) score += 6; // a little pull toward opening a token, not a sure 6
         // Avoid dead-end turns if a movable roll exists
         const movableCount = myToks.filter((prog) => (prog === -1 && d === 6) || (prog >= 0 && prog + d <= 56)).length;
         if (movableCount > 0) score += 15;
@@ -262,7 +267,7 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
 
     // Priority 3: Bring tokens out of yard
     const yardCount = botToks.filter((x) => x === -1).length;
-    if (yardCount > 0 && Math.random() < 0.60) return 6;
+    if (yardCount > 0 && Math.random() < 0.22) return 6;
 
     // Priority 4: Advance towards and into home column
     for (let i = 0; i < botToks.length; i++) {
@@ -299,7 +304,7 @@ function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair"
           }
         }
       }
-      if (myToks.some((x) => x === -1) && Math.random() < 0.65) return 6;
+      if (myToks.some((x) => x === -1) && Math.random() < 0.3) return 6;
       return 1 + Math.floor(Math.random() * 6);
     } else {
       // Bots avoid capturing player 0
@@ -628,7 +633,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     setRolling(true);
     sfx.dice();
     await sleep(ROLL_MS); // the dice tumbles through its faces meanwhile (DiceFace), then settles on the result
-    const d = pickOutcomeDice(p, tokRef.current, SEATS, outcomeRef.current);
+    const d = pickOutcomeDice(p, tokRef.current, SEATS, outcomeRef.current, sixes.current);
     setDice(d);
     setRolling(false);
     sixes.current = d === 6 ? sixes.current + 1 : 0; // three 6s *in a row*: any other number breaks the run
@@ -904,7 +909,7 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
                 >
                   <span key={prog} className={`relative block w-full h-full ${prog >= 0 ? "hop" : ""}`} style={{ animationDuration: `${LUDO_STEP_MS}ms` }}>
                     {glow && <span className="absolute left-1/2 bottom-[8%] -translate-x-1/2 w-[80%] h-[34%] rounded-full pulse-ring" style={{ background: "rgba(255,255,255,.55)" }} />}
-                    <svg viewBox="0 0 40 56" className="absolute left-1/2 bottom-[10%] drop-shadow-[0_3px_2px_rgba(0,0,0,.45)]" style={{ width: `${88 * small}%`, height: `${123 * small}%`, transform: `translateX(-50%) scale(${glow ? 1.1 : 1})`, transition: "transform .15s" }}>
+                    <svg viewBox="0 0 40 56" className="absolute left-1/2 bottom-[2%] drop-shadow-[0_2px_1.5px_rgba(0,0,0,.45)]" style={{ width: `${70 * small}%`, height: `${98 * small}%`, transform: `translateX(-50%) scale(${glow ? 1.1 : 1})`, transformOrigin: "50% 90%", transition: "transform .15s" }}>
                       <defs>
                         <radialGradient id={`pin${p}`} cx="35%" cy="28%" r="75%">
                           <stop offset="0" stopColor="#fff" stopOpacity=".9" />
