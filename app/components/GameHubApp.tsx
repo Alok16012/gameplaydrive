@@ -1,7 +1,7 @@
 "use client";
 
 import { LudoOnline } from "./games/LudoOnline";
-import { recordLogin } from "../lib/loginEvent";
+import { keepOnline, recordLogin } from "../lib/loginEvent";
 import { useAutoUpdate } from "../lib/autoUpdate";
 import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { REJOIN_MS, markActive, touchActive } from "../lib/rejoin";
@@ -132,6 +132,8 @@ function Shell() {
   // Reload onto a newer deploy — never while a game table is open.
   useAutoUpdate(GAME_ROUTES.has(route.name) && route.name !== "lobby");
   // One device per account: signed in elsewhere → this device signs out.
+  // Online / last online for the admin console.
+  useEffect(() => (auth === "in" ? keepOnline() : undefined), [auth]);
   useSingleSession("player", auth === "in", () => { showToast("Signed out — this account was opened on another device"); nav.logout(); });
 
   if (auth === "splash") return <Splash onDone={splashDone} />;

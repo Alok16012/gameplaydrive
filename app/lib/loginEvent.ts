@@ -12,3 +12,15 @@ export async function recordLogin() {
     // ignore
   }
 }
+
+/** Mark this account as online every minute while the app is open and on screen (Online / last online in the admin
+ *  console, migration 100). Returns a cleanup function. */
+export function keepOnline(): () => void {
+  const touch = () => {
+    if (document.visibilityState === "visible") void supabase().rpc("touch_seen").then(() => {}, () => {});
+  };
+  touch();
+  const t = setInterval(touch, 60_000);
+  document.addEventListener("visibilitychange", touch);
+  return () => { clearInterval(t); document.removeEventListener("visibilitychange", touch); };
+}

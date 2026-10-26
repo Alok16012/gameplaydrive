@@ -2,7 +2,7 @@
 
 import { SupportCard } from "./SupportCard";
 import { AlertsBadge, AlertsView } from "./AlertsView";
-import { recordLogin } from "../lib/loginEvent";
+import { keepOnline, recordLogin } from "../lib/loginEvent";
 import { useAutoUpdate } from "../lib/autoUpdate";
 import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { useEffect, useMemo, useState } from "react";
@@ -47,6 +47,7 @@ export default function AdminApp() {
   useEffect(() => {
     if (me?.id && me.role !== "player") { recordLogin(); ensureSessionTag("staff"); }
   }, [me?.id, me?.role]);
+  useEffect(() => (me?.id && me.role !== "player" ? keepOnline() : undefined), [me?.id, me?.role]);
   // One device per account: signed in elsewhere → this console signs out.
   useSingleSession("staff", !!me && me.role !== "player", () => supabase().auth.signOut());
 
@@ -370,6 +371,30 @@ function Dashboard({ me, accounts, go }: Ctx & { go: (s: Section) => void }) {
   );
 }
 
+/** Seen in the last 2.5 minutes = online (the apps check in every minute, migration 100). */
+const ONLINE_MS = 150_000;
+/** Last time each account had the app open, by id; refreshed every 30 seconds. */
+function usePresence() {
+  const [seen, setSeen] = useState<Map<string, number>>(new Map());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const { data } = await supabase().from("presence").select("user_id,last_seen");
+      if (!active || !data) return;
+      setSeen(new Map(data.map((r: { user_id: string; last_seen: string }) => [r.user_id, Date.parse(r.last_seen)])));
+      setNow(Date.now());
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { active = false; clearInterval(t); };
+  }, []);
+  const online = (id: string) => (seen.get(id) ?? 0) > now - ONLINE_MS;
+  return { seen, online };
+}
+const lastOnline = (t: number | undefined) =>
+  t ? new Date(t).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "Never";
+
 /** Lifetime game P&L per account id from /api/pl (migration 059). */
 function usePl() {
   const [data, setData] = useState<Record<string, number> | null>(null);
@@ -402,9 +427,15 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
   const [detailsFor, setDetailsFor] = useState<Account | null>(null);
   const [err, setErr] = useState("");
   const pl = usePl();
+  const presence = usePresence();
+  const [show, setShow] = useState<"all" | "online" | "offline">("all");
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const rows = scopeOf(accounts, me).filter((a) => a.role === role);
-  const list = rows.filter((u) => (u.name + u.code + (u.phone ?? "") + (u.username ?? "")).toLowerCase().includes(q.toLowerCase()));
+  const onlineCount = rows.filter((u) => presence.online(u.id)).length;
+  const list = rows
+    .filter((u) => (u.name + u.code + (u.phone ?? "") + (u.username ?? "")).toLowerCase().includes(q.toLowerCase()))
+    .filter((u) => show === "all" || presence.online(u.id) === (show === "online"))
+    .sort((a, b) => (show === "all" ? 0 : (presence.seen.get(b.id) ?? 0) - (presence.seen.get(a.id) ?? 0)));
   const canCreate = CREATES[me.role].includes(role);
   const owner = (u: Account) => {
     const p = byId.get(u.parentId ?? "");
@@ -418,8 +449,8 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
     superadmin: "",
   }[role];
   const head = role === "player"
-    ? ["Player", "Phone", "Created by", "State", "Coins", "Status", "P&L", ""]
-    : ["Name", "Username", "Phone", "Reports to", role === "admin" ? "Agents" : "Players", "Coins", "Status", "P&L", ""];
+    ? ["Player", "Online", "Phone", "Created by", "State", "Coins", "Status", "P&L", ""]
+    : ["Name", "Online", "Username", "Phone", "Reports to", role === "admin" ? "Agents" : "Players", "Coins", "Status", "P&L", ""];
   // Player: their own win (+) / loss (−). Admin / agent: their side of their players' games — profit when the
   // players under them lose.
   const plOf = (u: Account) => {
@@ -433,6 +464,13 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
       <Title t={plural} s={`${rows.length} ${plural.toLowerCase()} • ${sub}`} right={canCreate && (
         <button onClick={() => setCreating(true)} className="btn-green rounded-xl px-3.5 py-2 text-sm flex items-center gap-1.5 whitespace-nowrap"><UserPlus size={16} />New {ROLE_LABEL[role]}</button>
       )} />
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        {([["all", `All ${rows.length}`], ["online", `Online ${onlineCount}`], ["offline", `Offline ${rows.length - onlineCount}`]] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setShow(id)} className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition inline-flex items-center gap-1.5 ${show === id ? "bg-white/10 border-white/25 text-white" : "border-white/10 text-white/55 hover:text-white"}`}>
+            {id !== "all" && <span className={`w-2 h-2 rounded-full ${id === "online" ? "bg-emerald-400" : "bg-white/30"}`} />}{label}
+          </button>
+        ))}
+      </div>
       <div className="card flex items-center gap-2 px-4 py-2.5 mb-4"><Search size={16} className="text-white/40" /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name, ID or phone" className="bg-transparent outline-none text-sm flex-1" /></div>
       {err && <div className="text-xs text-rose-300 mb-3">{err}</div>}
       <div className="card overflow-x-auto">
@@ -447,6 +485,14 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                     <span className="text-[10px] text-sky-300 bg-sky-500/15 border border-sky-500/25 rounded px-1.5 py-0.5 opacity-60 group-hover:opacity-100 transition">Card</span>
                   </div>
                   <div className="text-[11px] text-white/50">{role === "player" && u.username ? `@${u.username} • ` : ""}{u.code} • {u.created}</div>
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  {presence.online(u.id)
+                    ? <span className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-semibold"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />Online</span>
+                    : <>
+                        <span className="inline-flex items-center gap-1.5 text-white/50 text-xs font-semibold"><span className="w-2 h-2 rounded-full bg-white/30" />Offline</span>
+                        <div className="text-[11px] text-white/40 mt-0.5">Last online: {lastOnline(presence.seen.get(u.id))}</div>
+                      </>}
                 </td>
                 {role === "player" ? (
                   <>
@@ -1711,6 +1757,7 @@ const AUDIT_TYPES = [
   { id: "game", label: "Game settings & outcome" },
   { id: "cricket", label: "Cricket results" },
   { id: "contact", label: "Support / WhatsApp contact" },
+  { id: "signin", label: "Sign-ins" },
 ] as const;
 type AuditType = (typeof AUDIT_TYPES)[number]["id"];
 
@@ -1764,10 +1811,11 @@ function AuditView({ me, accounts }: Ctx) {
     if (type === "coins") query = query.ilike("action", "Coins %");
     else if (type === "created") query = query.ilike("action", "% created under %");
     else if (type === "status") query = query.in("after", ["active", "frozen"]);
-    else if (type === "edit") query = query.like("action", "% • %").not("action", "ilike", "Game %").not("action", "ilike", "Declared result%");
+    else if (type === "edit") query = query.like("action", "% • %").not("action", "ilike", "Game %").not("action", "like", "Signed in%").not("action", "ilike", "Declared result%");
     else if (type === "game") query = query.ilike("action", "Game %");
     else if (type === "cricket") query = query.ilike("action", "Declared result%");
     else if (type === "contact") query = query.ilike("action", "%contact%");
+    else if (type === "signin") query = query.like("action", "Signed in%");
     if (actor !== "all") query = query.eq("actor_id", actor);
     if (from) query = query.gte("created_at", new Date(from + "T00:00:00").toISOString());
     if (to) {
