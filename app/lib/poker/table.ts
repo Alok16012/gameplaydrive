@@ -80,24 +80,42 @@ const BOT_NAMES = ["Rahul", "Priya", "Aman", "Sneha", "Vikram", "Pooja", "Arjun"
 const BOT_EMOJI = ["👨🏽", "👩🏻", "🧔🏾", "👨🏻‍🦱", "👩🏽‍🦱", "🧑🏼", "👱🏽‍♂️", "👩🏾", "🧑🏽‍🦰", "👨🏿", "👩🏼‍🦰", "🧕🏽"];
 
 /**
- * A bot's table stack: like a real player's, between a few lakh and a couple of dozen lakh (scaled up at big
- * boots), most of them at the low end. lo/hi also decide when a bot leaves: below lo/5 it is nearly broke, above
- * 2·hi it has won big and cashes out — either way a new bot with a fresh stack takes the seat.
+ * A bot's table stack: 30 to 40 boots, like a player who sat down with a sensible buy-in for the table (boot 200:
+ * 6,000-8,000), rounded to a believable figure and never the same as another bot's at the table. Between hands a
+ * bot that has slipped under half of that tops up to a fresh stack (same seat and name) or leaves, and one that has
+ * won past twice the top cashes out — so the seats always show stacks that fit the table.
  */
 export function botStackRange(boot: number) {
-  return { lo: Math.max(boot * 500, 100_000), hi: Math.max(boot * 2500, 2_500_000) };
+  return { lo: boot * 30, hi: boot * 40 };
 }
 
-export function botStack(boot: number, rng: Rng) {
+export function botStack(boot: number, rng: Rng, avoid?: Set<number>) {
   const { lo, hi } = botStackRange(boot);
-  const u = rng.int(1_000_000) / 1_000_000;
-  return Math.round(lo + (hi - lo) * u * u);
+  const step = boot >= 500 ? 500 : boot >= 100 ? 100 : 50;
+  const roll = () => Math.min(hi, Math.max(lo, Math.round((lo + (hi - lo) * (rng.int(1_000_000) / 1_000_000)) / step) * step));
+  let v = roll();
+  for (let i = 0; avoid?.has(v) && i < 30; i++) v = roll();
+  return v;
 }
 
-const botStays = (boot: number, bal: number) => {
-  const { lo, hi } = botStackRange(boot);
-  return bal >= Math.max(boot * 4, lo / 5) && bal <= hi * 2;
-};
+/** The bots to keep for the next hand, with topped-up stacks where needed (see botStackRange). */
+function settleBotStacks(t: TableState, rng: Rng): TableSeat[] {
+  const { lo, hi } = botStackRange(t.boot);
+  const stacks = new Set(t.seats.filter((s) => s.bot).map((s) => s.bal ?? 0));
+  const keep: TableSeat[] = [];
+  for (const s of t.seats) {
+    if (!s.bot || s.stack !== 1) continue;
+    const bal = s.bal ?? 0;
+    if (bal > hi * 2) continue; // won big: cashes out
+    if (bal >= lo / 2) { keep.push(s); continue; }
+    if (rng.int(100) < 60) {
+      const fresh = botStack(t.boot, rng, stacks);
+      stacks.add(fresh);
+      keep.push({ ...s, bal: fresh });
+    }
+  }
+  return keep;
+}
 
 /** Public tables keep six seats busy with bots; private tables never get any. */
 export function fillBots(t: TableState, rng: Rng, now: number): TableState {
@@ -105,6 +123,7 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
   const seats = [...t.seats];
   const taken = new Set(seats.map((s) => s.seat));
   const used = new Set(seats.map((s) => s.name));
+  const stacks = new Set(seats.filter((s) => s.bot).map((s) => s.bal ?? 0));
   let seat = 0;
   while (seats.length < TABLE_SEATS) {
     while (taken.has(seat)) seat++;
@@ -112,7 +131,9 @@ export function fillBots(t: TableState, rng: Rng, now: number): TableState {
     let name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     for (let i = 0; used.has(name) && i < 20; i++) name = BOT_NAMES[rng.int(BOT_NAMES.length)];
     used.add(name);
-    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal: botStack(t.boot, rng), stack: 1, lastSeen: now });
+    const bal = botStack(t.boot, rng, stacks);
+    stacks.add(bal);
+    seats.push({ seat, playerId: `bot:${rng.uuid()}`, name, emoji: BOT_EMOJI[rng.int(BOT_EMOJI.length)], bot: true, bal, stack: 1, lastSeen: now });
   }
   return { ...t, seats: seats.sort((a, b) => a.seat - b.seat) };
 }
@@ -215,7 +236,8 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   let t = t0;
   // Humans who went away leave; bots that are nearly broke, have won big, or predate the stack change leave; public
   // tables refill with new bots on fresh stacks.
-  t = { ...t, seats: t.seats.filter((s) => (s.bot ? s.stack === 1 && botStays(t.boot, s.bal ?? 0) : ctx.now - s.lastSeen < AWAY_MS)) };
+  const bots = settleBotStacks(t, ctx.rng);
+  t = { ...t, seats: [...t.seats.filter((s) => !s.bot && ctx.now - s.lastSeen < AWAY_MS), ...bots].sort((a, b) => a.seat - b.seat) };
   t = fillBots(t, ctx.rng, ctx.now);
   const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));

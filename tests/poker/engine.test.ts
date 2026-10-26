@@ -567,15 +567,21 @@ test("house bots: the human wins only small pots and loses at the showdown; forc
   }
 });
 
-test("bot stacks: every bot gets its own stack in lakhs and the boot comes off it at once", () => {
-  for (const boot of [50, 1000]) {
+test("bot stacks: every bot gets its own stack of 30-40 boots, none alike, and the boot comes off it at once; a lakh-stack bot from before is replaced", () => {
+  for (const boot of [50, 200, 1000]) {
     const rng = seeded(9);
     let t: TableState = { ...fresh(), boot, rules: { ...TRULES, boot, maxBet: boot * 100 } };
     t = fillBots(sitDown(t, human("a"), 0).table, rng, 0);
     const stacks = t.seats.filter((s) => s.bot).map((s) => s.bal!);
-    assert.equal(new Set(stacks).size, stacks.length, "stacks should differ");
-    for (const b of stacks) assert.ok(b >= 100_000 && b <= Math.max(boot * 2500, 2_500_000), `stack ${b} out of range at boot ${boot}`);
+    assert.equal(new Set(stacks).size, stacks.length, `stacks should differ at boot ${boot}: ${stacks}`);
+    for (const b of stacks) assert.ok(b >= boot * 30 && b <= boot * 40, `stack ${b} out of range at boot ${boot}`);
     const adv = advanceTable(t, { now: 1000, balances: { a: 10_000_000 }, rng });
     for (const s of adv.table.seats.filter((x) => x.bot)) assert.equal(adv.table.hand!.botBalances[s.playerId], s.bal! - boot);
+    // A bot from before (16 lakh) leaves at the next hand and its replacement fits the table.
+    const old = { ...t.seats.find((s) => s.bot)!, bal: 1_600_000 };
+    const t2 = { ...t, seats: t.seats.map((s) => (s.playerId === old.playerId ? old : s)) };
+    const adv2 = advanceTable(t2, { now: 1000, balances: { a: 10_000_000 }, rng });
+    assert.ok(!adv2.table.seats.some((s) => s.playerId === old.playerId), "the lakh-stack bot should have left");
+    assert.ok(adv2.table.seats.filter((s) => s.bot).every((s) => s.bal! <= boot * 40));
   }
 });
