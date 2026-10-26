@@ -77,6 +77,47 @@ const PAYOUTS: { title: string; limit: string; rows: [string, string][] }[] = [
 // draws one card at a time. The result and the new balance only show once the last card is down.
 interface Frame { dealer: Card[]; hands: Card[][]; hole: boolean; ms: number }
 
+/**
+ * Fills the space it is given and scales its content down (never up) so all of it shows without scrolling — the
+ * table keeps its layout on any phone and the buttons below stay in view. Content shorter than the space is centred.
+ */
+function FitBox({ children }: { children: React.ReactNode }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState({ w: 0, s: 1, top: 0 });
+  useEffect(() => {
+    const o = outer.current, i = inner.current;
+    if (!o || !i) return;
+    const measure = () => {
+      const w = o.clientWidth, h = o.clientHeight;
+      if (!w || !h) return;
+      setBox((b) => {
+        // height of the content laid out at the width it currently has (w / scale), back in screen pixels
+        const need = i.scrollHeight;
+        const s = Math.min(1, h / (need || 1));
+        const top = Math.max(0, (h - need * s) / 2);
+        return Math.abs(b.s - s) < 0.004 && Math.abs(b.w - w) < 1 && Math.abs(b.top - top) < 1 ? b : { w, s, top };
+      });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(o);
+    ro.observe(i);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={outer} className="relative flex-1 min-h-0 overflow-hidden">
+      <div
+        ref={inner}
+        className="absolute left-0 top-0 flex flex-col origin-top-left"
+        style={{ width: box.w ? box.w / box.s : "100%", transform: `translateY(${box.top}px) scale(${box.s})` }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** Phones and short windows: smaller cards and betting circles so the whole table and the action buttons fit on one
  *  screen without scrolling (an iPhone is 852px tall; the full-size table needs about 900). */
 function useCompact(): { compact: boolean; tight: boolean } {
@@ -319,7 +360,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
       };
 
   return (
-    <div className="pb-6 fadein min-h-dvh flex flex-col">
+    <div className="pb-3 fadein h-dvh flex flex-col overflow-hidden">
       <Header
         title="Blackjack"
         sub="Pays 3:2 • Dealer stands on 17 • Four side bets"
@@ -327,13 +368,15 @@ export function Blackjack({ nav }: { nav: Nav }) {
         right={<div className="text-right"><div className="text-[10px] text-white/50">Balance</div><Money n={total - (betting ? bet : 0)} className="text-sm font-semibold text-neon-400" /></div>}
       />
 
-      <div className="px-4 flex-1 flex flex-col">
-        {/* Table: on a phone it grows to fill the screen above the buttons, with the betting spots at its foot */}
-        <div className={`rounded-[28px] felt relative overflow-hidden flex flex-col ${compact ? "flex-1 p-3 pb-2" : "p-4 pb-3"}`} style={{ minHeight: compact ? 0 : 470 }}>
+      <div className="px-4 flex-1 min-h-0 flex flex-col">
+        {/* Table: fills the screen above the buttons; its content shrinks to fit when the screen is short, so nothing
+            needs scrolling. */}
+        <div className={`rounded-[28px] felt relative overflow-hidden flex flex-col flex-1 min-h-0 ${compact ? "p-3 pb-2" : "p-4 pb-3"}`}>
           {/* the shoe */}
           <div className="absolute right-3 top-3 w-10 h-14 rounded-md bg-gradient-to-b from-[#7f1d1d] to-[#450a0a] border border-black/40 shadow-lg rotate-[8deg]">
             <div className="absolute inset-1 rounded-sm border border-white/20 bg-[repeating-linear-gradient(45deg,#991b1b_0_4px,#7f1d1d_4px_8px)]" />
           </div>
+          <FitBox>
           <div className="text-center text-[10px] tracking-[0.3em] text-white/40 uppercase">Dealer</div>
           <div className={`flex justify-center mt-2 ${cardRow}`}>
             {dealerCards.map((c, i) => (
@@ -347,7 +390,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
 
           <div className="my-2 text-center text-[10.5px] text-gold-300/70 tracking-wide">BLACKJACK PAYS 3 TO 2 • DEALER STANDS ON ALL 17s</div>
 
-          <div className={`grid gap-3 ${hands.length > 1 ? "grid-cols-2" : "grid-cols-1"} ${compact ? "my-auto" : ""}`}>
+          <div className={`grid gap-3 my-3 ${hands.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
             {hands.map((h, hi) => {
               const active = playing && !dealing && v?.active === hi && hands.length > 1;
               return (
@@ -370,7 +413,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
           </div>
 
           {/* Betting spots: the four side bets around the main bet, like Infinite Blackjack */}
-          <div className="mt-auto pt-2 flex flex-col items-center">
+          <div className="pt-2 flex flex-col items-center">
             <button
               data-sfx="off"
               disabled={!betting}
@@ -391,9 +434,10 @@ export function Blackjack({ nav }: { nav: Nav }) {
               ))}
             </div>
           </div>
+          </FitBox>
         </div>
 
-        <div className="mt-3 text-center text-sm h-6">
+        <div className="mt-2 text-center text-sm h-6 shrink-0">
           {done && (
             <span className={`pop inline-block font-semibold ${net > 0 ? "text-neon-400" : net === 0 ? "text-sky-300" : "text-rose-400"}`}>
               {net > 0 ? `🎉 You won ${inr(net)}!` : net === 0 ? "Push — bet returned" : "Dealer wins"}
@@ -403,7 +447,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
         </div>
 
         {playing ? (
-          <div className="grid grid-cols-2 gap-2.5 mt-3">
+          <div className="grid grid-cols-2 gap-2.5 mt-2 shrink-0">
             <button disabled={locked} onClick={() => call("bj_act", { p_action: "hit" })} className="btn-green rounded-2xl py-3 font-bold">HIT</button>
             <button disabled={locked} onClick={() => call("bj_act", { p_action: "stand" })} className="rounded-2xl py-3 font-bold bg-rose-600 active:scale-[.98] disabled:opacity-50">STAND</button>
             <button disabled={locked || !v?.can_double} onClick={() => call("bj_act", { p_action: "double" })} className="rounded-2xl py-3 font-bold bg-gradient-to-b from-amber-300 to-orange-500 text-slate-900 active:scale-[.98] disabled:opacity-35">DOUBLE</button>
@@ -412,7 +456,7 @@ export function Blackjack({ nav }: { nav: Nav }) {
         ) : (
           <>
             {/* Undo • chips • ×2 Double */}
-            <div className="flex items-center justify-between mt-3 px-0.5">
+            <div className="flex items-center justify-between mt-2 px-0.5 shrink-0">
               <button data-sfx="off" disabled={!history.length} onClick={undo} className="w-11 h-11 rounded-full grid place-items-center bg-white/10 border border-white/15 disabled:opacity-30 active:scale-95" aria-label="Undo last chip">
                 <Undo2 size={18} />
               </button>
@@ -425,19 +469,19 @@ export function Blackjack({ nav }: { nav: Nav }) {
                 ×2
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-3">
+            <div className="grid grid-cols-3 gap-2 mt-2 shrink-0">
               <button disabled={!bet} onClick={clear} className="btn-ghost rounded-xl py-2.5 text-xs disabled:opacity-40">Clear</button>
               <button disabled={!lastStakes || busy || bet > 0} onClick={() => lastStakes && deal(lastStakes)} className="btn-ghost rounded-xl py-2.5 text-xs disabled:opacity-40">
                 Rebet {lastStakes ? inr(sum(lastStakes)) : ""}
               </button>
               <button onClick={() => setPayouts(true)} className="btn-ghost rounded-xl py-2.5 text-xs flex items-center justify-center gap-1"><ListOrdered size={14} /> Payouts</button>
             </div>
-            <button disabled={busy || stakes.main < 10} onClick={() => deal(stakes)} className="w-full btn-green rounded-2xl py-3.5 mt-3 font-bold text-lg disabled:opacity-50">
+            <button disabled={busy || stakes.main < 10} onClick={() => deal(stakes)} className="w-full btn-green rounded-2xl py-3 mt-2 font-bold text-lg disabled:opacity-50 shrink-0">
               {stakes.main ? `DEAL • ${inr(bet)}` : "Tap chips, then the main bet"}
             </button>
           </>
         )}
-        <div className={`text-center text-[12px] text-white/35 mt-3 leading-relaxed ${compact ? "hidden" : ""}`}>
+        <div className="hidden">
           Six decks, shuffled by the server for every hand. Split one pair once; split aces get one card each.<br />
           Side bets up to your main bet. Perfect Pairs, 21+3 and Hot 3 are paid on the deal; Bust It when the dealer is done.
         </div>
