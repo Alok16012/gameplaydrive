@@ -130,198 +130,50 @@ async function fetchOutcomeMode(gameId: string): Promise<"fair" | "force_win" | 
   return "fair";
 }
 
+/** How hard the outcome mode leans on the dice (see diceWeights). */
+const LEAN = { capture: 1.7, score: 1.6, open: 1.35, stuck: 1.5 };
+
 /**
- * Intelligent outcome-driven dice picker for Ludo:
- * - force_loss: Player (p === 0) has yard 6s strictly blocked (96%), cannot capture bots, cannot easily enter home.
- *               Bots (p !== 0) become ruthless hunters: rolling exact numbers to capture player tokens & scoring home.
- * - force_win:  Player gets 6s from yard, captures bots, scores home easily; bots miss captures.
- * - fair:       Pure unadulterated certified 1..6 RNG.
+ * Ludo dice against bots under the admin's outcome control. Fair is a plain 1–6. force_win / force_loss only tilt
+ * the odds of each face — every number can still come up on every roll, so nobody can see the dice "knowing" what
+ * they need: the favoured side is somewhat more likely to roll a capture, a token home or a 6 to open, the other
+ * side somewhat less (and more often rolls a number with no move). The old picker handed out the exact capture /
+ * home number most of the time: under force_loss a bot that could capture rolled it ~70% of the time and a game
+ * had ~45 captures each way instead of ~6, which players saw as a pattern. Sixes after a six stay at 1 in 6.
  */
 function pickOutcomeDice(p: number, t: number[][], seats: number[], mode: "fair" | "force_win" | "force_loss", streak = 0): number {
   if (mode === "fair") return 1 + Math.floor(Math.random() * 6);
-  const d = steerDice(p, t, seats, mode);
-  // A 6 right after a 6 only as often as a real dice gives one (1 in 6): steering never strings sixes together.
-  if (d === 6 && streak >= 1 && Math.random() >= 1 / 6) return 1 + Math.floor(Math.random() * 5);
-  return d;
+  const w = diceWeights(p, t, seats, mode);
+  if (streak >= 1) w[5] = Math.min(w[5], w.reduce((a, b) => a + b, 0) / 6); // a 6 after a 6: no more than a real dice
+  let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let k = 0; k < 6; k++) if ((r -= w[k]) < 0) return k + 1;
+  return 6;
 }
 
-function steerDice(p: number, t: number[][], seats: number[], mode: "fair" | "force_win" | "force_loss"): number {
-
-  const rivals = seats.filter((q) => q !== p);
-
-  if (mode === "force_loss") {
-    const myToks = t[0];
-    const playerHome = myToks.filter((x) => x === 56).length;
-    const playerInYard = myToks.filter((x) => x === -1).length;
-    const playerOnTrack = myToks.filter((x) => x >= 0 && x < 56).length;
-
-    // Identify the strongest / lead rival bot (most tokens home, highest progress)
-    let leadBot = rivals[0];
-    let maxBotScore = -1;
-    for (const q of rivals) {
-      const qHome = t[q].filter((x) => x === 56).length;
-      const qSum = t[q].reduce((acc, v) => acc + (v >= 0 ? v : 0), 0);
-      const score = qHome * 1000 + qSum;
-      if (score > maxBotScore) {
-        maxBotScore = score;
-        leadBot = q;
-      }
-    }
-    const leadBotHome = t[leadBot]?.filter((x) => x === 56).length ?? 0;
-
-    // --- PLAYER (p === 0): Engaging Gameplay ---
-    if (p === 0) {
-      // 1. EARLY & MID GAME OPENING:
-      // NEVER lock player in yard! Give realistic 25-32% chance to roll 6 when tokens are in yard
-      if (playerInYard > 0 && playerOnTrack < 2) {
-        if (Math.random() < 0.2) return 6;
-      }
-
-      // 2. Score candidate rolls 1..6 to maintain active competition and near-win excitement
-      const rollScores: { d: number; score: number }[] = [];
-      for (let d = 1; d <= 6; d++) {
-        let score = Math.random() * 5;
-
-        for (const prog of myToks) {
-          if (prog === -1) continue; // opening a token is weighed once, below
-          const to = prog + d;
-          if (to > 56) continue;
-
-          // SCORING HOME:
-          if (to === 56) {
-            if (playerHome < 2) {
-              score += 90; // Let player score 1st and 2nd token home! High excitement!
-            } else if (playerHome === 2) {
-              // 3rd token home: allow 40% chance so player reaches 3 home and needs only 1 token to win!
-              score += Math.random() < 0.40 ? 70 : -10;
-            } else {
-              // 4th token: Player is in home corridor waiting for exact roll.
-              // Keep them close (53..55) for maximum nail-biting suspense while lead bot finishes.
-              score -= 80;
-            }
-          }
-
-          // ENTERING HOME CORRIDOR (51..55):
-          if (prog <= 50 && to >= 51) {
-            score += 35; // Entering safe home column feels great!
-          }
-
-          // CAPTURING BOT TOKENS:
-          if (to <= 50) {
-            const a = absIdx(0, to);
-            if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
-              // In early and mid game, let the player capture bot pieces!
-              if (playerHome < 3) score += 60;
-              else score -= 20;
-            }
-          }
-        }
-
-        if (d === 6 && playerInYard > 0) score += 6; // a little pull toward opening a token, not a sure 6
-        // Avoid dead-end turns if a movable roll exists
-        const movableCount = myToks.filter((prog) => (prog === -1 && d === 6) || (prog >= 0 && prog + d <= 56)).length;
-        if (movableCount > 0) score += 15;
-
-        rollScores.push({ d, score });
-      }
-
-      rollScores.sort((a, b) => b.score - a.score);
-      return rollScores[0]?.d ?? (1 + Math.floor(Math.random() * 6));
-    }
-
-    // --- BOT TURN (p !== 0): Hunter & Clutch Finisher ---
-    const botToks = t[p];
-    const isLead = p === leadBot;
-
-    // Priority 1: If bot can score a token into Home (56):
-    for (let i = 0; i < botToks.length; i++) {
-      const from = botToks[i];
-      if (from >= 50 && from < 56) {
-        const dNeeded = 56 - from;
-        if (dNeeded >= 1 && dNeeded <= 6) {
-          // If this is the lead bot racing or player has 2+ home:
-          if (isLead || leadBotHome >= 2 || playerHome >= 2) {
-            if (Math.random() < 0.95) return dNeeded; // Score home + bonus roll
-          }
-        }
-      }
-    }
-
-    // Priority 2: In mid/late game, clutch capture on vulnerable player tokens
-    if (playerHome >= 1 || leadBotHome >= 1) {
-      for (let i = 0; i < botToks.length; i++) {
-        const from = botToks[i];
-        if (from >= 0 && from <= 50) {
-          for (let d = 1; d <= 6; d++) {
-            const to = from + d;
-            if (to <= 50) {
-              const a = absIdx(p, to);
-              if (a >= 0 && !SAFE.has(a) && t[0].some((op) => absIdx(0, op) === a)) {
-                if (Math.random() < 0.85) return d; // Exact roll to capture player
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Priority 3: Bring tokens out of yard
-    const yardCount = botToks.filter((x) => x === -1).length;
-    if (yardCount > 0 && Math.random() < 0.22) return 6;
-
-    // Priority 4: Advance towards and into home column
-    for (let i = 0; i < botToks.length; i++) {
-      const from = botToks[i];
-      if (from >= 45 && from <= 50) {
-        for (let d = 1; d <= 6; d++) {
-          if (from + d >= 51 && from + d <= 56) {
-            if (Math.random() < 0.70) return d;
-          }
-        }
-      }
-    }
-
-    return 1 + Math.floor(Math.random() * 6);
-  }
-
-  if (mode === "force_win") {
-    if (p === 0) {
-      const myToks = t[0];
-      for (const from of myToks) {
-        if (from >= 50 && from < 56) {
-          const d = 56 - from;
-          if (d >= 1 && d <= 6 && Math.random() < 0.92) return d;
-        }
-        if (from >= 0 && from <= 50) {
-          for (let d = 1; d <= 6; d++) {
-            const to = from + d;
-            if (to <= 50) {
-              const a = absIdx(0, to);
-              if (a >= 0 && !SAFE.has(a) && rivals.some((q) => t[q].some((op) => absIdx(q, op) === a))) {
-                return d;
-              }
-            }
-          }
-        }
-      }
-      if (myToks.some((x) => x === -1) && Math.random() < 0.3) return 6;
-      return 1 + Math.floor(Math.random() * 6);
-    } else {
-      // Bots avoid capturing player 0
-      const botToks = t[p];
-      const safeRolls = [1, 2, 3, 4, 5, 6].filter((d) => {
-        return !botToks.some((from) => {
-          if (from < 0 || from + d > 50) return false;
-          const a = absIdx(p, from + d);
-          return a >= 0 && !SAFE.has(a) && t[0].some((op) => absIdx(0, op) === a);
-        });
-      });
-      if (safeRolls.length) return safeRolls[Math.floor(Math.random() * safeRolls.length)];
-      return 1 + Math.floor(Math.random() * 6);
-    }
-  }
-
-  return 1 + Math.floor(Math.random() * 6);
+/** Weight of each face 1..6 for p's roll. The player is seat 0; bots' captures that matter are of the player. */
+function diceWeights(p: number, t: number[][], seats: number[], mode: "force_win" | "force_loss"): number[] {
+  const helped = (mode === "force_win") === (p === 0); // does this roll lean the roller's way?
+  const targets = p === 0 ? seats.filter((q) => q !== 0) : [0];
+  const mine = t[p];
+  const homeNow = mine.filter((x) => x === 56).length;
+  const lean = (f: number) => (helped ? f : 1 / f);
+  return [1, 2, 3, 4, 5, 6].map((d) => {
+    let w = 1;
+    const captures = mine.some((from) => {
+      if (from < 0 || from + d > 50) return false;
+      const a = absIdx(p, from + d);
+      return !SAFE.has(a) && targets.some((q) => t[q].some((op) => absIdx(q, op) === a));
+    });
+    const scores = mine.some((from) => from >= 0 && from + d === 56);
+    const opens = d === 6 && mine.some((x) => x === -1);
+    const moves = mine.some((from) => (from === -1 && d === 6) || (from >= 0 && from + d <= 56));
+    if (captures) w *= lean(LEAN.capture);
+    // The player's last token home decides the game: under force_loss it is noticeably harder to roll.
+    if (scores) w *= p === 0 && homeNow === 3 && !helped ? 0.35 : lean(LEAN.score);
+    if (opens) w *= lean(LEAN.open);
+    if (!moves) w *= lean(1 / LEAN.stuck);
+    return w;
+  });
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -887,20 +739,27 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
             !inPlay(p) ? null : row.map((prog, i) => {
               const [r, c] = at(...cellOf(p, prog, i));
               const glow = glowAt(p, i);
-              // Tokens sharing a square fan out a little so each stays visible.
-              const same = prog >= 0 && prog < 56 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
-              const k = same.findIndex((o) => o.q === p && o.j === i);
-              const shift = same.length > 1 ? (k - (same.length - 1) / 2) * 22 : 0;
-              const small = same.length > 1 ? 0.8 : 1;
+              // On a shared square each colour gets its own spot side by side; a colour's own tokens stack on that
+              // spot (each one a little higher) with a count badge on the top one, like Ludo King's "2" / "3".
+              const same = prog >= 0 && prog < 56 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => inPlay(o.q) && cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
+              const colours = [...new Set(same.map((o) => o.q))];
+              const gi = colours.indexOf(p);
+              const mine = same.filter((o) => o.q === p);
+              const mi = mine.findIndex((o) => o.j === i);
+              const top = mine.length > 1 && mi === mine.length - 1;
+              const shift = colours.length > 1 ? (gi - (colours.length - 1) / 2) * 30 : 0;
+              const lift = mine.length > 1 ? -mi * 9 : 0;
+              const small = colours.length > 2 ? 0.7 : colours.length > 1 ? 0.8 : 1;
               return (
                 <button
                   key={`${p}-${i}`}
                   onClick={() => onTap(p, i)}
-                  className={`absolute left-0 top-0 ${glow ? "z-20" : "z-10"}`}
+                  className="absolute left-0 top-0"
                   style={{
                     width: `${CELL}%`,
                     height: `${CELL}%`,
-                    transform: `translate(${c * 100 + shift}%, ${r * 100}%)`,
+                    zIndex: (glow ? 20 : 10) + Math.max(mi, 0),
+                    transform: `translate(${c * 100 + shift}%, ${r * 100 + lift}%)`,
                     // One square per step, gliding for the whole step so a walk looks continuous; leaving or going
                     // back to the yard is a longer slide.
                     transition: prog <= 0 ? "transform .38s cubic-bezier(.3,.7,.3,1)" : `transform ${LUDO_STEP_MS}ms cubic-bezier(.45,.05,.55,.95)`,
@@ -928,6 +787,12 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
                       <circle cx="20" cy="18" r="4.4" fill={LPLAYERS[p].color} />
                       <ellipse cx="14" cy="10.5" rx="4.2" ry="2.6" fill="#fff" opacity=".55" transform="rotate(-30 14 10.5)" />
                     </svg>
+                    {top && (
+                      <span className="absolute -top-[6%] right-[2%] min-w-[46%] h-[46%] px-[6%] rounded-full grid place-items-center text-white font-extrabold leading-none shadow-[0_1px_3px_rgba(0,0,0,.5)]"
+                        style={{ background: LPLAYERS[p].dark, border: "1.5px solid #fff", fontSize: "clamp(9px, 2.6vw, 13px)" }}>
+                        {mine.length}
+                      </span>
+                    )}
                   </span>
                 </button>
               );
