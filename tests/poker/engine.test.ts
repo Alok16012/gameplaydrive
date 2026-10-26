@@ -597,3 +597,14 @@ test("bots come and go: a bot past its 2-5 minute stay leaves between hands, at 
   assert.equal(after.length, 5);
   assert.equal(before.filter((id) => !after.includes(id)).length, 2, "exactly two bots left");
 });
+
+test("sitting down at a table left with lakh-size bot stacks: those bots are replaced before the first hand", () => {
+  const rng = seeded(31);
+  let t: TableState = { ...fresh(), boot: 25, rules: { ...TRULES, boot: 25, maxBet: 2500 } };
+  t = fillBots(t, rng, 0);
+  t = { ...t, seats: t.seats.map((s, i) => (i < 3 ? { ...s, bal: 1_900_000 } : s)) };
+  const sat = fillBots(sitDown(t, human("a"), 0).table, rng, 0);
+  const bots = sat.seats.filter((s) => s.bot);
+  assert.equal(bots.length, 5);
+  assert.ok(bots.every((s) => s.bal! >= 25 * 30 && s.bal! <= 25 * 40), `stacks ${bots.map((s) => s.bal)}`);
+});

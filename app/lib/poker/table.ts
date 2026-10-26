@@ -142,7 +142,11 @@ function rotateBots(bots: TableSeat[], now: number): TableSeat[] {
 /** Public tables keep six seats busy with bots; private tables never get any. */
 export function fillBots(t: TableState, rng: Rng, now: number): TableState {
   if (t.code) return t;
-  const seats = [...t.seats];
+  // Between hands, a bot whose stack doesn't fit this table (one seated before the 30-40 boot stacks, or one that
+  // has won far past them) gets up at once, so nobody sitting down sees lakh-size stacks at a small table.
+  const { lo, hi } = botStackRange(t.boot);
+  const fits = (s: TableSeat) => !s.bot || live(t.hand) || (s.stack === 1 && (s.bal ?? 0) >= lo / 2 && (s.bal ?? 0) <= hi * 2);
+  const seats = t.seats.filter(fits);
   const taken = new Set(seats.map((s) => s.seat));
   const used = new Set(seats.map((s) => s.name));
   const stacks = new Set(seats.filter((s) => s.bot).map((s) => s.bal ?? 0));
