@@ -66,6 +66,8 @@ function turnCell(r: number, c: number, turns: number, size = 1): [number, numbe
   return [r, c];
 }
 const absIdx = (p: number, prog: number) => (prog >= 0 && prog <= 50 ? (LPLAYERS[p].start + prog) % 52 : -1);
+/** Does colour p's token at progress `prog` stand on a safe (star or start) square? */
+export const ludoOnSafe = (p: number, prog: number) => { const a = absIdx(p, prog); return a >= 0 && SAFE.has(a); };
 
 /**
  * Which token to move, the way a player picks (same as ld_best on the server): a capture, then getting a token
@@ -517,6 +519,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
     }
     if (!alive.current || g !== gameNo.current) return "stop";
     const prog = steps[steps.length - 1];
+    if (prog !== 56 && ludoOnSafe(p, prog)) sfx.bell(); // landed on a safe square
     let bonus = d === 6 || prog === 56;
     const a = absIdx(p, prog);
     if (a >= 0 && !SAFE.has(a)) {
@@ -733,6 +736,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
           turns={TURNS}
           glowAt={(p, i) => p === 0 && myOpts.includes(i)}
           onTap={tapToken}
+          blinkYard={started && winner === null && turn === 0 && !rolling && !moving && !awaitMove ? 0 : null}
           overlay={!started && (
             <div className="absolute inset-0 bg-black/55 grid place-items-center z-30">
               <Waiting lowBal={lowBal} left={firstIn} onRetry={start} onAddCash={() => nav.push({ name: "addcash" })} />
@@ -744,9 +748,12 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 
         {/* Your dice */}
         <div className="mt-4 flex flex-col items-center">
+          <div className="relative">
+          {started && winner === null && turn === 0 && !rolling && !moving && !awaitMove && <span className="absolute -left-12 top-1/2 text-[34px] leading-none nudge-x pointer-events-none" aria-hidden>👉</span>}
           <button onClick={myRoll} disabled={!started || turn !== 0 || rolling || moving || awaitMove} className={`rounded-2xl p-2 active:scale-95 transition-[transform,opacity] ${!started || turn !== 0 || moving || awaitMove ? "opacity-45" : ""} ${started && turn === 0 && !rolling && !moving && !awaitMove ? "pulse-ring" : ""}`} style={{ background: "linear-gradient(145deg,#ef4444,#991b1b)", boxShadow: "0 8px 18px rgba(0,0,0,.45)" }}>
             <DiceFace v={dice} rolling={rolling} size={68} />
           </button>
+          </div>
           <div className="text-sm font-semibold mt-2.5">{started ? (turn === 0 ? (awaitMove ? "Choose a token" : moving ? "Moving…" : rolling ? "Rolling…" : "Tap the dice to roll") : `${names[turn]}'s turn`) : "Waiting to start"}</div>
           <div className="text-xs text-white/60 mt-0.5 text-center min-h-4">{msg}</div>
           {started && winner === null && !gaveUp && (
@@ -796,9 +803,10 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 const CELL = 100 / 15;
 
 /** The Ludo board with its tokens (shared by the practice table and the online private table). */
-export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns = 0 }: {
+export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns = 0, blinkYard = null }: {
   tokens: number[][]; inPlay: (p: number) => boolean; glowAt: (p: number, i: number) => boolean; onTap: (p: number, i: number) => void; overlay?: React.ReactNode;
   turns?: number; // quarter turns clockwise, so the player's own yard can sit at the bottom-left (ludoTurns)
+  blinkYard?: number | null; // colour whose yard blinks (yours, while it's your turn)
 }) {
   const at = (r: number, c: number, size = 1) => turnCell(r, c, turns, size);
   return (
@@ -826,6 +834,7 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
               {/* yard: coloured square, white panel, four token spots */}
               <div className="absolute p-[0.9%]" style={{ top: `${at(p === 0 || p === 1 ? 0 : 9, p === 0 || p === 3 ? 0 : 9, 6)[0] * CELL}%`, left: `${at(p === 0 || p === 1 ? 0 : 9, p === 0 || p === 3 ? 0 : 9, 6)[1] * CELL}%`, width: `${6 * CELL}%`, height: `${6 * CELL}%`, background: `linear-gradient(145deg, ${pl.color}, ${pl.dark})` }}>
                 <div className="w-full h-full rounded-[18%] bg-white/95 shadow-[inset_0_2px_6px_rgba(0,0,0,.18)]" />
+                {blinkYard === p && <div className="absolute inset-[3%] rounded-[18%] yard-blink pointer-events-none" style={{ boxShadow: "inset 0 0 0 4px #facc15, inset 0 0 26px 10px rgba(250,204,21,.75)" }} />}
               </div>
               {pl.yard.map(([r0, c0], i) => { const [r, c] = at(r0, c0); return (
                 <div key={`s${i}`} className="absolute grid place-items-center" style={{ top: `${r * CELL}%`, left: `${c * CELL}%`, width: `${CELL}%`, height: `${CELL}%` }}>

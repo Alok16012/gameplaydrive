@@ -252,3 +252,9 @@ body {
     0 0 0 14px rgba(255, 255, 255, 0.06),
     0 20px 40px rgba(0, 0, 0, 0.6);
 }
+
+/* Ludo: a pointing hand that nudges toward the dice on your turn, and your yard blinking while it's yours. */
+@keyframes nudge-x { 0%, 100% { transform: translate(0, -50%); } 50% { transform: translate(9px, -50%); } }
+.nudge-x { animation: nudge-x .6s ease-in-out infinite; }
+@keyframes yard-blink { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+.yard-blink { animation: yard-blink 1s ease-in-out infinite; }

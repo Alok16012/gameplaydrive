@@ -8,7 +8,7 @@ import { errText, joinOnce, supabase } from "../../lib/supabase";
 import { REJOIN_MS, clearActive, markActive } from "../../lib/rejoin";
 import { sfx } from "../../lib/sound";
 import { Avatar, Header, Money } from "../ui";
-import { DiceFace, LPLAYERS, LUDO_STEP_MS, LUDO_TURN_SECS, LudoBoardSurface, ludoColourAt, ludoTurns } from "./Board";
+import { DiceFace, LPLAYERS, LUDO_STEP_MS, LUDO_TURN_SECS, LudoBoardSurface, ludoColourAt, ludoOnSafe, ludoTurns } from "./Board";
 import type { Nav } from "../nav";
 
 // Ludo with friends: a private table run by the database (supabase/migrations/028_ludo_private.sql). The host
@@ -126,6 +126,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       window.setTimeout(() => {
         if (walking.current !== run) return;
         if (L.caught?.length) sfx.capture();
+        else if (L.to !== 56 && ludoOnSafe(colour, L.to!)) sfx.bell(); // landed on a safe square
         setShown(target);
       }, steps.length * STEP_MS + 60);
     } else {
@@ -299,9 +300,12 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
               turns={turns}
               glowAt={(c, i) => c === myColour && movable.includes(i)}
               onTap={(c, i) => { if (c === myColour && movable.includes(i)) act("move", i); }}
+              blinkYard={myTurn && v?.phase === "roll" && !busy && !done ? myColour : null}
             />
             <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{badge(ludoColourAt(3, turns), "left")}{badge(ludoColourAt(2, turns), "right")}</div>
             <div className="mt-4 flex flex-col items-center">
+              <div className="relative">
+              {myTurn && v?.phase === "roll" && !busy && !done && <span className="absolute -left-12 top-1/2 text-[34px] leading-none nudge-x pointer-events-none" aria-hidden>👉</span>}
               <button
                 onClick={() => act("roll")}
                 disabled={!myTurn || v?.phase !== "roll" || busy}
@@ -310,6 +314,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
               >
                 <DiceFace v={v?.dice ?? v?.last?.dice ?? 6} rolling={rolling} size={68} />
               </button>
+              </div>
               <div className="text-sm font-semibold mt-2.5">
                 {done ? "Game over" : mySeat?.left ? "You're out — you missed 3 turns" : myTurn ? (v?.phase === "move" ? "Choose a glowing token" : "Your turn — tap the dice") : `${nameOf(v?.turn ?? undefined)}'s turn`}
                 {v?.status === "playing" && <span className="text-white/50 font-normal"> • {Math.ceil(secsLeft)}s</span>}
