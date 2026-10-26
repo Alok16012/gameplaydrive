@@ -694,9 +694,12 @@ const CELL = 100 / 15;
 const CLUSTER_SCALE = [1, 1, 0.62, 0.56, 0.54, 0.46, 0.46, 0.4];
 /** Where the k-th of n tokens on one square sits, as an offset from the square's centre in % of the square. */
 function clusterSpot(n: number, k: number): [number, number] {
-  if (n === 2) return [[-22, 0], [22, 0]][k] as [number, number];
-  if (n === 3) return [[0, -18], [-22, 12], [22, 12]][k] as [number, number];
-  if (n === 4) return [[-22, -18], [22, -18], [-22, 14], [22, 14]][k] as [number, number];
+  const fixed: Record<number, [number, number][]> = {
+    2: [[-22, 0], [22, 0]],
+    3: [[0, -18], [-22, 12], [22, 12]],
+    4: [[-22, -18], [22, -18], [-22, 14], [22, 14]],
+  };
+  if (fixed[n]) return fixed[n][k] ?? [0, 0];
   const rows = Math.ceil(n / 3), row = Math.floor(k / 3), col = k % 3;
   return [(col - 1) * 30, (row - (rows - 1) / 2) * (rows > 2 ? 22 : 30)];
 }
@@ -752,9 +755,14 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
               const glow = glowAt(p, i);
               // Tokens sharing a square (any colours, finished ones in the centre too) shrink and sit side by side
               // in a small cluster, like Ludo King, so every one of them shows.
-              const same = prog >= 0 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => inPlay(o.q) && o.x >= 0 && cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
+              // Compare squares on the turned board (r, c are already turned), the same way for every token.
+              const same = prog >= 0 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => {
+                if (!inPlay(o.q) || o.x < 0) return false;
+                const [r2, c2] = at(...cellOf(o.q, o.x, o.j));
+                return r2 === r && c2 === c;
+              }) : [];
               const k = same.findIndex((o) => o.q === p && o.j === i);
-              const [dx, dy] = same.length > 1 ? clusterSpot(same.length, k) : [0, 0];
+              const [dx, dy] = same.length > 1 && k >= 0 ? clusterSpot(same.length, k) : [0, 0];
               const small = same.length > 1 ? CLUSTER_SCALE[Math.min(same.length, 7)] : 1;
               return (
                 <button
