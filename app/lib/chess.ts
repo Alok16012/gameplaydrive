@@ -1,5 +1,6 @@
-// Small chess engine for the Chess table: full legal move generation (check, castling, en passant, promotion),
-// game-end detection, and a computer opponent (alpha-beta search over material + piece-square tables).
+// Small chess engine for the Chess table: full legal move generation (check, castling, en passant, promotion to any
+// piece), game-end detection (mate, stalemate, insufficient material, 50-move rule; repetition is tracked by the
+// table with posKey), standard notation (san), and a computer opponent (alpha-beta search over material + piece-square tables).
 // Board: 8×8, row 0 = black's back rank. Uppercase = white, lowercase = black, "." = empty.
 
 export type Board = string[][];
@@ -10,6 +11,8 @@ export interface Pos {
   turn: Side;
   castle: { K: boolean; Q: boolean; k: boolean; q: boolean };
   ep: [number, number] | null; // square a pawn can capture onto en passant
+  /** Moves since the last pawn move or capture (50-move rule: a draw at 100). Older saved games lack it. */
+  half?: number;
 }
 
 export const START: Board = ["rnbqkbnr", "pppppppp", "........", "........", "........", "........", "PPPPPPPP", "RNBQKBNR"].map((r) => r.split(""));
@@ -63,15 +66,20 @@ function pseudo(p: Pos): Move[] {
     const enemy = (rr: number, cc: number) => { const s = sideOf(b[rr][cc]); return s !== null && s !== turn; };
     if (t === "p") {
       const dir = turn === "w" ? -1 : 1, startRow = turn === "w" ? 6 : 1, lastRow = turn === "w" ? 0 : 7;
-      const promo = (tr: number) => (tr === lastRow ? { promo: turn === "w" ? "Q" : "q" } : {});
+      // Reaching the last row: one move per piece it can become (queen first — the computer tries it first).
+      const promos = turn === "w" ? ["Q", "N", "R", "B"] : ["q", "n", "r", "b"];
       if (inB(r + dir, c) && b[r + dir][c] === ".") {
-        add(r, c, r + dir, c, promo(r + dir));
+        if (r + dir === lastRow) for (const pr of promos) add(r, c, r + dir, c, { promo: pr });
+        else add(r, c, r + dir, c);
         if (r === startRow && b[r + 2 * dir][c] === ".") add(r, c, r + 2 * dir, c);
       }
       for (const dc of [-1, 1]) {
         const tr = r + dir, tc = c + dc;
         if (!inB(tr, tc)) continue;
-        if (enemy(tr, tc)) add(r, c, tr, tc, promo(tr));
+        if (enemy(tr, tc)) {
+          if (tr === lastRow) for (const pr of promos) add(r, c, tr, tc, { promo: pr });
+          else add(r, c, tr, tc);
+        }
         else if (p.ep && p.ep[0] === tr && p.ep[1] === tc) out.push({ from: [r, c], to: [tr, tc], piece: pc, captured: b[r][tc], ep: true });
       }
     } else if (t === "n" || t === "k") {
@@ -123,19 +131,69 @@ export function makeMove(p: Pos, m: Move): Pos {
   };
   touch(fr, fc); touch(tr, tc);
   const ep: [number, number] | null = m.piece.toLowerCase() === "p" && Math.abs(tr - fr) === 2 ? [(fr + tr) / 2, fc] : null;
-  return { board: b, turn: p.turn === "w" ? "b" : "w", castle, ep };
+  const half = m.piece.toLowerCase() === "p" || m.captured !== "." ? 0 : (p.half ?? 0) + 1;
+  return { board: b, turn: p.turn === "w" ? "b" : "w", castle, ep, half };
 }
+
+/** A position's identity for repetition: pieces, side to move, castling rights, en-passant square. */
+export function posKey(p: Pos): string {
+  return `${p.board.map((r) => r.join("")).join("/")} ${p.turn} ${p.castle.K ? "K" : ""}${p.castle.Q ? "Q" : ""}${p.castle.k ? "k" : ""}${p.castle.q ? "q" : ""} ${p.ep ? p.ep.join(",") : "-"}`;
+}
+
+/** Neither side can possibly mate: K v K, K+minor v K, or K+B v K+B with bishops on the same colour. */
+export function insufficient(p: Pos): boolean {
+  const pcs: { p: string; r: number; c: number }[] = [];
+  p.board.forEach((row, r) => row.forEach((x, c) => { if (x !== "." && x.toLowerCase() !== "k") pcs.push({ p: x, r, c }); }));
+  if (pcs.length === 0) return true;
+  if (pcs.length === 1 && "nb".includes(pcs[0].p.toLowerCase())) return true;
+  if (pcs.length === 2 && pcs.every((x) => x.p.toLowerCase() === "b") && sideOf(pcs[0].p) !== sideOf(pcs[1].p)) {
+    return (pcs[0].r + pcs[0].c) % 2 === (pcs[1].r + pcs[1].c) % 2;
+  }
+  return false;
+}
+
+/** Standard algebraic notation for a legal move in position p: e4, Nbd7, exd5, O-O, e8=Q+, Qh7#. */
+export function san(p: Pos, m: Move): string {
+  const after = makeMove(p, m);
+  const mark = inCheck(after) ? (legalMoves(after).length === 0 ? "#" : "+") : "";
+  if (m.castle) return (m.castle === "K" ? "O-O" : "O-O-O") + mark;
+  const sq = (r: number, c: number) => "abcdefgh"[c] + (8 - r);
+  const kind = m.piece.toUpperCase();
+  const cap = m.captured !== "." || m.ep;
+  if (kind === "P") {
+    return (cap ? "abcdefgh"[m.from[1]] + "x" : "") + sq(m.to[0], m.to[1]) + (m.promo ? "=" + m.promo.toUpperCase() : "") + mark;
+  }
+  // Another piece of the same kind that could also go there: name the file, the rank, or both.
+  const rivals = legalMoves(p).filter((x) => x.piece === m.piece && x.to[0] === m.to[0] && x.to[1] === m.to[1] && (x.from[0] !== m.from[0] || x.from[1] !== m.from[1]));
+  let dis = "";
+  if (rivals.length) {
+    const sameFile = rivals.some((x) => x.from[1] === m.from[1]);
+    const sameRank = rivals.some((x) => x.from[0] === m.from[0]);
+    dis = !sameFile ? "abcdefgh"[m.from[1]] : !sameRank ? String(8 - m.from[0]) : sq(m.from[0], m.from[1]);
+  }
+  return kind + dis + (cap ? "x" : "") + sq(m.to[0], m.to[1]) + mark;
+}
+
+/** Material balance in pawns, from white's side (for the +N next to the captured pieces). */
+export function materialEdge(b: Board): number {
+  const v: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+  let s = 0;
+  for (const row of b) for (const x of row) if (x !== ".") s += (x === x.toUpperCase() ? 1 : -1) * v[x.toLowerCase()];
+  return s;
+}
+
+/** The computer's own assessment, in centipawns from white's side (it weighs a draw offer by this). */
+export const assess = (p: Pos) => evaluate(p.board);
 
 export function legalMoves(p: Pos): Move[] {
   return pseudo(p).filter((m) => !inCheck(makeMove(p, m), p.turn));
 }
 
-export type Status = "play" | "checkmate" | "stalemate" | "draw";
+export type Status = "play" | "checkmate" | "stalemate" | "draw" | "fifty";
 export function status(p: Pos): Status {
   if (legalMoves(p).length === 0) return inCheck(p) ? "checkmate" : "stalemate";
-  // Only kings (or king + one minor piece) left: nobody can mate.
-  const rest = p.board.flat().filter((x) => x !== "." && x.toLowerCase() !== "k");
-  if (rest.length === 0 || (rest.length === 1 && "nb".includes(rest[0].toLowerCase()))) return "draw";
+  if (insufficient(p)) return "draw";
+  if ((p.half ?? 0) >= 100) return "fifty";
   return "play";
 }
 

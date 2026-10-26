@@ -11,7 +11,7 @@ import { Avatar, Header, Money } from "../ui";
 import { BotTag, NEXT_GAME_SECS, ResultSheet, useAutoNext } from "./bots";
 import type { Nav, Route } from "../nav";
 import { botPace, feeOf, useGameSettings } from "../../lib/gameConfig";
-import { bestMove, inCheck, kingSquare, legalMoves, makeMove, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
+import { assess, bestMove, inCheck, kingSquare, legalMoves, makeMove, materialEdge, posKey, san, startPos, status as chessStatus, type Move, type Pos } from "../../lib/chess";
 import { supabase } from "../../lib/supabase";
 
 export function BoardGame({ nav, gameId, table, buyIn, players }: { nav: Nav; gameId: GameId; table: string; buyIn: number; players?: 2 | 4 }) {
@@ -905,9 +905,13 @@ function Waiting({ lowBal, left, onRetry, onAddCash }: { lowBal: boolean; left: 
 /* ------------------------------------------------------------------ Chess */
 
 // Full rules (app/lib/chess.ts): legal moves only, check, checkmate, stalemate, castling, en passant, promotion to
-// a queen. The computer searches a few moves ahead, so it captures loose pieces and goes for mate.
+// any piece (you pick), and the draws a real board has — insufficient material, the 50-move rule, the same position
+// three times, and a draw offer the computer weighs on the position. Pieces move by tap or drag; while the computer
+// thinks you can queue a premove. Moves are listed in standard notation above the board.
 const GLYPH: Record<string, string> = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟", K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟" };
 const CHESS_SECS = 600;
+type Sq = [number, number];
+const sameSq = (a: Sq | null | undefined, r: number, c: number) => !!a && a[0] === r && a[1] === c;
 
 function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }) {
   const gs = useGameSettings();
@@ -915,9 +919,17 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const pace = botPace(gs, "chess");
   const { total, credit, debit, showToast } = useStore();
   const [pos, setPos] = useState<Pos>(startPos);
-  const [sel, setSel] = useState<[number, number] | null>(null);
+  const [sel, setSel] = useState<Sq | null>(null);
   const [last, setLast] = useState<Move | null>(null);
   const [taken, setTaken] = useState<{ w: string[]; b: string[] }>({ w: [], b: [] }); // pieces each side has captured
+  const [moves, setMoves] = useState<string[]>([]); // the game so far, in standard notation
+  const hist = useRef<string[]>([]); // every position reached (posKey), for threefold repetition
+  const [promo, setPromo] = useState<Move[] | null>(null); // a pawn reached the last row: pick the piece
+  const [premove, setPremove] = useState<Move | null>(null); // queued while the computer thinks
+  const [drag, setDrag] = useState<{ from: Sq; x: number; y: number; moved: boolean } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
+  const movesRef = useRef<HTMLDivElement>(null);
+  const lastOffer = useRef(-99); // ply of the last draw offer (one every ten plies)
   const [clock, setClock] = useState([CHESS_SECS, CHESS_SECS]);
   const [started, setStarted] = useState(false);
   const [done, setDone] = useState<null | "win" | "loss" | "draw">(null);
@@ -936,13 +948,14 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
       setOutcomeMode(m);
     });
   }, []);
+  void outcomeMode;
 
   // Rejoin: the game is saved on this phone every second, so Back (or closing the app) and coming back carries on
   // from the same position — entry not charged again. Your clock keeps running while you're away: the time gone
   // comes off your clock, and if it ran out the game is lost. Exit gives the game up for good.
   const snapKey = `chess:${table}:${buyIn}`;
   const route: Route = { name: "board", game: "chess", table, buyIn };
-  interface ChessSnap { pos: Pos; last: Move | null; taken: { w: string[]; b: string[] }; clock: number[]; opp: Bot; botMoves: number }
+  interface ChessSnap { pos: Pos; last: Move | null; taken: { w: string[]; b: string[] }; clock: number[]; opp: Bot; botMoves: number; moves?: string[]; hist?: string[] }
   const [askExit, setAskExit] = useState(false);
   const over = useRef(false); // game finished or given up: stop saving it (state updates land a render later)
 
@@ -951,6 +964,8 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     gameNo.current += 1;
     dropSnap(snapKey);
     clearActive(route);
+    setPremove(null);
+    setPromo(null);
     if (result === "win") {
       setDone("win");
       setWhy(reason);
@@ -968,16 +983,23 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   };
 
   const play = (p: Pos, m: Move) => {
+    const note = san(p, m);
     const next = makeMove(p, m);
-    if (m.captured !== ".") sfx.capture(); else sfx.move();
+    if (m.captured !== "." || m.ep) sfx.capture(); else sfx.move();
     setPos(next);
     setLast(m);
     setSel(null);
+    setMoves((l) => [...l, note]);
+    const key = posKey(next);
+    hist.current = [...hist.current, key];
     if (m.captured !== ".") setTaken((t) => (p.turn === "w" ? { ...t, w: [...t.w, m.captured] } : { ...t, b: [...t.b, m.captured] }));
+    else if (m.ep) setTaken((t) => (p.turn === "w" ? { ...t, w: [...t.w, "p"] } : { ...t, b: [...t.b, "P"] }));
     const st = chessStatus(next);
     if (st === "checkmate") end(p.turn === "w" ? "win" : "loss", "Checkmate");
     else if (st === "stalemate") end("draw", "Stalemate");
     else if (st === "draw") end("draw", "Not enough pieces to mate");
+    else if (st === "fifty") end("draw", "50 moves without a capture or pawn move");
+    else if (hist.current.filter((k) => k === key).length >= 3) end("draw", "Same position three times");
     return st;
   };
 
@@ -1020,15 +1042,25 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pos, started, done]);
 
+  // Your turn again with a premove queued: play it if it is still legal, otherwise drop it.
+  useEffect(() => {
+    if (!started || !white || done !== null || !premove) return;
+    const m = legalMoves(pos).find((x) => x.from[0] === premove.from[0] && x.from[1] === premove.from[1] && x.to[0] === premove.to[0] && x.to[1] === premove.to[1] && (!x.promo || x.promo === (premove.promo ?? "Q")));
+    setPremove(null);
+    if (m) { const t = window.setTimeout(() => play(pos, m), 120); return () => window.clearTimeout(t); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pos, started, done]);
+
   useEffect(() => {
     if (!started || done !== null || over.current) return;
-    saveSnap<ChessSnap>(snapKey, { pos, last, taken, clock, opp, botMoves: botMoves.current });
+    saveSnap<ChessSnap>(snapKey, { pos, last, taken, clock, opp, botMoves: botMoves.current, moves, hist: hist.current });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, done, pos, clock]);
   useEffect(() => {
     if (started && done === null && !over.current) markActive(route, label, Math.max(0, clock[0]) * 1000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, done, pos]);
+  useEffect(() => { movesRef.current?.scrollTo({ left: movesRef.current.scrollWidth, behavior: "smooth" }); }, [moves]);
   const resumed = useRef(false); // once only (React may run mount effects twice in development)
   useEffect(() => {
     if (resumed.current) return;
@@ -1051,6 +1083,8 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     setPos(sn.pos);
     setLast(sn.last);
     setTaken(sn.taken);
+    setMoves(sn.moves ?? []);
+    hist.current = sn.hist ?? [posKey(sn.pos)];
     setClock([mine, sn.clock[1]]);
     setStarted(true);
     showToast("Welcome back — your game carries on");
@@ -1064,19 +1098,76 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     nav.back();
   };
 
-  const myMoves = started && white && done === null ? legalMoves(pos) : [];
-  const targets = sel ? myMoves.filter((m) => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
+  const live = started && done === null;
+  const myMoves = live && white ? legalMoves(pos) : [];
+  // While the computer thinks: the moves your pieces could make from here (checked again when your turn comes).
+  const preMoves = live && !white ? legalMoves({ ...pos, turn: "w", ep: null }) : [];
+  const pool = white ? myMoves : preMoves;
+  const targets = sel ? pool.filter((m) => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
 
-  const tap = (r: number, c: number) => {
-    if (!started || !white || done !== null) return;
-    const m = targets.find((x) => x.to[0] === r && x.to[1] === c);
-    if (m) return void play(pos, m);
-    const pc = pos.board[r][c];
-    if (pc !== "." && pc === pc.toUpperCase()) {
-      if (!myMoves.some((x) => x.from[0] === r && x.from[1] === c)) return setSel([r, c]); // selectable, just no moves
-      return setSel(sel && sel[0] === r && sel[1] === c ? null : [r, c]);
+  /** Move the selected piece to (r, c): a pawn reaching the last row asks which piece; off turn it's a premove. */
+  const moveTo = (r: number, c: number) => {
+    const ms = targets.filter((x) => x.to[0] === r && x.to[1] === c);
+    if (!ms.length) return false;
+    if (!white) {
+      setPremove(ms.find((x) => !x.promo || x.promo === "Q") ?? ms[0]);
+      setSel(null);
+      return true;
+    }
+    if (ms.length > 1) { setPromo(ms); setSel(null); return true; }
+    play(pos, ms[0]);
+    return true;
+  };
+  const own = (r: number, c: number) => { const pc = pos.board[r][c]; return pc !== "." && pc === pc.toUpperCase(); };
+  const squareAt = (x: number, y: number): Sq | null => {
+    const el = boardRef.current;
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    const c = Math.floor(((x - b.left) / b.width) * 8), r = Math.floor(((y - b.top) / b.height) * 8);
+    return r >= 0 && r < 8 && c >= 0 && c < 8 ? [r, c] : null;
+  };
+
+  // Tap or drag: press on a target square to move there; press on your piece to pick it up (and drag it if you like).
+  const onDown = (e: React.PointerEvent) => {
+    if (!live || promo) return;
+    const sq = squareAt(e.clientX, e.clientY);
+    if (!sq) return;
+    const [r, c] = sq;
+    if (sel && !sameSq(sel, r, c) && moveTo(r, c)) return;
+    if (own(r, c)) {
+      if (!white && premove) setPremove(null);
+      setSel([r, c]);
+      setDrag({ from: [r, c], x: e.clientX, y: e.clientY, moved: false });
+      boardRef.current?.setPointerCapture(e.pointerId);
+      return;
     }
     setSel(null);
+    if (!white) setPremove(null);
+  };
+  const onMove = (e: React.PointerEvent) => {
+    if (!drag) return;
+    const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6;
+    setDrag({ ...drag, x: e.clientX, y: e.clientY, moved });
+  };
+  const onUp = (e: React.PointerEvent) => {
+    if (!drag) return;
+    const d = drag;
+    setDrag(null);
+    if (!d.moved) return;
+    const sq = squareAt(e.clientX, e.clientY);
+    if (sq && !sameSq(d.from, sq[0], sq[1])) moveTo(sq[0], sq[1]);
+  };
+
+  const offerDraw = () => {
+    if (!live || !white) return showToast("Offer a draw on your move");
+    const ply = moves.length;
+    if (ply - lastOffer.current < 10) return showToast("You can offer a draw again in a few moves");
+    lastOffer.current = ply;
+    // The computer takes a draw when it stands worse, or in a long, level game; never when it is set to win.
+    const edge = assess(pos); // + = white (you) better
+    const yes = outcomeRef.current !== "force_loss" && (edge >= 150 || (ply >= 60 && Math.abs(edge) <= 40));
+    if (yes) end("draw", "Draw agreed");
+    else showToast(`${opp.name} declined the draw`);
   };
 
   const start = () => {
@@ -1090,9 +1181,15 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     over.current = false;
     gameNo.current += 1;
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
-    setPos(startPos());
+    const s0 = startPos();
+    setPos(s0);
+    hist.current = [posKey(s0)];
+    setMoves([]);
+    lastOffer.current = -99;
     botMoves.current = 0;
     setSel(null);
+    setPremove(null);
+    setPromo(null);
     setLast(null);
     setTaken({ w: [], b: [] });
     setClock([CHESS_SECS, CHESS_SECS]);
@@ -1105,51 +1202,72 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const firstIn = useAutoNext(!started && !lowBal, 3, start);
   const nextIn = useAutoNext(done !== null, NEXT_GAME_SECS, start);
   const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
-  const check = started && done === null && inCheck(pos);
+  const check = live && inCheck(pos);
   const [kr, kc] = kingSquare(pos.board, pos.turn);
-  const Taken = ({ list }: { list: string[] }) => (
+  const edge = materialEdge(pos.board); // + = you ahead
+  const Taken = ({ list, plus }: { list: string[]; plus: number }) => (
     <div className="h-5 flex items-center gap-[1px] text-[15px] leading-none text-white/80 px-1">
       {[...list].sort((a, b) => "qrbnp".indexOf(a.toLowerCase()) - "qrbnp".indexOf(b.toLowerCase())).map((p, i) => <span key={i}>{GLYPH[p]}</span>)}
+      {plus > 0 && <span className="ml-1.5 text-[12px] font-semibold text-white/60">+{plus}</span>}
     </div>
   );
+  const pieceStyle = (p: string) => ({ color: /[A-Z]/.test(p) ? "#fff" : "#111", textShadow: /[A-Z]/.test(p) ? "0 0 2px #000, 0 1px 2px #000" : "0 0 1px #fff" });
+  const dragging = drag?.moved ? drag : null;
+  const sqSize = boardRef.current ? boardRef.current.getBoundingClientRect().width / 8 : 44;
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
       <Header title="Chess" sub={`Table #${table} • Blitz 10 min • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        <PlayerBar name={opp.name} bot emoji={opp.emoji} time={fmt(clock[1])} active={started && !white && done === null} />
-        <Taken list={taken.b} />
-        <div className="relative grid grid-cols-8 rounded-xl overflow-hidden shadow-2xl border-4 border-[#3b2412]">
+        {/* Moves so far, in standard notation */}
+        <div ref={movesRef} className="h-7 mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar text-[12px] font-mono whitespace-nowrap rounded-lg bg-white/5 px-2">
+          {moves.length === 0 ? <span className="text-white/35 font-sans">Moves will appear here</span> : moves.map((m, i) => (
+            <span key={i} className={i === moves.length - 1 ? "text-white font-semibold" : "text-white/60"}>
+              {i % 2 === 0 && <span className="text-white/35 mr-1">{i / 2 + 1}.</span>}{m}
+            </span>
+          ))}
+        </div>
+        <PlayerBar name={opp.name} bot emoji={opp.emoji} time={fmt(clock[1])} active={live && !white} low={clock[1] <= 30} />
+        <Taken list={taken.b} plus={-edge} />
+        <div
+          ref={boardRef}
+          onPointerDown={onDown}
+          onPointerMove={onMove}
+          onPointerUp={onUp}
+          onPointerCancel={() => setDrag(null)}
+          className="relative grid grid-cols-8 rounded-xl overflow-hidden shadow-2xl border-4 border-[#3b2412] touch-none select-none"
+        >
           {pos.board.map((row, r) =>
             row.map((p, c) => {
               const dark = (r + c) % 2 === 1;
-              const isSel = sel && sel[0] === r && sel[1] === c;
-              const isLast = last && ((last.from[0] === r && last.from[1] === c) || (last.to[0] === r && last.to[1] === c));
+              const isSel = sameSq(sel, r, c);
+              const isLast = last && (sameSq(last.from, r, c) || sameSq(last.to, r, c));
+              const isPre = premove && (sameSq(premove.from, r, c) || sameSq(premove.to, r, c));
               const tgt = targets.find((m) => m.to[0] === r && m.to[1] === c);
               const inChk = check && r === kr && c === kc;
+              const hidden = dragging && sameSq(dragging.from, r, c);
               return (
-                <button
+                <div
                   key={`${r}${c}`}
-                  onClick={() => tap(r, c)}
                   className="relative aspect-square grid place-items-center text-[30px] leading-none"
                   style={{
-                    background: isSel ? "#f6e05e" : isLast ? (dark ? "#b9ca43" : "#f5f682") : dark ? "#779556" : "#ebecd0",
+                    background: isPre ? (dark ? "#c0504d" : "#e8836f") : isSel ? "#f6e05e" : isLast ? (dark ? "#b9ca43" : "#f5f682") : dark ? "#779556" : "#ebecd0",
                     boxShadow: inChk ? "inset 0 0 14px 5px #ef4444" : undefined,
                   }}
                 >
                   {c === 0 && <span className={`absolute left-0.5 top-0.5 text-[9px] font-semibold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{8 - r}</span>}
                   {r === 7 && <span className={`absolute right-0.5 bottom-0 text-[9px] font-semibold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{"abcdefgh"[c]}</span>}
-                  {p !== "." && (
-                    <span key={`${p}${last?.to.join() ?? ""}`} className={isLast && last && last.to[0] === r && last.to[1] === c ? "pop" : ""} style={{ color: /[A-Z]/.test(p) ? "#fff" : "#111", textShadow: /[A-Z]/.test(p) ? "0 0 2px #000, 0 1px 2px #000" : "0 0 1px #fff" }}>
+                  {p !== "." && !hidden && (
+                    <span key={`${p}${last?.to.join() ?? ""}`} className={isLast && last && sameSq(last.to, r, c) ? "pop" : ""} style={pieceStyle(p)}>
                       {GLYPH[p]}
                     </span>
                   )}
-                  {tgt && (tgt.captured !== "." ? (
-                    <span className="absolute inset-[6%] rounded-full border-[4px] border-black/25" />
+                  {tgt && (tgt.captured !== "." || tgt.ep ? (
+                    <span className="absolute inset-[6%] rounded-full border-[4px] border-black/25 pointer-events-none" />
                   ) : (
-                    <span className="absolute w-[28%] h-[28%] rounded-full bg-black/25" />
+                    <span className="absolute w-[28%] h-[28%] rounded-full bg-black/25 pointer-events-none" />
                   ))}
-                </button>
+                </div>
               );
             }),
           )}
@@ -1158,30 +1276,52 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
               <Waiting lowBal={lowBal} left={firstIn} onRetry={start} onAddCash={() => nav.push({ name: "addcash" })} />
             </div>
           )}
+          {promo && (
+            <div className="absolute inset-0 bg-black/55 grid place-items-center z-20" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="rounded-2xl bg-[#0d1230] border border-white/15 p-3 pop">
+                <div className="text-center text-xs text-white/60 mb-2">Promote to</div>
+                <div className="flex gap-2">
+                  {["Q", "R", "B", "N"].map((k) => {
+                    const m = promo.find((x) => x.promo === k);
+                    return m ? (
+                      <button key={k} onClick={() => { setPromo(null); play(pos, m); }} className="w-14 h-14 rounded-xl bg-[#ebecd0] grid place-items-center text-[36px] leading-none active:scale-95" style={pieceStyle(k)}>{GLYPH[k]}</button>
+                    ) : null;
+                  })}
+                </div>
+                <button onClick={() => setPromo(null)} className="w-full mt-2 text-[11px] text-white/50">Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
-        <Taken list={taken.w} />
-        <PlayerBar name="You" emoji="👨🏽" time={fmt(clock[0])} active={started && white && done === null} />
+        {dragging && (
+          <span className="fixed z-50 pointer-events-none leading-none -translate-x-1/2 -translate-y-1/2" style={{ left: dragging.x, top: dragging.y, fontSize: sqSize * 0.9, ...pieceStyle(pos.board[dragging.from[0]][dragging.from[1]]) }}>
+            {GLYPH[pos.board[dragging.from[0]][dragging.from[1]]]}
+          </span>
+        )}
+        <Taken list={taken.w} plus={edge} />
+        <PlayerBar name="You" emoji="👨🏽" time={fmt(clock[0])} active={live && white} low={clock[0] <= 30} />
         <div className={`text-center text-[12px] mt-3 ${check ? "text-rose-400 font-semibold" : "text-white/45"}`}>
-          {done !== null ? why : check ? (white ? "Check! Protect your king" : `You gave check!`) : started ? (white ? "Your move — tap a piece to see where it can go" : `${opp.name} is thinking…`) : ""}
+          {done !== null ? why : check ? (white ? "Check! Protect your king" : `You gave check!`) : started ? (white ? "Your move — tap or drag a piece" : premove ? "Premove set — it plays as soon as it's your turn" : `${opp.name} is thinking… you can premove`) : ""}
         </div>
-        {started && done === null && (
-          <div className="flex justify-center">
-            <button onClick={() => setAskExit(true)} className="mt-4 pill px-4 py-2 text-xs font-semibold bg-white/10 text-white/80 inline-flex items-center gap-1.5">
-              <LogOut size={14} /> Exit game
+        {live && (
+          <div className="flex justify-center gap-2 mt-4">
+            <button onClick={offerDraw} className="pill px-4 py-2 text-xs font-semibold bg-white/10 text-white/80">½ Offer draw</button>
+            <button onClick={() => setAskExit(true)} className="pill px-4 py-2 text-xs font-semibold bg-white/10 text-white/80 inline-flex items-center gap-1.5">
+              <LogOut size={14} /> Resign
             </button>
           </div>
         )}
-        {started && done === null && <div className="text-center text-[10px] text-white/35 mt-2">Tap ← to leave for a while — rejoin from Home, your clock keeps running.</div>}
+        {live && <div className="text-center text-[10px] text-white/35 mt-2">Tap ← to leave for a while — rejoin from Home, your clock keeps running.</div>}
       </div>
 
       {askExit && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 px-6" onClick={() => setAskExit(false)}>
           <div className="w-full max-w-[360px] rounded-3xl bg-[#0d1230] border border-white/10 p-6 text-center pop" onClick={(e) => e.stopPropagation()}>
-            <div className="text-xl font-semibold">Exit this game?</div>
+            <div className="text-xl font-semibold">Resign this game?</div>
             <div className="text-sm text-white/60 mt-1">You will lose this game and the entry of {inr(buyIn)} is not returned.</div>
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button onClick={() => setAskExit(false)} className="py-3 rounded-2xl bg-white/10 font-semibold">Keep playing</button>
-              <button onClick={exitGame} className="py-3 rounded-2xl bg-rose-500 font-semibold">Exit</button>
+              <button onClick={exitGame} className="py-3 rounded-2xl bg-rose-500 font-semibold">Resign</button>
             </div>
           </div>
         </div>
@@ -1218,7 +1358,7 @@ function chessThinkMs(pos: Pos, last: Move | null, played: number, clockLeft: nu
   return Math.max(800, Math.min(s, Math.max(1.2, clockLeft / 20)) * 1000);
 }
 
-function PlayerBar({ name, emoji, time, active, bot }: { name: string; emoji: string; time: string; active: boolean; bot?: boolean }) {
+function PlayerBar({ name, emoji, time, active, bot, low }: { name: string; emoji: string; time: string; active: boolean; bot?: boolean; low?: boolean }) {
   return (
     <div className="flex items-center gap-3 card px-3 py-2">
       <Avatar emoji={emoji} size={34} />
@@ -1226,7 +1366,7 @@ function PlayerBar({ name, emoji, time, active, bot }: { name: string; emoji: st
         {name}{bot && <BotTag />}
         {bot && active && <div className="text-[11px] font-normal text-white/50">thinking<span className="inline-block w-4 text-left animate-pulse">…</span></div>}
       </div>
-      <div className={`font-mono text-sm px-2.5 py-1 rounded-lg ${active ? "bg-white text-slate-900" : "bg-white/10 text-white/60"}`}>{time}</div>
+      <div className={`font-mono text-sm px-2.5 py-1 rounded-lg ${active ? (low ? "bg-rose-500 text-white animate-pulse" : "bg-white text-slate-900") : low ? "bg-rose-500/30 text-rose-200" : "bg-white/10 text-white/60"}`}>{time}</div>
     </div>
   );
 }
