@@ -278,7 +278,13 @@ export function Aviator({ nav }: { nav: Nav }) {
               button = <div className={`${big} grid place-items-center bg-[#2a1012] border-[#7f1d1d] text-rose-300`}><span>Lost<br /><b className="text-xl">{inr(b.amount)}</b></span></div>;
             } else if (b && flying) {
               button = (
-                <button disabled={busy === slot} onClick={() => act("av_cashout", slot)} className={`${big} bg-[#d07206] border-[#ffbd71] text-white`}>
+                <button
+                  disabled={busy === slot}
+                  // Fires on the finger touching the screen, not on release: a cash-out leaves 100-300 ms sooner on a phone.
+                  onPointerDown={(e) => { e.preventDefault(); if (busy !== slot) act("av_cashout", slot); }}
+                  onClick={(e) => e.preventDefault()}
+                  className={`${big} bg-[#d07206] border-[#ffbd71] text-white touch-manipulation`}
+                >
                   <span className="text-xl">Cash Out</span><br /><span className="text-2xl font-bold tabular-nums">{inr(Math.floor(b.amount * m))}</span>
                 </button>
               );
