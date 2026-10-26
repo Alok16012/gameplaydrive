@@ -23,6 +23,10 @@ import {
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 
+/** Games the outcome control applies to. Cricket Live is a betting exchange settled by the real match result, so it
+ *  has no win / loss switch here. */
+const OUTCOME_GAMES = GAMES.filter((g) => g.id !== "cricket");
+
 import { GameIcon } from "../components/GameArt";
 import { ROLE_LABEL, coins, type Account, type Role } from "../lib/hierarchy";
 import { authToken, errText, supabase } from "../lib/supabase";
@@ -233,7 +237,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
 
   const handleApplyPreset = (mode: OutcomeMode) => {
     updateOutcome({ global_mode: mode }, "preset");
-    GAMES.forEach((g) => {
+    OUTCOME_GAMES.forEach((g) => {
       updateOutcome({ game: g.id, game_mode: mode }, `game_${g.id}`);
     });
   };
@@ -685,7 +689,7 @@ export function OutcomeControlView({ me, accounts }: { me: Account; accounts: Ac
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {GAMES.map((g) => {
+          {OUTCOME_GAMES.map((g) => {
             const specificMode = data.games[g.id];
             const effectiveMode = specificMode || data.global_mode;
             const details = GAME_CONTROL_DETAILS[g.id] || {
