@@ -3,7 +3,7 @@
 import { useActiveGame } from "../../lib/rejoin";
 import { useEffect, useState } from "react";
 import { Bell, ChevronRight, Gamepad2, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
-import { GAMES, NOTIFICATIONS, RUMMY_TABLES, TABLES, TEEN_PATTI_TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
+import { GAMES, NOTIFICATIONS, POKER_TABLES, RUMMY_TABLES, TABLES, TEEN_PATTI_TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
@@ -223,7 +223,7 @@ const RUMMY_STAKES: Record<RummyMode, number[]> = {
 /** Low / Mid / High filter for a rummy stake, by its place in the ladder. */
 const rummyTier = (i: number, n: number): Stake => (i < Math.ceil(n * 0.375) ? "Low" : i < Math.ceil(n * 0.625) ? "Mid" : "High");
 
-const MULT: Partial<Record<GameId, number>> = { ludo: 1, chess: 2, poker: 2, "teen-patti": 1, rummy: 1, rummy21: 1 };
+const MULT: Partial<Record<GameId, number>> = { ludo: 1, chess: 2, poker: 1, "teen-patti": 1, rummy: 1, rummy21: 1 };
 
 export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   const game = gameById(gameId);
@@ -244,7 +244,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Ludo: 4-player tables or 1-vs-1 tables.
   const [ludoN, setLudoN] = useState<2 | 4>(4);
   const seats = game.id === "ludo" ? ludoN : game.id === "chess" ? 2 : 6;
-  const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : [10 * m, 50 * m, 100 * m];
+  const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : gameId === "poker" ? [25, 100, 1000] : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
   const privMin = (rummy && mode !== "points") || gameId === "ludo" ? 10 : 1;
   const privMax = 100000000;
@@ -254,6 +254,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     ? RUMMY_STAKES[mode].map((v, i, all) => ({ id: String(101 + i * 103), seated: RUMMY_TABLES[i % RUMMY_TABLES.length].seated, seats: 6, buyIn: v, stake: rummyTier(i, all.length) }))
     : gameId === "teen-patti"
     ? TEEN_PATTI_TABLES
+    : gameId === "poker"
+    ? POKER_TABLES
     : TABLES;
   // Practice tables fill their empty seats with bots when you sit down, so they always have room for one more:
   // show 2…seats-1 already seated, drifting a little every few seconds like a real lobby. One-on-one games

@@ -85,6 +85,18 @@ export const TEEN_PATTI_TABLES: Table[] = [
   { id: "412", seated: 2, seats: 6, buyIn: 1000, stake: "High" },
 ];
 
+// Poker public tables: only these boots (the lobby shows them as-is, no multiplier).
+export const POKER_TABLES: Table[] = [
+  { id: "101", seated: 3, seats: 6, buyIn: 25, stake: "Low" },
+  { id: "203", seated: 4, seats: 6, buyIn: 50, stake: "Low" },
+  { id: "307", seated: 2, seats: 6, buyIn: 100, stake: "Low" },
+  { id: "412", seated: 3, seats: 6, buyIn: 200, stake: "Low" },
+  { id: "528", seated: 4, seats: 6, buyIn: 1000, stake: "Mid" },
+  { id: "615", seated: 2, seats: 6, buyIn: 2000, stake: "Mid" },
+  { id: "722", seated: 3, seats: 6, buyIn: 5000, stake: "High" },
+  { id: "835", seated: 2, seats: 6, buyIn: 10000, stake: "High" },
+];
+
 // Rummy has its own entry ladder (50 → 5,000 coins).
 export const RUMMY_TABLES: Table[] = [
   { id: "101", seated: 3, seats: 6, buyIn: 500, stake: "Low" },
