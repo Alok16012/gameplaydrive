@@ -215,7 +215,7 @@ const RUMMY_MODES: Record<RummyMode, { short: string; about: string }> = {
   deals: { short: "Deals", about: "A fixed number of deals. Each deal's winner collects the others' points as chips; most chips wins." },
 };
 const RUMMY_STAKES: Record<RummyMode, number[]> = {
-  points: [1, 2, 5, 10, 20, 50, 100],
+  points: [0.25, 0.5, 1, 2, 5, 10, 20, 50],
   pool101: [50, 100, 250, 500, 1000, 2500, 5000, 10000],
   pool201: [50, 100, 250, 500, 1000, 2500, 5000, 10000],
   deals: [50, 100, 250, 500, 1000, 2500, 5000, 10000],
@@ -244,7 +244,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Ludo: 4-player tables or 1-vs-1 tables.
   const [ludoN, setLudoN] = useState<2 | 4>(4);
   const seats = game.id === "ludo" ? ludoN : game.id === "chess" ? 2 : 6;
-  const privEntries = rummy ? RUMMY_STAKES[mode].slice(0, 3) : gameId === "poker" ? [25, 100, 1000] : [10 * m, 50 * m, 100 * m];
+  // Private rummy tables take whole coins per point.
+  const privEntries = rummy ? RUMMY_STAKES[mode].filter((v) => v >= 1).slice(0, 3) : gameId === "poker" ? [25, 100, 1000] : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
   const privMin = (rummy && mode !== "points") || gameId === "ludo" ? 10 : 1;
   const privMax = 100000000;
