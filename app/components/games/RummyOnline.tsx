@@ -9,7 +9,7 @@ import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } fro
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, HomeButton, Money, PlayingCard, Sheet } from "../ui";
-import { BotTag, DealerChip, TimerAvatar, dealerSeat } from "./bots";
+import { BotTag, DealerChip, ResultSheet, TimerAvatar, dealerSeat } from "./bots";
 import { LandscapeStage } from "./LandscapeStage";
 import type { Nav, RummyMode } from "../nav";
 
@@ -64,6 +64,8 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   const [sel, setSel] = useState<number[]>([]);
   const [confirm, setConfirm] = useState<"declare" | "drop" | null>(null);
   const [exitAsk, setExitAsk] = useState(false);
+  const [sheetFor, setSheetFor] = useState("");
+  const [peek, setPeek] = useState(false);
   const tableId = useRef<string | null>(null);
   const offset = useRef(0);
   const ticking = useRef(false);
@@ -283,6 +285,14 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
   }, [v]);
 
   useEffect(() => { if (v?.result) setLastRes(v.result); }, [v?.result]);
+
+  // Show the scoreboard a moment after the deal ends.
+  useEffect(() => {
+    if (v?.status !== "dealdone" || !v.result) return;
+    const key = `${v.match_no}:${v.deal_no}`;
+    const t = setTimeout(() => { setSheetFor(key); setPeek(false); }, 1800);
+    return () => clearTimeout(t);
+  }, [v?.status, v?.match_no, v?.deal_no, v?.result]);
 
   // Back to the lobby without giving up the seat: the server keeps you at the table (your turn clock runs
   // as usual) and Home / the lobby offer Rejoin. Only "Leave table" gives the seat up.
@@ -574,12 +584,9 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             </div>
           ) : v.status === "dealdone" && res ? (
             <div className="text-center fadein">
-              <div className={`text-lg font-bold ${iWonDeal ? "text-neon-400" : "text-white"}`}>
-                {iWonDeal ? (mode === "points" ? `You won ${inr(res.prize)}!` : "You won this deal!") : `${res.winner_name} won${mode === "points" ? ` ${inr(res.prize)}` : ""}`}
-              </div>
-              {res.match_over && mode !== "points" && <div className="text-[13px] text-gold-300 mt-0.5">{iWonMatch ? `You win the match • ${inr(res.prize)}` : `${res.champion_name} wins the match`}</div>}
-              {mode === "points" && myRow && !iWonDeal && <div className="text-[12px] text-white/60">You lose {myRow.pts} points = {inr(Math.abs(myRow.coins ?? 0))}</div>}
-              <div className="text-[13px] text-gold-300 font-semibold mt-1">{res.match_over || mode === "points" ? "Next round" : `Deal ${v.deal_no + 1}`} in {Math.max(1, Math.ceil(secsTo(v.next_at)))}</div>
+              <div className="text-base font-semibold">{iWonDeal ? "You declared!" : `${res.winner_name} ${res.rows.find((r) => r.seat === res.winner)?.note === "Declared" ? "declared" : "wins"}`}</div>
+              {res.match_over && mode !== "points" && <div className="text-[13px] text-gold-300 mt-0.5">{iWonMatch ? "You win the match!" : `${res.champion_name} wins the match`}</div>}
+              <div className="text-[12px] text-white/70 mt-1">{res.match_over ? "Next game" : `Deal ${v.deal_no + 1}`} in {Math.ceil(secsTo(v.next_at))}s</div>
             </div>
           ) : (
             <div className="relative h-0">
@@ -884,6 +891,48 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         )}
       </Sheet>
 
+      {res && v && (
+        <ResultSheet
+          open={v.status === "dealdone" && sheetFor === key && !peek}
+          won={res.match_over ? iWonMatch : iWonDeal}
+          title={
+            res.match_over && mode !== "points"
+              ? iWonMatch ? `You won ${inr(res.prize)}!` : `${res.champion_name} wins the match`
+              : iWonDeal ? (mode === "points" ? `You won ${inr(res.prize)}!` : "You won this deal!") : `${res.winner_name} wins`
+          }
+          sub={mode === "points" ? (myRow && !iWonDeal ? `You lose ${myRow.pts} points = ${inr(Math.abs(myRow.coins ?? 0))}` : `Deal ${res.deal_no}`) : res.match_over ? `Prize ${inr(res.prize)}` : `Deal ${res.deal_no}${pool ? ` • over ${pool} points is out` : ` of ${v.deals}`}`}
+          left={Math.ceil(secsTo(v.next_at))}
+          nextLabel={res.match_over || mode === "points" ? "Next game starts in" : `Deal ${v.deal_no + 1} starts in`}
+          onLeave={leave}
+          onClose={() => setPeek(true)}
+        >
+          <div className="mt-4 rounded-xl bg-white/5 overflow-hidden text-left">
+            <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 text-[12px] text-white/50 border-b border-white/5">
+              <span>Player</span><span className="text-right">Points</span><span className="text-right w-16">{mode === "points" ? "Coins" : mode === "deals" ? "Chips" : "Total"}</span>
+            </div>
+            {res.rows.map((r) => (
+              <div key={r.seat} className={`grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 text-sm ${r.seat === me ? "bg-neon-400/10" : ""}`}>
+                <span className="truncate">{r.seat === res.winner && "🏆 "}{r.seat === me ? "You" : r.name}{r.bot && <BotTag />} <span className="text-[12px] text-white/40">{r.note}</span></span>
+                <span className="text-right tabular-nums">{r.pts ?? "—"}</span>
+                <span className={`text-right tabular-nums w-16 ${r.out ? "text-rose-300" : ""}`}>
+                  {mode === "points" ? (r.coins === null ? "—" : `${r.coins >= 0 ? "+" : "-"}${inr(r.coins)}`) : mode === "deals" ? `${r.score >= 0 ? "+" : ""}${r.score}` : r.out ? `${r.score} out` : r.score}
+                </span>
+              </div>
+            ))}
+          </div>
+          {res.rows.find((r) => r.seat === res.winner)?.hand && (
+            <div className="mt-3">
+              <div className="text-[12px] text-white/50 mb-1">{res.winner === me ? "Your" : `${res.winner_name}'s`} hand</div>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {res.rows.find((r) => r.seat === res.winner)!.hand!.map((g, i) => (
+                  <div key={i} className="flex -space-x-3">{g.map((c) => <PlayingCard key={c.id} card={c} size="xs" />)}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="text-[12px] text-white/40 mt-2">Platform fee {res.rake}%</div>
+        </ResultSheet>
+      )}
     </LandscapeStage>
   );
 }
