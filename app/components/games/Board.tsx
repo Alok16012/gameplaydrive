@@ -1004,16 +1004,12 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const [premove, setPremove] = useState<Move | null>(null); // queued while the computer thinks
   const [drag, setDrag] = useState<{ from: Sq; x: number; y: number; moved: boolean } | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
-  const movesRef = useRef<HTMLDivElement>(null);
   const lastOffer = useRef(-99); // ply of the last draw offer (one every ten plies)
-  const [tc, setTc] = useState<Tc>(TCS[3]);
+  const [tc] = useState<Tc>(TCS[3]); // 10 minutes a side
   const tcRef = useRef<Tc>(tc); // the time control of the game in progress (a new pick applies from the next game)
   const [rating, setRating] = useState(1200);
   // Saved choices are read after the first render (the server has no localStorage, so the first render must match).
   useEffect(() => {
-    const saved = tcOf(readLs("chessTc"));
-    setTc(saved);
-    if (!started) tcRef.current = saved;
     const r = Number(readLs("chessRating"));
     if (r) setRating(r);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1160,7 +1156,6 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     if (started && done === null && !over.current) markActive(route, label, Math.max(0, clock[0]) * 1000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, done, pos]);
-  useEffect(() => { movesRef.current?.scrollTo({ left: movesRef.current.scrollWidth, behavior: "smooth" }); }, [moves]);
   const resumed = useRef(false); // once only (React may run mount effects twice in development)
   useEffect(() => {
     if (resumed.current) return;
@@ -1185,8 +1180,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     setTaken(sn.taken);
     setMoves(sn.moves ?? []);
     hist.current = sn.hist ?? [posKey(sn.pos)];
-    tcRef.current = tcOf(sn.tc);
-    setTc(tcRef.current);
+    tcRef.current = tcOf(sn.tc); // a game saved before keeps its own time control
     line.current = sn.line ?? [];
     setClock([mine, sn.clock[1]]);
     setStarted(true);
@@ -1358,22 +1352,6 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     <div className="min-h-dvh flex flex-col pb-5 fadein">
       <Header title="Chess" sub={`Table #${table} • ${tcRef.current.kind} ${tcRef.current.label} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
-        {/* Moves so far, in standard notation */}
-        <div ref={movesRef} className="h-7 mb-2 flex items-center gap-2 overflow-x-auto no-scrollbar text-[12px] font-mono whitespace-nowrap rounded-lg bg-white/5 px-2">
-          {moves.length === 0 ? <span className="text-white/35 font-sans">Moves will appear here</span> : moves.map((m, i) => (
-            <span key={i} className={i === moves.length - 1 ? "text-white font-semibold" : "text-white/60"}>
-              {i % 2 === 0 && <span className="text-white/35 mr-1">{i / 2 + 1}.</span>}{m}
-            </span>
-          ))}
-        </div>
-        {/* Time control for the next game (the one in progress keeps its own) */}
-        <div className="flex gap-1.5 mb-2 overflow-x-auto no-scrollbar">
-          {TCS.map((t) => (
-            <button key={t.id} onClick={() => { setTc(t); writeLs("chessTc", t.id); if (live) showToast(`${t.label} from the next game`); }} className={`pill px-3 py-1 text-[11px] whitespace-nowrap ${tc.id === t.id ? "btn-green" : "bg-white/5 text-white/70"}`}>
-              {t.kind} {t.label}
-            </button>
-          ))}
-        </div>
         <PlayerBar name={`${opp.name} (${botRating(opp.name)})`} bot emoji={opp.emoji} time={fmt(clock[1])} active={live && !white} low={clock[1] <= 30} />
         <Taken list={taken.b} plus={-edge} />
         <div
