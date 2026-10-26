@@ -167,9 +167,12 @@ export function Casino({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     const t = setInterval(() => {
       setCrowd((c) => {
         const s = sides[Math.floor(Math.random() * sides.length)].id;
-        const heads = Math.max(1, Math.round(online / 40));
+        // The crowd's money dwarfs any one player's bet (a side can take 10,000; the crowd puts in several times that
+        // on every side), so which pool is bigger is the crowd's doing, not the player's — it says nothing about
+        // which side the player backed, and so nothing about the result.
+        const heads = Math.max(4, Math.round(online / 20));
         const left = Math.max(0, Math.min(1, (endsAt - Date.now()) / (BET_SECS * 1000))); // 1 at the open, 0 at the close
-        const rush = 1 + 4 * left * left;
+        const rush = 1 + 6 * left * left;
         return { ...c, [s]: (c[s] ?? 0) + Math.round((CHIPS[Math.floor(Math.random() * 4)].v * heads * rush) / 10) * 10 };
       });
     }, 350);
