@@ -34,7 +34,6 @@ export function BalanceSummary() {
           <Money n={total} className="block text-[26px] font-semibold mt-0.5" />
         </div>
       </div>
-      <div className="text-[11px] text-white/50 mt-2">Virtual coins • Managed directly by your agent</div>
     </div>
   );
 }
@@ -109,7 +108,6 @@ export function Home({ nav }: { nav: Nav }) {
         <div>
           <div className="font-bold text-[15px] leading-none tracking-tight mb-2"><span className="text-amber-400 mr-1">♠</span><span className="text-white">Khelo</span><span className="gold-text">baazi</span></div>
           <div className="text-[22px] font-semibold">Hello, {player?.first} 👋</div>
-          <div className="text-sm text-[var(--ink-soft)]">Ready to play?</div>
         </div>
         <div className="flex items-center gap-4">
           <button onClick={() => nav.push({ name: "notifications" })} className="relative" aria-label="Notifications">
