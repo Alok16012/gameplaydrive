@@ -9,7 +9,7 @@ import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { HomeButton, Money, PlayingCard, Sheet } from "../ui";
 import { LandscapeStage } from "./LandscapeStage";
-import { BotTag, ResultSheet, TimerAvatar } from "./bots";
+import { BotTag, TimerAvatar } from "./bots";
 import type { Nav } from "../nav";
 import type { TableResponse } from "../../lib/server/teenpatti";
 import type { ActionType } from "../../lib/teenpatti/engine";
@@ -96,8 +96,6 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [rules, setRules] = useState(false);
-  const [peek, setPeek] = useState(false); // result sheet closed to look at the table
-  const [sheetHand, setSheetHand] = useState(0);
   const [flyingCoins, setFlyingCoins] = useState<FlyingCoin[]>([]);
   /** The action just tapped, shown at once while the server confirms it (and the coins it puts in the pot). */
   const [pending, setPending] = useState<{ type: ActionType; amount: number } | null>(null);
@@ -141,7 +139,6 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const tbl = resp?.table ?? null;
   useSoundOnRise(tbl?.handNo ?? 0, () => dealSound(9, 110));
   useSoundOnRise(v?.pot ?? 0, sfx.chip);
-  useEffect(() => { if (v?.phase === "COMPLETED" && tbl && sheetHand !== tbl.handNo) { setSheetHand(tbl.handNo); setPeek(false); } }, [v?.phase, tbl, sheetHand]);
 
   const serverNow = now + offset.current;
   const secsTo = (ms: number | null) => (ms ? Math.max(0, (ms - serverNow) / 1000) : 0);
@@ -357,13 +354,13 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
               <div className="fadein">
                 {settled && settled.reason !== "VOID" && (
                   <>
-                    <div className="text-base font-semibold">{iWon ? "You win!" : `${winnerNames.join(" & ")} ${winnerNames.length > 1 ? "split the pot" : "wins"}`}</div>
-                    <div className="text-[13px] text-gold-300 font-semibold">{inr(iWon ? myWin : settled.winners[0]?.amount ?? 0)} • {settled.reason === "SHOW" ? "Show" : settled.reason === "FORCED_SHOWDOWN" ? "Showdown" : "Everyone else packed"}</div>
+                    <div className={`text-lg font-bold ${iWon ? "text-neon-400" : "text-white"}`}>{iWon ? `You won ${inr(myWin)}!` : `${winnerNames.join(" & ")} ${winnerNames.length > 1 ? "split the pot" : `won ${inr(settled.winners[0]?.amount ?? 0)}`}`}</div>
+                    <div className="text-[12px] text-white/60">{settled.reason === "SHOW" ? "Show" : settled.reason === "FORCED_SHOWDOWN" ? "Showdown — pot limit" : "Everyone else packed"}</div>
                   </>
                 )}
                 {settled?.reason === "VOID" && <div className="text-[13px] text-white/80">Hand voided — everyone refunded</div>}
-                <div className="text-[12px] text-white/60 mt-0.5">
-                  {tbl!.waiting ? (tbl!.code ? "Waiting for friends — share the code" : "Waiting for players…") : tbl!.nextHandAt ? `Dealing in ${Math.ceil(secsTo(tbl!.nextHandAt))}s` : "Dealing…"}
+                <div className="text-[13px] text-gold-300 font-semibold mt-1">
+                  {tbl!.waiting ? (tbl!.code ? "Waiting for friends — share the code" : "Waiting for players…") : tbl!.nextHandAt ? `Next round in ${Math.max(1, Math.ceil(secsTo(tbl!.nextHandAt)))}` : "Dealing…"}
                 </div>
               </div>
             ) : (
@@ -509,30 +506,6 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
         </div>
       </div>
 
-      {settled && v && tbl && settled.reason !== "VOID" && (
-        <ResultSheet
-          open={sheetHand === tbl.handNo && !peek}
-          won={iWon}
-          title={iWon ? `You won ${inr(myWin)}!` : `${winnerNames.join(" & ")} ${winnerNames.length > 1 ? "split the pot" : "wins"}`}
-          sub={settled.reason === "SHOW" ? "Show" : settled.reason === "FORCED_SHOWDOWN" ? "Showdown — pot limit" : "Everyone else packed"}
-          left={Math.ceil(secsTo(tbl.nextHandAt))}
-          nextLabel="Next hand starts in"
-          onLeave={leave}
-          onClose={() => setPeek(true)}
-        >
-          {settled.reveal.length > 0 && (
-            <div className="flex justify-center gap-6 mt-4 flex-wrap">
-              {settled.reveal.map((r) => (
-                <div key={r.playerId} className="flex flex-col items-center gap-1">
-                  <div className="flex -space-x-2">{r.cards.map((c, i) => <PlayingCard key={i} card={ui(c)} size="sm" />)}</div>
-                  <div className="text-[12px] text-white/60">{r.playerId === myId ? "You" : seats.find((s) => s.playerId === r.playerId)?.name} • {r.handName}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="text-[12px] text-white/40 mt-3">Pot {inr(v.pot)} • {settled.rake > 0 ? `Platform fee ${v.rules.rakePct ?? 0}% (${inr(settled.rake)})` : "No platform fee"}</div>
-        </ResultSheet>
-      )}
 
       <Sheet open={rules} onClose={() => setRules(false)} title="Teen Patti rules">
         <div className="text-sm text-[var(--ink-soft)] space-y-3">

@@ -8,7 +8,7 @@ import { supabase } from "../../lib/supabase";
 import { clearActive } from "../../lib/rejoin";
 import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { HomeButton, Money, PlayingCard, Sheet } from "../ui";
-import { BotTag, ResultSheet, TimerAvatar } from "./bots";
+import { BotTag, TimerAvatar } from "./bots";
 import type { Nav } from "../nav";
 import type { PokerTableResponse } from "../../lib/server/poker";
 import { STAGE_NAMES, type ActionType } from "../../lib/poker/engine";
@@ -56,9 +56,7 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
   const [rules, setRules] = useState(false);
   const [raising, setRaising] = useState(false);
   const [raiseAmt, setRaiseAmt] = useState(0);
-  const [peek, setPeek] = useState(false); // result sheet closed to look at the table
   const [flash, setFlash] = useState<string | null>(null); // "FLOP — Rahul acts first": shown for a moment when a new street opens
-  const [sheetHand, setSheetHand] = useState(0);
   const tableId = useRef<string | null>(null);
   const offset = useRef(0); // server clock − local clock
   const polling = useRef(false);
@@ -110,7 +108,6 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v?.handId, v?.stage, v?.phase]);
   useSoundOnRise(v?.pot ?? 0, sfx.chip);
-  useEffect(() => { if (v?.phase === "COMPLETED" && tbl && sheetHand !== tbl.handNo) { setSheetHand(tbl.handNo); setPeek(false); } }, [v?.phase, tbl, sheetHand]);
   useEffect(() => { if (!v || v.turnId !== v.me?.playerId) setRaising(false); }, [v]);
 
   const serverNow = now + offset.current;
@@ -246,13 +243,13 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
                         {v!.board.map((c, i) => <PlayingCard key={i} card={ui(c)} size="sm" className="shadow-md" />)}
                       </div>
                     )}
-                    <div className="text-base font-semibold">{iWon ? "You win!" : `${winnerNames.join(" & ")} ${winnerNames.length > 1 ? "split the pot" : "wins"}`}</div>
-                    <div className="text-[13px] text-gold-300 font-semibold">{inr(iWon ? myWin : settled.winners[0]?.amount ?? 0)} • {winHand ?? "Everyone else folded"}</div>
+                    <div className={`text-lg font-bold ${iWon ? "text-neon-400" : "text-white"}`}>{iWon ? `You won ${inr(myWin)}!` : `${winnerNames.join(" & ")} ${winnerNames.length > 1 ? "split the pot" : `won ${inr(settled.winners[0]?.amount ?? 0)}`}`}</div>
+                    <div className="text-[12px] text-white/60">{winHand ?? "Everyone else folded"}{settled.returned?.find((r) => r.playerId === myId) ? ` • ${inr(settled.returned.find((r) => r.playerId === myId)!.amount)} back to you` : ""}</div>
                   </>
                 )}
                 {settled?.reason === "VOID" && <div className="text-[13px] text-white/80">Hand voided — everyone refunded</div>}
-                <div className="text-[12px] text-white/60 mt-0.5">
-                  {tbl!.waiting ? (tbl!.code ? "Waiting for friends — share the code" : "Waiting for players…") : tbl!.nextHandAt ? `Dealing in ${Math.ceil(secsTo(tbl!.nextHandAt))}s` : "Dealing…"}
+                <div className="text-[13px] text-gold-300 font-semibold mt-1">
+                  {tbl!.waiting ? (tbl!.code ? "Waiting for friends — share the code" : "Waiting for players…") : tbl!.nextHandAt ? `Next round in ${Math.max(1, Math.ceil(secsTo(tbl!.nextHandAt)))}` : "Dealing…"}
                 </div>
               </div>
             ) : (
@@ -389,36 +386,6 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
         </div>
       </div>
 
-      {settled && v && tbl && settled.reason !== "VOID" && (
-        <ResultSheet
-          open={sheetHand === tbl.handNo && !peek}
-          won={iWon}
-          title={iWon ? `You won ${inr(myWin)}!` : `${winnerNames.join(" & ")} ${winnerNames.length > 1 ? "split the pot" : "wins"}`}
-          sub={winHand ? `${winHand}${meInHand?.status === "FOLDED" ? " • you folded" : ""}` : "Everyone else folded"}
-          left={Math.ceil(secsTo(tbl.nextHandAt))}
-          nextLabel="Next hand starts in"
-          onLeave={leave}
-          onClose={() => setPeek(true)}
-        >
-          {settled.reason === "SHOWDOWN" && (
-            <div className="flex justify-center -space-x-1 mt-3">{v.board.map((c, i) => <PlayingCard key={i} card={ui(c)} size="sm" />)}</div>
-          )}
-          {settled.reveal.length > 0 && (
-            <div className="flex justify-center gap-6 mt-3 flex-wrap">
-              {settled.reveal.map((r) => (
-                <div key={r.playerId} className="flex flex-col items-center gap-1">
-                  <div className="flex -space-x-2">{r.cards.map((c, i) => <PlayingCard key={i} card={ui(c)} size="sm" />)}</div>
-                  <div className="text-[12px] text-white/60">{nameOf(r.playerId)} • {r.handName}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          {settled.returned && settled.returned.length > 0 && (
-            <div className="text-[12px] text-white/60 mt-3">{settled.returned.map((r) => `${inr(r.amount)} back to ${nameOf(r.playerId)} (not matched)`).join(" • ")}</div>
-          )}
-          <div className="text-[12px] text-white/40 mt-3">Pot {inr(v.pot)} • Platform fee {v.rules.rakePct}%</div>
-        </ResultSheet>
-      )}
 
       <Sheet open={rules} onClose={() => setRules(false)} title="Poker rules (Texas Hold'em)">
         <div className="text-sm text-[var(--ink-soft)] space-y-3">
