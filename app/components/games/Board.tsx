@@ -690,6 +690,17 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
 const CELL = 100 / 15;
 
 /** The Ludo board with its tokens (shared by the practice table and the online private table). */
+/** Size of each token when several share a square, by how many there are (7 = seven or more). */
+const CLUSTER_SCALE = [1, 1, 0.62, 0.56, 0.54, 0.46, 0.46, 0.4];
+/** Where the k-th of n tokens on one square sits, as an offset from the square's centre in % of the square. */
+function clusterSpot(n: number, k: number): [number, number] {
+  if (n === 2) return [[-22, 0], [22, 0]][k] as [number, number];
+  if (n === 3) return [[0, -18], [-22, 12], [22, 12]][k] as [number, number];
+  if (n === 4) return [[-22, -18], [22, -18], [-22, 14], [22, 14]][k] as [number, number];
+  const rows = Math.ceil(n / 3), row = Math.floor(k / 3), col = k % 3;
+  return [(col - 1) * 30, (row - (rows - 1) / 2) * (rows > 2 ? 22 : 30)];
+}
+
 export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns = 0, blinkYard = null }: {
   tokens: number[][]; inPlay: (p: number) => boolean; glowAt: (p: number, i: number) => boolean; onTap: (p: number, i: number) => void; overlay?: React.ReactNode;
   turns?: number; // quarter turns clockwise, so the player's own yard can sit at the bottom-left (ludoTurns)
@@ -739,17 +750,12 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
             !inPlay(p) ? null : row.map((prog, i) => {
               const [r, c] = at(...cellOf(p, prog, i));
               const glow = glowAt(p, i);
-              // On a shared square each colour gets its own spot side by side; a colour's own tokens stack on that
-              // spot (each one a little higher) with a count badge on the top one, like Ludo King's "2" / "3".
-              const same = prog >= 0 && prog < 56 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => inPlay(o.q) && cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
-              const colours = [...new Set(same.map((o) => o.q))];
-              const gi = colours.indexOf(p);
-              const mine = same.filter((o) => o.q === p);
-              const mi = mine.findIndex((o) => o.j === i);
-              const top = mine.length > 1 && mi === mine.length - 1;
-              const shift = colours.length > 1 ? (gi - (colours.length - 1) / 2) * 30 : 0;
-              const lift = mine.length > 1 ? -mi * 9 : 0;
-              const small = colours.length > 2 ? 0.7 : colours.length > 1 ? 0.8 : 1;
+              // Tokens sharing a square (any colours, finished ones in the centre too) shrink and sit side by side
+              // in a small cluster, like Ludo King, so every one of them shows.
+              const same = prog >= 0 ? tokens.flatMap((rw, q) => rw.map((x, j) => ({ q, j, x }))).filter((o) => inPlay(o.q) && o.x >= 0 && cellOf(o.q, o.x, o.j)[0] === r && cellOf(o.q, o.x, o.j)[1] === c) : [];
+              const k = same.findIndex((o) => o.q === p && o.j === i);
+              const [dx, dy] = same.length > 1 ? clusterSpot(same.length, k) : [0, 0];
+              const small = same.length > 1 ? CLUSTER_SCALE[Math.min(same.length, 7)] : 1;
               return (
                 <button
                   key={`${p}-${i}`}
@@ -758,8 +764,8 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
                   style={{
                     width: `${CELL}%`,
                     height: `${CELL}%`,
-                    zIndex: (glow ? 20 : 10) + Math.max(mi, 0),
-                    transform: `translate(${c * 100 + shift}%, ${r * 100 + lift}%)`,
+                    zIndex: (glow ? 20 : 10) + Math.round(dy / 10) + 3, // the front row over the back row
+                    transform: `translate(${c * 100 + dx}%, ${r * 100 + dy}%)`,
                     // One square per step, gliding for the whole step so a walk looks continuous; leaving or going
                     // back to the yard is a longer slide.
                     transition: prog <= 0 ? "transform .38s cubic-bezier(.3,.7,.3,1)" : `transform ${LUDO_STEP_MS}ms cubic-bezier(.45,.05,.55,.95)`,
@@ -787,12 +793,6 @@ export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns
                       <circle cx="20" cy="18" r="4.4" fill={LPLAYERS[p].color} />
                       <ellipse cx="14" cy="10.5" rx="4.2" ry="2.6" fill="#fff" opacity=".55" transform="rotate(-30 14 10.5)" />
                     </svg>
-                    {top && (
-                      <span className="absolute -top-[6%] right-[2%] min-w-[46%] h-[46%] px-[6%] rounded-full grid place-items-center text-white font-extrabold leading-none shadow-[0_1px_3px_rgba(0,0,0,.5)]"
-                        style={{ background: LPLAYERS[p].dark, border: "1.5px solid #fff", fontSize: "clamp(9px, 2.6vw, 13px)" }}>
-                        {mine.length}
-                      </span>
-                    )}
                   </span>
                 </button>
               );
