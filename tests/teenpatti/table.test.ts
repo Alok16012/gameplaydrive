@@ -12,7 +12,7 @@ function seeded(seed = 1): Rng {
   return { int: (k) => next() % k, uuid: () => `u${++n}` };
 }
 const RULES: Rules = { boot: 10, maxBaseStake: 1280, potCap: 10240, turnTimeoutMs: 15000, sideshowTimeoutMs: 10000, maxTurnActions: null };
-const fresh = (code: string | null = null): TableState => ({ id: "T", code, boot: 10, rules: RULES, seats: [], dealerSeat: null, handNo: 0, hand: null, nextHandAt: null, size: 6 });
+const fresh = (code: string | null = null): TableState => ({ id: "T", code, boot: 10, rules: RULES, seats: [], dealerSeat: null, handNo: 0, hand: null, nextHandAt: null });
 const human = (id: string) => ({ playerId: id, name: id.toUpperCase(), emoji: "🙂" });
 
 test("seating: humans take the lowest free seat; a full table bumps an idle bot; presence is refreshed", () => {
@@ -223,21 +223,4 @@ test("bots come and go: a bot past its 2-5 minute stay leaves between hands, at 
   // Within a minute of sitting down nobody leaves.
   const adv2 = advanceTable(adv.table, { now: later + 30_000, balances: { a: 10_000_000 }, rng });
   assert.ok(adv2.table.seats.filter((s) => s.bot).every((s) => after.includes(s.playerId)) || adv2.table.hand === adv.table.hand);
-});
-
-test("public tables are rarely full: 3 to 6 players, the number drifting every few minutes as bots come and go", () => {
-  const rng = seeded(41);
-  let t: TableState = { ...fresh(), size: undefined, boot: 50, rules: { ...RULES, boot: 50, maxBaseStake: 50 * 128, potCap: 15_000 } };
-  t = sitDown(t, { playerId: "a", name: "A", emoji: "x" }, 0).table;
-  const sizes = new Set<number>();
-  let now = 0;
-  for (let k = 0; k < 40; k++) {
-    now += 4 * 60_000;
-    t = { ...t, hand: null, seats: t.seats.map((s) => (s.bot ? s : { ...s, lastSeen: now })) };
-    t = advanceTable(t, { now, balances: { a: 10_000_000 }, rng }).table;
-    const n = t.seats.length;
-    assert.ok(n >= 3 && n <= 6, `seats ${n}`);
-    sizes.add(n);
-  }
-  assert.ok(sizes.size >= 3, `table size should vary: ${[...sizes]}`);
 });

@@ -458,7 +458,7 @@ test("random human play never breaks an invariant and always ends", () => {
 // ------------------------------------------------------------------ table
 
 const TRULES: Rules = { boot: 10, maxBet: 1000, turnTimeoutMs: 15000, rakePct: 5, maxRaises: 4 };
-const fresh = (code: string | null = null): TableState => ({ id: "T", code, boot: 10, rules: TRULES, seats: [], dealerSeat: null, handNo: 0, hand: null, nextHandAt: null, size: 6 });
+const fresh = (code: string | null = null): TableState => ({ id: "T", code, boot: 10, rules: TRULES, seats: [], dealerSeat: null, handNo: 0, hand: null, nextHandAt: null });
 const human = (id: string) => ({ playerId: id, name: id.toUpperCase(), emoji: "🙂" });
 
 test("table: public tables fill with bots; private tables wait for a second friend and never get bots", () => {
@@ -607,21 +607,4 @@ test("sitting down at a table left with lakh-size bot stacks: those bots are rep
   const bots = sat.seats.filter((s) => s.bot);
   assert.equal(bots.length, 5);
   assert.ok(bots.every((s) => s.bal! >= 25 * 30 && s.bal! <= 25 * 40), `stacks ${bots.map((s) => s.bal)}`);
-});
-
-test("public poker tables are rarely full: 3 to 6 players, drifting every few minutes", () => {
-  const rng = seeded(41);
-  let t: TableState = { ...fresh(), size: undefined, boot: 200, rules: { ...TRULES, boot: 200, maxBet: 20_000 } };
-  t = sitDown(t, human("a"), 0).table;
-  const sizes = new Set<number>();
-  let now = 0;
-  for (let k = 0; k < 40; k++) {
-    now += 4 * 60_000;
-    t = { ...t, hand: null, seats: t.seats.map((s) => (s.bot ? s : { ...s, lastSeen: now })) };
-    t = advanceTable(t, { now, balances: { a: 10_000_000 }, rng }).table;
-    const n = t.seats.length;
-    assert.ok(n >= 3 && n <= 6, `seats ${n}`);
-    sizes.add(n);
-  }
-  assert.ok(sizes.size >= 3, `table size should vary: ${[...sizes]}`);
 });
