@@ -9,13 +9,15 @@ import { selectAll, selectOne, userFromToken } from "../../lib/server/supabaseAd
 //     (tp2_ledger / pk_ledger) and, for the table's current hand, how it ended;
 //   Rummy: the table id shown at the top ("#999DFEFC6D", the first characters of the table id) — the seats and the
 //     last deal's result;
-//   Ludo: the table code ("P-ABCDEF" or "ABCDEF") — the seats, the pot and the winner.
+//   Ludo: the table code ("P-ABCDEF" or "ABCDEF") — the seats, the pot and the winner;
+//   Roulette: the "Round #" the table shows (rl_spins.round, migration 099; counted per player like the casino
+//     rounds) or the "Spin #" in the ledger note (rl_spins.id — the only id spins before 099 have).
 // The Super Admin sees every player; anyone else only their own downline.
 
 type Profile = { id: string; parent_id: string | null; role: string; code: string; name: string; username: string | null };
 
 const CASINO: Record<string, string> = { "dragon-tiger": "Dragon Tiger", "andar-bahar": "Andar Bahar", "lucky-7": "Lucky 7" };
-const GAMES = ["aviator", "stockmarket", ...Object.keys(CASINO), "teen-patti", "poker", "rummy", "ludo"];
+const GAMES = ["aviator", "stockmarket", "roulette", ...Object.keys(CASINO), "teen-patti", "poker", "rummy", "ludo"];
 const short = (id: string) => id.replace(/-/g, "").slice(0, 10).toUpperCase();
 
 export interface RoundBet {
@@ -172,6 +174,19 @@ export async function GET(req: Request) {
           game: "Ludo", round: t.code, at: t.updated_at ?? t.created_at ?? null,
           info: { entry: Number(t.entry), players: t.max_players, status: t.status, pot: Number(t.pot), prize: Number(t.prize), winner: winner?.name ?? null },
           bets: humans.map((x) => ({ user: who(x.uid!), stake: Number(t.entry), payout: winner && winner.uid === x.uid ? Number(t.prize) : 0, at: t.updated_at ?? t.created_at ?? "", detail: { left: !!x.left, won: !!winner && winner.uid === x.uid } })),
+        });
+      }
+    }
+
+    if (numeric && want("roulette")) {
+      const rows = await selectAll<{ id: number; user_id: string; round: string | null; num: number; bets: { side: string; v: number }[] | null; stake: number; payout: number; created_at: string }>(
+        "rl_spins", `select=id,user_id,round,num,bets,stake,payout,created_at&or=(round.eq.${round},id.eq.${round})&order=created_at`,
+      ).catch(() => []);
+      for (const r of rows) {
+        if (!seen(r.user_id)) continue;
+        results.push({
+          game: "Roulette", round: r.round ?? round, at: r.created_at, info: { number: r.num, spin: r.id },
+          bets: [{ user: who(r.user_id), stake: Number(r.stake), payout: Number(r.payout), at: r.created_at, detail: { bets: r.bets } }],
         });
       }
     }

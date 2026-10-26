@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Search } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import type { RoundBet, RoundResult } from "../api/round-lookup/route";
-import { cardText, sideLabel, type CardJ } from "../lib/roundText";
+import { cardText, rouletteSide, rouletteText, sideLabel, type CardJ } from "../lib/roundText";
 
 // Reports → Our / Live Casino Result: look one round up by its Round ID and see who bet what and what it paid.
 
@@ -17,11 +17,12 @@ const GAME_OPTIONS = [
   { id: "andar-bahar", label: "Andar Bahar" },
   { id: "dragon-tiger", label: "Dragon Tiger" },
   { id: "lucky-7", label: "Lucky 7" },
+  { id: "roulette", label: "Roulette" },
   { id: "aviator", label: "Aviator" },
   { id: "stockmarket", label: "Stock Market" },
 ];
 /** What to type, per game. */
-const HINT = "Round ID for casino games (e.g. 88245), Hand # for Teen Patti / Poker, the table id shown at the top for Rummy (e.g. 999DFEFC6D), the table code for Ludo.";
+const HINT = "Round ID for casino games and Roulette (e.g. 88245), Hand # for Teen Patti / Poker, the table id shown at the top for Rummy (e.g. 999DFEFC6D), the table code for Ludo.";
 
 const card = cardText;
 const fmt = (n: number) => Math.round(n).toLocaleString("en-IN");
@@ -42,6 +43,7 @@ function outcome(r: RoundResult) {
     return `${head}${i.winner ? ` • Last deal won by ${i.winner}${i.prize ? ` (${fmt(Number(i.prize))})` : ""}` : ""}${rows.length ? ` • ${rows.join("; ")}` : ""}`;
   }
   if (r.game === "Ludo") return `${i.players} players • entry ${fmt(Number(i.entry))} • pot ${fmt(Number(i.pot))} • ${i.status}${i.winner ? ` • Won by ${i.winner} (${fmt(Number(i.prize))})` : ""}`;
+  if (r.game === "Roulette") return `Ball landed on ${rouletteText(Number(i.number))}${i.spin ? ` • Spin #${i.spin}` : ""}`;
   if (r.game === "Aviator") return `Crashed at ${Number(i.crash).toFixed(2)}x${i.settled ? "" : " • still running"}`;
   if (r.game === "Stock Market") return i.close === null ? "Not closed yet" : `Closed ${i.result} (${Number(i.close).toFixed(4)})`;
   if (r.legacy) return "Played before round details were saved — stake and payout only";
@@ -63,6 +65,7 @@ function betText(r: RoundResult, b: RoundBet) {
   }
   if (r.game === "Rummy" || r.game === "21 Card Rummy") return `${d.note}${d.pts !== null && d.pts !== undefined ? ` • ${d.pts} pts` : ""}${d.score !== null && d.score !== undefined ? ` • score ${d.score}` : ""}`;
   if (r.game === "Ludo") return d.won ? "Won" : d.left ? "Left the table" : "Played";
+  if (r.game === "Roulette") return ((d.bets as { side: string; v: number }[] | null) ?? []).map((x) => `${rouletteSide(x.side)} ${fmt(Number(x.v))}`).join(", ") || "—";
   if (r.game === "Aviator") return `Bet ${d.slot}${d.auto ? ` • auto ${Number(d.auto).toFixed(2)}x` : ""} • ${d.cash ? `cashed out ${Number(d.cash).toFixed(2)}x` : "not cashed out"}`;
   if (r.game === "Stock Market") return `${sideLabel(String(d.side))}${d.cashTick !== null && d.cashTick !== undefined && Number(d.cashTick) < 80 ? ` • closed early (tick ${d.cashTick})` : " • held to close"}`;
   const bets = (d.bets as { side: string; v: number }[] | undefined) ?? [];

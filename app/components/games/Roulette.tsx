@@ -208,7 +208,7 @@ export function Roulette({ nav }: { nav: Nav }) {
       };
       if (placed.length) {
         setLastBets(placed);
-        supabase().rpc("roulette_spin", { p_bets: placed }).then(({ data, error }) => {
+        supabase().rpc("roulette_spin", { p_bets: placed, p_round: String(round) }).then(({ data, error }) => {
           if (error) {
             showToast(errText(error));
             setBets([]);
@@ -228,7 +228,7 @@ export function Roulette({ nav }: { nav: Nav }) {
       setPhase("betting");
       setEndsAt(Date.now() + BET_SECS * 1000);
     }
-  }, [now, endsAt, phase, spinTo, showToast, applyBalance, holdWinnings]);
+  }, [now, endsAt, phase, round, spinTo, showToast, applyBalance, holdWinnings]);
 
   const pending = bets.reduce((a, b) => a + b.v, 0);
   const crowdTotal = crowd.reduce((a, b) => a + b.v, 0);

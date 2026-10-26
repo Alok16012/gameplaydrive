@@ -17,3 +17,13 @@ export const cardText = (c: CardJ) => (c ? `${c.r ?? ""}${c.s ?? ""}` : "—");
 const RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 /** Roulette number with its colour: "17 Black", "0 Green". */
 export const rouletteText = (n: number) => `${n} ${n === 0 ? "Green" : RED.has(n) ? "Red" : "Black"}`;
+
+/** Roulette bet: "n_17" → "17", "s_1_2" → "Split 1/2", "q_1_2_4_5" → "Corner 1/2/4/5", "d1" → "1st 12", "c3" → "Column 3". */
+export const rouletteSide = (s: string) => {
+  if (/^n_\d+$/.test(s)) return s.slice(2);
+  if (/^s_/.test(s)) return `Split ${s.slice(2).replace(/_/g, "/")}`;
+  if (/^q_/.test(s)) return `Corner ${s.slice(2).replace(/_/g, "/")}`;
+  if (/^d[123]$/.test(s)) return `${["1st", "2nd", "3rd"][Number(s[1]) - 1]} 12`;
+  if (/^c[123]$/.test(s)) return `Column ${s[1]}`;
+  return sideLabel(s);
+};
