@@ -79,6 +79,8 @@ export const TABLES: Table[] = [
 
 // Teen Patti public tables: only these boots.
 export const TEEN_PATTI_TABLES: Table[] = [
+  { id: "091", seated: 4, seats: 6, buyIn: 10, stake: "Low" },
+  { id: "095", seated: 3, seats: 6, buyIn: 25, stake: "Low" },
   { id: "101", seated: 3, seats: 6, buyIn: 50, stake: "Low" },
   { id: "203", seated: 4, seats: 6, buyIn: 100, stake: "Low" },
   { id: "307", seated: 3, seats: 6, buyIn: 500, stake: "Mid" },

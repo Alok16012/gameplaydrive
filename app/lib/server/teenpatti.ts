@@ -48,9 +48,9 @@ export async function rulesFor(boot: number): Promise<Rules> {
   return rulesFromCfg(boot, await gameCfg());
 }
 
-/** Pot limit per boot (the owner's table, 2026-10-24): a hand goes to a forced showdown once the pot reaches it.
+/** Pot limit per boot (the owner's table, 2026-10-24; 10 and 25 added 2026-10-27 at the same 300× as 50 / 100): a hand goes to a forced showdown once the pot reaches it.
  *  Other boots (private tables) get 165× the boot, the ratio of the biggest public table. */
-export const POT_CAPS: Record<number, number> = { 50: 15_000, 100: 30_000, 500: 125_000, 1000: 165_000 };
+export const POT_CAPS: Record<number, number> = { 10: 3_000, 25: 7_500, 50: 15_000, 100: 30_000, 500: 125_000, 1000: 165_000 };
 export const potCapFor = (boot: number) => POT_CAPS[boot] ?? Math.max(boot * 7, boot * 165);
 
 function rulesFromCfg(boot: number, cfg: Record<string, unknown>): Rules {
