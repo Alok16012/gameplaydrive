@@ -2,6 +2,7 @@
 
 import { SupportCard } from "./SupportCard";
 import { IpAlertsBell } from "./IpAlerts";
+import { WinAlertsBell } from "./WinAlerts";
 import { recordLogin } from "../lib/loginEvent";
 import { useAutoUpdate } from "../lib/autoUpdate";
 import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
@@ -145,7 +146,10 @@ export default function AdminApp() {
         <div className="rounded-xl bg-white/5 px-3 py-2.5 mb-2 mt-2">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-medium truncate">{me.name}</div>
-            <IpAlertsBell me={me} className="text-white/70 hover:text-white shrink-0" />
+            <div className="flex items-center gap-3 shrink-0">
+              <WinAlertsBell me={me} className="text-white/70 hover:text-white" />
+              <IpAlertsBell me={me} className="text-white/70 hover:text-white" />
+            </div>
           </div>
           <div className="text-[11px] text-white/50">{ROLE_LABEL[me.role]} • {me.code}</div>
           <div className="text-xs text-gold-300 mt-1">{me.role === "superadmin" ? "Creates coins" : coins(me.coins)}</div>
