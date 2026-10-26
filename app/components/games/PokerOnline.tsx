@@ -29,7 +29,7 @@ const ui = (c: Card): UiCard => ({ r: RANK[c.r] ?? (String(c.r) as UiCard["r"]),
 const SEATS: { style: React.CSSProperties; bet: string }[] = [
   { style: { left: "0%", top: "56%" }, bet: "left-full top-4 ml-0.5" },
   { style: { left: "0%", top: "21%" }, bet: "left-full top-4 ml-0.5" },
-  { style: { left: "50%", top: "-1%", transform: "translateX(-50%)" }, bet: "top-full left-1/2 -translate-x-1/2 mt-1" },
+  { style: { left: "50%", top: "4%", transform: "translateX(-50%)" }, bet: "top-full left-1/2 -translate-x-1/2 mt-1" }, // clear of the top bar (the DEALER badge sits above the avatar)
   { style: { right: "0%", top: "21%" }, bet: "right-full top-4 mr-0.5" },
   { style: { right: "0%", top: "56%" }, bet: "right-full top-4 mr-0.5" },
 ];
