@@ -23,8 +23,8 @@ const SUIT: Record<Card["s"], UiCard["s"]> = { S: "♠", H: "♥", D: "♦", C: 
 const RANK: Record<number, UiCard["r"]> = { 14: "A", 13: "K", 12: "Q", 11: "J" };
 const ui = (c: Card): UiCard => ({ r: RANK[c.r] ?? (String(c.r) as UiCard["r"]), s: SUIT[c.s] });
 
-// Other seats on the rim of the tall oval; you sit at the foot. Play moves anti-clockwise on screen: the player who
-// acts after you is on your right, then the top seats from right to left, and the one before you on your left.
+// Other seats on the rim of the tall oval; you sit at the foot. Play moves clockwise on screen: the player who acts
+// after you is on your left, then the top seats from left to right, and the one before you on your right.
 // `bet` places a player's chips on the felt side of their seat.
 const SEATS: { style: React.CSSProperties; bet: string }[] = [
   { style: { left: "0%", top: "56%" }, bet: "left-full top-4 ml-0.5" },
@@ -274,7 +274,7 @@ export function PokerOnline({ nav, buyIn, code }: { nav: Nav; buyIn: number; cod
           {/* Other players, on the rim */}
           {others.map((s, k) => {
             const p = inHand(s.playerId);
-            const seat = SEATS[4 - k] ?? SEATS[4];
+            const seat = SEATS[k] ?? SEATS[4]; // k = 0 acts after you → left-hand seat (clockwise)
             const turn = liveHand && v!.turnId === s.playerId;
             const won = !!settled && settled.winners.some((w) => w.playerId === s.playerId);
             const tagText = p ? lastAction(s.playerId) : null;
