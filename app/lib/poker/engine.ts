@@ -229,13 +229,13 @@ function setTurn(s: HandState, id: string | null, now: number, rng: Rng) {
   s.botActAt = id && s.players[id].bot ? now + botThinkMs(s, id, rng) : null;
 }
 
-/** How long a bot "thinks" before it acts, like a person at the table: a check is quick, calling a bet takes longer,
+/** How long a bot "thinks" before it acts, like a person at the table: a check takes a few seconds, calling a bet longer,
  *  a bet that is big for its stack longest, and now and then it goes into a long think. Always inside the turn clock. */
 function botThinkMs(s: HandState, id: string, rng: Rng) {
   const owe = toCall(s, id);
   const stack = s.botBalances[id] ?? 0;
   let ms: number;
-  if (owe === 0) ms = 2000 + rng.int(2500); // check: 2–4.5 s
+  if (owe === 0) ms = 3500 + rng.int(2500); // check: 3.5–6 s (the owner asked for 1.5 s more than a quick 2–4.5 s)
   else if (stack > 0 && owe >= stack * 0.3) ms = 5000 + rng.int(4000); // big call or all in: 5–9 s
   else if (s.board.length === 0 && owe <= s.rules.boot) ms = 2000 + rng.int(2500); // pre-flop, just the boot to call
   else ms = 3000 + rng.int(3500); // facing a bet: 3–6.5 s
