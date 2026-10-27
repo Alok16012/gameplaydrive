@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AlarmClock, ChevronLeft, Info, Repeat, TrendingUp, Undo2, Users } from "lucide-react";
 import { useLiveCount } from "../../lib/liveCount";
 import { gameById, inr } from "../../lib/data";
+import { rouletteSide } from "../../lib/roundText";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
 import { Avatar, HomeButton } from "../ui";
@@ -75,7 +76,10 @@ const BALL_HOPS = 5;
 /** Does a bet win on number n? (Display only — the server settles every bet.) */
 function wins(side: string, n: number) {
   if (side.startsWith("n_")) return Number(side.slice(2)) === n;
-  if (side.startsWith("s_") || side.startsWith("q_")) return side.slice(2).split("_").map(Number).includes(n); // split / corner
+  if (side.startsWith("s_") || side.startsWith("q_") || side.startsWith("t_")) return side.slice(2).split("_").map(Number).includes(n); // split / corner / trio
+  if (side.startsWith("st_")) { const a = Number(side.slice(3)); return n >= a && n <= a + 2; } // street
+  if (side.startsWith("sl_")) { const a = Number(side.slice(3)); return n >= a && n <= a + 5; } // six line
+  if (side === "ff") return n <= 3; // first four 0-1-2-3
   if (n === 0) return false;
   switch (side) {
     case "red": return REDS.has(n);
@@ -277,7 +281,7 @@ export function Roulette({ nav }: { nav: Nav }) {
         <div className="h-[13%] min-h-[44px] flex items-center gap-2 px-3 relative z-30">
           <button onClick={nav.back} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Back"><ChevronLeft size={20} /></button>
           <HomeButton className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" />
-          <button onClick={() => showToast("Bet before the timer runs out. Number 36x • Split (line between 2 numbers) 18x • Corner (4 numbers) 9x • Row / Dozen 3x • Red, Black, Even, Odd, 1-18, 19-36 2x")} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Rules"><Info size={18} /></button>
+          <button onClick={() => showToast("Bet before the timer runs out. Number 36x • Split (line between 2 numbers) 18x • Street (edge of a line of 3) 12x • Trio (0 with 2 numbers) 12x • Corner (4 numbers) 9x • First four (0-1-2-3) 9x • Six line (edge between 2 lines) 6x • Row / Dozen 3x • Red, Black, Even, Odd, 1-18, 19-36 2x")} className="w-9 h-9 rounded-full bg-black/35 border border-white/20 grid place-items-center shrink-0" aria-label="Rules"><Info size={18} /></button>
           <div className="flex-1 flex justify-center min-w-0">
             <div className="flex items-center gap-1 rounded-b-xl bg-[#1b2a22]/90 border border-[#c9a24a]/50 px-2 py-1 overflow-hidden max-w-full">
               <span className="w-7 h-6 rounded bg-[#14532d] grid place-items-center shrink-0"><TrendingUp size={15} className="text-gold-300" /></span>
@@ -329,6 +333,13 @@ export function Roulette({ nav }: { nav: Nav }) {
                     if (c < 11) zones.push({ side: `s_${n}_${n + 3}`, x: c + 1, y: r + 0.5, w: 0.36, h: 0.55 }); // with the cell to the right
                     if (r < 2) zones.push({ side: `s_${n - 1}_${n}`, x: c + 0.5, y: r + 1, w: 0.55, h: 0.36 }); // with the cell below
                     if (c < 11 && r < 2) zones.push({ side: `q_${n - 1}_${n}_${n + 2}_${n + 3}`, x: c + 1, y: r + 1, w: 0.4, h: 0.4 }); // corner
+                    // On the outer edge (below the 1, 4, 7 … row): a street on each line, a six line between two lines.
+                    if (r === 2) zones.push({ side: `st_${n}`, x: c + 0.5, y: 3, w: 0.55, h: 0.36 });
+                    if (r === 2 && c < 11) zones.push({ side: `sl_${n}`, x: c + 1, y: 3, w: 0.4, h: 0.4 });
+                    // Along the zero: a split with 3 / 2 / 1, trios 0-2-3 and 0-1-2 on the corners, first four at the foot.
+                    if (c === 0) zones.push({ side: `s_0_${n}`, x: 0, y: r + 0.5, w: 0.36, h: 0.55 });
+                    if (c === 0 && r < 2) zones.push({ side: `t_0_${n - 1}_${n}`, x: 0, y: r + 1, w: 0.4, h: 0.4 });
+                    if (c === 0 && r === 2) zones.push({ side: "ff", x: 0, y: 3, w: 0.4, h: 0.4 });
                     return zones.map((z) => <BetZone key={z.side} {...z} bets={bets} shown={shown} onPlace={place} />);
                   }),
                 )}
@@ -460,7 +471,8 @@ function Spot({ side, bets, shown, onPlace, children, className = "", style }: {
   );
 }
 
-/** A split / corner hot spot on a line or corner of the number grid (x, y, w, h in cells: 12 columns × 3 rows). */
+/** A split / corner / street / six line / trio hot spot on a line or corner of the number grid (x, y, w, h in cells:
+ *  12 columns × 3 rows). */
 function BetZone({ side, x, y, w, h, bets, shown, onPlace }: {
   side: string; x: number; y: number; w: number; h: number; bets: Bet[]; shown: number | null; onPlace: (side: string) => void;
 }) {
@@ -470,8 +482,8 @@ function BetZone({ side, x, y, w, h, bets, shown, onPlace }: {
     <button
       data-sfx="off"
       onClick={() => onPlace(side)}
-      aria-label={side.startsWith("q_") ? `Corner ${side.slice(2).split("_").join(", ")}` : `Split ${side.slice(2).split("_").join(" and ")}`}
-      className={`absolute pointer-events-auto grid place-items-center ${side.startsWith("q_") ? "z-[2]" : "z-[1]"}`}
+      aria-label={rouletteSide(side)}
+      className={`absolute pointer-events-auto grid place-items-center ${/^(q_|t_|sl_|ff)/.test(side) ? "z-[2]" : "z-[1]"}`}
       style={{ left: `${((x - w / 2) / 12) * 100}%`, top: `${((y - h / 2) / 3) * 100}%`, width: `${(w / 12) * 100}%`, height: `${(h / 3) * 100}%` }}
     >
       {my > 0 && (
