@@ -157,6 +157,9 @@ function diceWeights(p: number, t: number[][], seats: number[], mode: "force_win
   const mine = t[p];
   const homeNow = mine.filter((x) => x === 56).length;
   const lean = (f: number) => (helped ? f : 1 / f);
+  // Nothing on the board yet (all in the yard, or the rest home): a plain dice, so the first token comes out on a 6
+  // as often as with any real dice (1 in 6) — leaning here kept a player waiting ~11 rolls for it.
+  if (!mine.some((x) => x >= 0 && x < 56)) return [1, 1, 1, 1, 1, 1];
   return [1, 2, 3, 4, 5, 6].map((d) => {
     let w = 1;
     const captures = mine.some((from) => {
