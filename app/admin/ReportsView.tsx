@@ -51,7 +51,6 @@ export type ReportSubTab =
   | "current_bets"
   | "user_history"
   | "general_lock"
-  | "our_casino_result"
   | "live_casino_result"
   | "sportbook_report"
   | "turnover"
@@ -66,7 +65,6 @@ export const REPORT_TABS_LIST: { id: ReportSubTab; label: string; icon: React.Re
   { id: "current_bets", label: "Current Bets", icon: <Activity size={15} /> },
   { id: "user_history", label: "User History", icon: <Layers size={15} /> },
   { id: "general_lock", label: "General Lock", icon: <Lock size={15} /> },
-  { id: "our_casino_result", label: "Our Casino Result", icon: <Gamepad2 size={15} /> },
   { id: "live_casino_result", label: "Live Casino Result", icon: <Trophy size={15} /> },
   { id: "sportbook_report", label: "Sportbook Report", icon: <BarChart2 size={15} /> },
   { id: "turnover", label: "Turn Over", icon: <DollarSign size={15} /> },
@@ -1602,14 +1600,14 @@ export function ReportsView({
         {/* ============================================================== */}
         {/* 6. OUR CASINO RESULT & LIVE CASINO RESULT */}
         {/* ============================================================== */}
-        {(activeTab === "our_casino_result" || activeTab === "live_casino_result") && (
+        {activeTab === "live_casino_result" && (
           <div className="space-y-4">
             <div>
               <h3 className="text-base font-bold text-white">
-                {activeTab === "our_casino_result" ? "Our Casino" : "Live Casino"} Results
+                Live Casino Results
               </h3>
               <p className="text-xs text-white/50">
-                {activeTab === "our_casino_result" ? "Card and board tables (Teen Patti, Rummy, Ludo, Poker…)" : "Casino and instant games (Aviator, Roulette, Andar Bahar…)"} in the selected period
+                Casino and instant games (Aviator, Roulette, Andar Bahar…) in the selected period • Find a round also looks up Teen Patti, Poker, Rummy and Ludo
               </p>
             </div>
             <RoundLookup />
@@ -1626,7 +1624,7 @@ export function ReportsView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5 text-xs">
-                  {perGame.filter((g) => (activeTab === "our_casino_result" ? g.category === "card" || g.category === "board" : g.category === "casino")).map((g) => {
+                  {perGame.filter((g) => g.category === "casino").map((g) => {
                     const net = g.bets - g.returns;
                     return (
                       <tr key={g.name} className="hover:bg-white/[0.02]">
@@ -1639,7 +1637,7 @@ export function ReportsView({
                       </tr>
                     );
                   })}
-                  {perGame.filter((g) => (activeTab === "our_casino_result" ? g.category === "card" || g.category === "board" : g.category === "casino")).length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/40">No games played in this period.</td></tr>}
+                  {perGame.filter((g) => g.category === "casino").length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-white/40">No games played in this period.</td></tr>}
                 </tbody>
               </table>
             </div>
