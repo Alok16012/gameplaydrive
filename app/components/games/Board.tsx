@@ -903,7 +903,11 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const [lowBal, setLowBal] = useState(false);
   const games = useRef(0);
   const gameNo = useRef(0);
-  const white = pos.turn === "w";
+  // Your colour for this game, drawn at random each game (Black plays from the other side, the computer opens).
+  const [me, setMe] = useState<"w" | "b">("w");
+  const white = pos.turn === me; // your move
+  const flip = me === "b"; // board drawn from Black's side
+  const myPromo = (k: string) => (me === "w" ? k : k.toLowerCase());
   const [outcomeMode, setOutcomeMode] = useState<"fair" | "force_win" | "force_loss">("fair");
   const outcomeRef = useRef<"fair" | "force_win" | "force_loss">("fair");
   useEffect(() => {
@@ -919,7 +923,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   // comes off your clock, and if it ran out the game is lost. Exit gives the game up for good.
   const snapKey = `chess:${table}:${buyIn}`;
   const route: Route = { name: "board", game: "chess", table, buyIn };
-  interface ChessSnap { pos: Pos; last: Move | null; taken: { w: string[]; b: string[] }; clock: number[]; opp: Bot; botMoves: number; moves?: string[]; hist?: string[]; tc?: string; line?: { pos: Pos; move: Move; san: string }[] }
+  interface ChessSnap { pos: Pos; last: Move | null; taken: { w: string[]; b: string[] }; clock: number[]; opp: Bot; botMoves: number; moves?: string[]; hist?: string[]; tc?: string; line?: { pos: Pos; move: Move; san: string }[]; me?: "w" | "b" }
   const [askExit, setAskExit] = useState(false);
   const over = useRef(false); // game finished or given up: stop saving it (state updates land a render later)
 
@@ -956,9 +960,9 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     const note = san(p, m);
     const next = makeMove(p, m);
     if (note.endsWith("+") || note.endsWith("#")) sfx.tickUrgent(); else if (m.captured !== "." || m.ep) sfx.capture(); else sfx.move();
-    if (p.turn === "w") line.current = [...line.current, { pos: p, move: m, san: note }];
+    if (p.turn === me) line.current = [...line.current, { pos: p, move: m, san: note }];
     const inc = tcRef.current.inc;
-    if (inc) setClock((c) => (p.turn === "w" ? [c[0] + inc, c[1]] : [c[0], c[1] + inc]));
+    if (inc) setClock((c) => (p.turn === me ? [c[0] + inc, c[1]] : [c[0], c[1] + inc]));
     setPos(next);
     setLast(m);
     setSel(null);
@@ -968,7 +972,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     if (m.captured !== ".") setTaken((t) => (p.turn === "w" ? { ...t, w: [...t.w, m.captured] } : { ...t, b: [...t.b, m.captured] }));
     else if (m.ep) setTaken((t) => (p.turn === "w" ? { ...t, w: [...t.w, "p"] } : { ...t, b: [...t.b, "P"] }));
     const st = chessStatus(next);
-    if (st === "checkmate") end(p.turn === "w" ? "win" : "loss", "Checkmate");
+    if (st === "checkmate") end(p.turn === me ? "win" : "loss", "Checkmate");
     else if (st === "stalemate") end("draw", "Stalemate");
     else if (st === "draw") end("draw", "Not enough pieces to mate");
     else if (st === "fifty") end("draw", "50 moves without a capture or pawn move");
@@ -1018,7 +1022,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   // Your turn again with a premove queued: play it if it is still legal, otherwise drop it.
   useEffect(() => {
     if (!started || !white || done !== null || !premove) return;
-    const m = legalMoves(pos).find((x) => x.from[0] === premove.from[0] && x.from[1] === premove.from[1] && x.to[0] === premove.to[0] && x.to[1] === premove.to[1] && (!x.promo || x.promo === (premove.promo ?? "Q")));
+    const m = legalMoves(pos).find((x) => x.from[0] === premove.from[0] && x.from[1] === premove.from[1] && x.to[0] === premove.to[0] && x.to[1] === premove.to[1] && (!x.promo || x.promo === (premove.promo ?? myPromo("Q"))));
     setPremove(null);
     if (m) { const t = window.setTimeout(() => play(pos, m), 120); return () => window.clearTimeout(t); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1026,7 +1030,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
 
   useEffect(() => {
     if (!started || done !== null || over.current) return;
-    saveSnap<ChessSnap>(snapKey, { pos, last, taken, clock, opp, botMoves: botMoves.current, moves, hist: hist.current, tc: tcRef.current.id, line: line.current });
+    saveSnap<ChessSnap>(snapKey, { pos, last, taken, clock, opp, botMoves: botMoves.current, moves, hist: hist.current, tc: tcRef.current.id, line: line.current, me });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, done, pos, clock]);
   useEffect(() => {
@@ -1052,6 +1056,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     games.current = 1;
     botMoves.current = sn.botMoves;
     setOpp(sn.opp);
+    setMe(sn.me ?? "w"); // a game saved before colours were drawn was played as White
     setPos(sn.pos);
     setLast(sn.last);
     setTaken(sn.taken);
@@ -1075,7 +1080,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const live = started && done === null;
   const myMoves = live && white ? legalMoves(pos) : [];
   // While the computer thinks: the moves your pieces could make from here (checked again when your turn comes).
-  const preMoves = live && !white ? legalMoves({ ...pos, turn: "w", ep: null }) : [];
+  const preMoves = live && !white ? legalMoves({ ...pos, turn: me, ep: null }) : [];
   const pool = white ? myMoves : preMoves;
   const targets = sel ? pool.filter((m) => m.from[0] === sel[0] && m.from[1] === sel[1]) : [];
 
@@ -1084,7 +1089,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     const ms = targets.filter((x) => x.to[0] === r && x.to[1] === c);
     if (!ms.length) return false;
     if (!white) {
-      setPremove(ms.find((x) => !x.promo || x.promo === "Q") ?? ms[0]);
+      setPremove(ms.find((x) => !x.promo || x.promo === myPromo("Q")) ?? ms[0]);
       setSel(null);
       return true;
     }
@@ -1092,13 +1097,14 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     play(pos, ms[0]);
     return true;
   };
-  const own = (r: number, c: number) => { const pc = pos.board[r][c]; return pc !== "." && pc === pc.toUpperCase(); };
+  const own = (r: number, c: number) => { const pc = pos.board[r][c]; return pc !== "." && (me === "w" ? pc === pc.toUpperCase() : pc === pc.toLowerCase()); };
   const squareAt = (x: number, y: number): Sq | null => {
     const el = boardRef.current;
     if (!el) return null;
     const b = el.getBoundingClientRect();
     const c = Math.floor(((x - b.left) / b.width) * 8), r = Math.floor(((y - b.top) / b.height) * 8);
-    return r >= 0 && r < 8 && c >= 0 && c < 8 ? [r, c] : null;
+    if (!(r >= 0 && r < 8 && c >= 0 && c < 8)) return null;
+    return flip ? [7 - r, 7 - c] : [r, c];
   };
 
   // Tap or drag: press on a target square to move there; press on your piece to pick it up (and drag it if you like).
@@ -1138,7 +1144,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     if (ply - lastOffer.current < 10) return showToast("You can offer a draw again in a few moves");
     lastOffer.current = ply;
     // The computer takes a draw when it stands worse, or in a long, level game; never when it is set to win.
-    const edge = assess(pos); // + = white (you) better
+    const edge = (me === "w" ? 1 : -1) * assess(pos); // + = you better
     const yes = outcomeRef.current !== "force_loss" && (edge >= 150 || (ply >= 60 && Math.abs(edge) <= 40));
     if (yes) end("draw", "Draw agreed");
     else showToast(`${opp.name} declined the draw`);
@@ -1156,6 +1162,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
     gameNo.current += 1;
     if (games.current++ > 0) setOpp(pickBots(1, [opp.name])[0]);
     const s0 = startPos();
+    setMe(Math.random() < 0.5 ? "w" : "b");
     setPos(s0);
     hist.current = [posKey(s0)];
     setMoves([]);
@@ -1215,7 +1222,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
   const fmt = (s: number) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
   const check = live && inCheck(pos);
   const [kr, kc] = kingSquare(pos.board, pos.turn);
-  const edge = materialEdge(pos.board); // + = you ahead
+  const edge = (me === "w" ? 1 : -1) * materialEdge(pos.board); // + = you ahead
   const Taken = ({ list, plus }: { list: string[]; plus: number }) => (
     <div className="h-5 flex items-center gap-[1px] text-[15px] leading-none text-white/80 px-1">
       {[...list].sort((a, b) => "qrbnp".indexOf(a.toLowerCase()) - "qrbnp".indexOf(b.toLowerCase())).map((p, i) => <span key={i} className="w-[15px] h-[15px] -mr-[3px] inline-block"><ChessPiece p={p} /></span>)}
@@ -1227,10 +1234,10 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
 
   return (
     <div className="min-h-dvh flex flex-col pb-5 fadein">
-      <Header title="Chess" sub={`Table #${table} • ${tcRef.current.kind} ${tcRef.current.label} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
+      <Header title="Chess" sub={`Table #${table} • ${started ? `You play ${me === "w" ? "White" : "Black"} • ` : ""}${tcRef.current.kind} ${tcRef.current.label} • Entry 🪙 ${buyIn}`} onBack={nav.back} right={<Money n={total} className="text-sm font-semibold text-neon-400" />} />
       <div className="px-3">
         <PlayerBar name={`${opp.name} (${botRating(opp.name)})`} bot emoji={opp.emoji} time={fmt(clock[1])} active={live && !white} low={clock[1] <= 30} />
-        <Taken list={taken.b} plus={-edge} />
+        <Taken list={me === "w" ? taken.b : taken.w} plus={-edge} />
         <div
           ref={boardRef}
           onPointerDown={onDown}
@@ -1239,8 +1246,10 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
           onPointerCancel={() => setDrag(null)}
           className="relative grid grid-cols-8 rounded-[4px] overflow-hidden shadow-2xl touch-none select-none"
         >
-          {pos.board.map((row, r) =>
-            row.map((p, c) => {
+          {pos.board.map((row, dr) =>
+            row.map((_, dc) => {
+              const r = flip ? 7 - dr : dr, c = flip ? 7 - dc : dc; // the board square drawn at this spot
+              const p = pos.board[r][c];
               const dark = (r + c) % 2 === 1;
               const isSel = sameSq(sel, r, c);
               const isLast = last && (sameSq(last.from, r, c) || sameSq(last.to, r, c));
@@ -1257,8 +1266,8 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
                     backgroundImage: inChk ? "radial-gradient(circle, rgba(255,0,0,.9) 0%, rgba(231,0,0,.55) 35%, rgba(169,0,0,0) 72%)" : undefined,
                   }}
                 >
-                  {c === 0 && <span className={`absolute left-[3px] top-[1px] text-[10px] font-bold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{8 - r}</span>}
-                  {r === 7 && <span className={`absolute right-[3px] bottom-0 text-[10px] font-bold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{"abcdefgh"[c]}</span>}
+                  {dc === 0 && <span className={`absolute left-[3px] top-[1px] text-[10px] font-bold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{8 - r}</span>}
+                  {dr === 7 && <span className={`absolute right-[3px] bottom-0 text-[10px] font-bold ${dark ? "text-[#ebecd0]" : "text-[#779556]"}`}>{"abcdefgh"[c]}</span>}
                   {p !== "." && !hidden && (
                     <span key={`${p}${last?.to.join() ?? ""}`} className={`w-[92%] h-[92%] ${isLast && last && sameSq(last.to, r, c) ? "pop" : ""}`}>
                       <ChessPiece p={p} />
@@ -1283,7 +1292,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
               <div className="rounded-2xl bg-[#0d1230] border border-white/15 p-3 pop">
                 <div className="text-center text-xs text-white/60 mb-2">Promote to</div>
                 <div className="flex gap-2">
-                  {["Q", "R", "B", "N"].map((k) => {
+                  {["Q", "R", "B", "N"].map(myPromo).map((k) => {
                     const m = promo.find((x) => x.promo === k);
                     return m ? (
                       <button key={k} onClick={() => { setPromo(null); play(pos, m); }} className="w-14 h-14 rounded-xl bg-[#ebecd0] grid place-items-center p-1 active:scale-95"><ChessPiece p={k} /></button>
@@ -1300,7 +1309,7 @@ function Chess({ nav, table, buyIn }: { nav: Nav; table: string; buyIn: number }
             <ChessPiece p={pos.board[dragging.from[0]][dragging.from[1]]} />
           </span>
         )}
-        <Taken list={taken.w} plus={edge} />
+        <Taken list={me === "w" ? taken.w : taken.b} plus={edge} />
         <PlayerBar name={`You (${rating})`} emoji="👨🏽" time={fmt(clock[0])} active={live && white} low={clock[0] <= 30} />
         <div className={`text-center text-[12px] mt-3 ${check ? "text-rose-400 font-semibold" : "text-white/45"}`}>
           {done !== null ? why : check ? (white ? "Check! Protect your king" : `You gave check!`) : started ? (white ? "Your move — tap or drag a piece" : premove ? "Premove set — it plays as soon as it's your turn" : `${opp.name} is thinking… you can premove`) : ""}
