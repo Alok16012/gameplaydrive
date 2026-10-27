@@ -95,6 +95,7 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
   const [mode, setMode] = useState<"coins" | "free" | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  const [cap, setCap] = useState<{ balance: number; coins: number } | null>(null); // fewer coins went in than you hold
 
   useEffect(() => {
     apiFetch("/api/jili/launch?check=1").then((r) => r.json()).then((j: { ready?: boolean }) => setReady(!!j.ready)).catch(() => setReady(false));
@@ -109,10 +110,12 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
     setErr("");
     apiFetch(mode === "coins" ? `/api/jili/launch?uid=${encodeURIComponent(uid)}` : `/api/jili/demo?uid=${encodeURIComponent(uid)}`)
       .then((r) => r.json())
-      .then((j: { url?: string; error?: string }) => {
+      .then((j: { url?: string; error?: string; balance?: number; coins?: number }) => {
         if (!alive) return;
-        if (j.url) setUrl(j.url);
-        else setErr(j.error ?? "The game could not be opened");
+        if (j.url) {
+          setUrl(j.url);
+          setCap(mode === "coins" && j.balance != null && j.coins != null && j.balance < j.coins ? { balance: j.balance, coins: j.coins } : null);
+        } else setErr(j.error ?? "The game could not be opened");
       })
       .catch(() => alive && setErr("The game could not be opened — check your connection"));
     return () => { alive = false; };
@@ -143,6 +146,11 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
           </a>
         )}
       </div>
+      {cap && url && (
+        <div className="shrink-0 bg-amber-500/15 border-b border-amber-400/30 text-amber-100 text-[11px] px-3 py-1.5">
+          JILI me abhi ek baar me {inr(cap.balance)} tak — baaki {inr(cap.coins - cap.balance)} aapke wallet me safe hain.
+        </div>
+      )}
       <div className="relative flex-1 min-h-0">
         {mode === null ? (
           <div className="absolute inset-0 grid place-items-center px-6">

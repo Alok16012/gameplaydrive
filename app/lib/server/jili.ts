@@ -84,16 +84,18 @@ export function softDecrypt(b64: string, key = secret()) {
 /** Is real-coin JILI configured on this server? */
 export const jiliRealReady = () => (process.env.JILI_SECRET ?? "").length === 32 && !!process.env.SOFTAPI_PROXY_KEY && !!process.env.JILI_CALLBACK_KEY;
 
-/** Most coins a launch may carry: SoftAPI wants GGR credit ≥ 5% of the launch balance (₹ via USDT at ~₹84). */
+/** Most coins a launch may carry: SoftAPI wants GGR credit ≥ 5% of the launch balance, converted at its own rate
+ *  (measured 2026-10-27: 1 USDT of credit allowed ₹1,700 and refused ₹2,000, so ~₹88 a USDT). Top up the GGR wallet
+ *  and players take more of their coins into JILI — up to all of them. */
 async function launchCap(): Promise<number> {
   const r = await fetch(`${BASE()}/ggr-balance?token=${encodeURIComponent(TOKEN())}`, { cache: "no-store" });
   const j = (await r.json().catch(() => null)) as { code?: number; data?: { wallet?: number } } | null;
   const usdt = Number(j?.data?.wallet ?? 0);
-  return Math.floor((usdt / 0.05) * 84 * 0.9); // 10% margin for the exchange rate
+  return Math.floor((usdt / 0.05) * 88 * 0.95); // 5% margin for the exchange rate
 }
 
 /** Launch a JILI game with the player's coins; returns the game URL. */
-export async function jiliLaunch(userId: string, uid: string): Promise<{ url: string; balance: number }> {
+export async function jiliLaunch(userId: string, uid: string): Promise<{ url: string; balance: number; coins: number }> {
   const [games, hidden] = await Promise.all([jiliGames(), jiliHidden()]);
   if (!games.some((g) => g.uid === uid) || hidden.has(uid)) throw new Error("This game is not available");
   await rpc("game_guard", { g: "jili", amount: 0, check_size: false }); // closed for maintenance?
@@ -128,7 +130,7 @@ export async function jiliLaunch(userId: string, uid: string): Promise<{ url: st
     console.warn("jili launch failed:", r.status, j?.code, j?.msg);
     throw new Error(j?.code === 1 ? "JILI is resting for a moment — please try again later" : j?.msg || "The game could not be opened");
   }
-  return { url: j.data.url, balance };
+  return { url: j.data.url, balance, coins };
 }
 
 /** One settle notice from SoftAPI (plain or { payload } encrypted) into the ledger. */
