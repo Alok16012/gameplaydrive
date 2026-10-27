@@ -183,11 +183,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * the board side, that player's own dice box. The dice shows only on the player's turn; on yours the box glows, a
  * hand points at it and tapping it rolls. Name and tokens home sit under (or over) the pair.
  */
-export function LudoSeatPanel({ colour, name, emoji, align, top, active, timerKey, dice, rolling, canRoll, onRoll, home, bot, dim, note }: {
+export function LudoSeatPanel({ colour, name, emoji, align, top, active, timerKey, dice, rolling, canRoll, onRoll, home, bot, dim, note, showDice }: {
   colour: number; name: string; emoji?: string; align: "left" | "right"; top?: boolean; active: boolean; timerKey: string | number | null;
   dice: number | null; rolling?: boolean; canRoll?: boolean; onRoll?: () => void; home: number; bot?: boolean; dim?: boolean; note?: string;
+  /** Keep showing this player's last roll after the turn has passed (a roll that moved the only token at once). */
+  showDice?: boolean;
 }) {
   const pl = LPLAYERS[colour];
+  const lit = active || !!showDice;
   const info = (
     <div className={`min-w-0 ${align === "right" ? "text-right" : ""}`}>
       <div className={`text-[12px] font-semibold truncate max-w-[120px] ${active ? "text-white" : "text-white/70"}`}>{name}{bot && <BotTag />}{note ? <span className="text-white/50 font-normal"> • {note}</span> : null}</div>
@@ -216,10 +219,10 @@ export function LudoSeatPanel({ colour, name, emoji, align, top, active, timerKe
             onClick={canRoll ? onRoll : undefined}
             disabled={!canRoll}
             aria-label={canRoll ? "Roll the dice" : undefined}
-            className={`w-[52px] h-[52px] rounded-xl grid place-items-center transition-[transform,opacity] ${canRoll ? "pulse-ring active:scale-95" : ""} ${active ? "" : "opacity-35"}`}
-            style={{ background: active ? `linear-gradient(145deg,${pl.color},${pl.dark})` : "rgba(255,255,255,.08)", boxShadow: active ? "0 6px 14px rgba(0,0,0,.45)" : undefined }}
+            className={`w-[52px] h-[52px] rounded-xl grid place-items-center transition-[transform,opacity] ${canRoll ? "pulse-ring active:scale-95" : ""} ${active ? "" : showDice ? "opacity-80" : "opacity-35"}`}
+            style={{ background: lit ? `linear-gradient(145deg,${pl.color},${pl.dark})` : "rgba(255,255,255,.08)", boxShadow: lit ? "0 6px 14px rgba(0,0,0,.45)" : undefined }}
           >
-            {active && dice !== null ? <DiceFace v={dice} rolling={rolling} size={40} /> : <span className="w-[40px] h-[40px] rounded-lg" style={{ background: "rgba(255,255,255,.06)" }} />}
+            {lit && dice !== null ? <DiceFace v={dice} rolling={rolling} size={40} /> : <span className="w-[40px] h-[40px] rounded-lg" style={{ background: "rgba(255,255,255,.06)" }} />}
           </button>
         </div>
       </div>

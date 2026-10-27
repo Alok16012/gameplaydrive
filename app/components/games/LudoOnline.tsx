@@ -46,6 +46,24 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
   const lastSeq = useRef(-1);
   const walking = useRef(0);
   const ticking = useRef(false);
+  // A move of yours already walking on screen before the server answered (so a tap moves the token at once).
+  const ahead = useRef<{ colour: number; token: number; to: number; doneAt: number } | null>(null);
+  const prev = useRef<View | null>(null);
+  const lastTick = useRef(-1);
+
+  /** Walk one token square by square; returns when (ms from now) it lands. */
+  const walk = useCallback((colour: number, token: number, from: number, to: number) => {
+    const steps = from < 0 ? [0] : Array.from({ length: to - from }, (_, k) => from + k + 1);
+    const run = ++walking.current;
+    steps.forEach((prog, k) => {
+      window.setTimeout(() => {
+        if (walking.current !== run) return;
+        setShown((sh) => { const n = sh.map((r) => [...r]); n[colour][token] = prog; return n; });
+        if (prog === 56) sfx.home(); else sfx.hop();
+      }, k * STEP_MS);
+    });
+    return { run, ms: steps.length * STEP_MS };
+  }, []);
 
   const take = useCallback((view: View) => {
     offset.current = new Date(view.server_now).getTime() - Date.now();
@@ -88,14 +106,18 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     return () => { alive = false; clearInterval(poll); document.removeEventListener("visibilitychange", back); if (channel) sb.removeChannel(channel); };
   }, [code, pull, tick]);
 
-  // Clock: run out the turn on the server when it is due.
+  // Clock: run out the turn on the server when it is due; tick through the last 5 seconds of your own turn.
   useEffect(() => {
     const t = setInterval(() => {
       setNow(Date.now());
+      if (v?.status === "playing" && v.turn === v.me && v.turn_ends) {
+        const left = Math.ceil((new Date(v.turn_ends).getTime() - Date.now() - offset.current) / 1000);
+        if (left >= 1 && left <= 5 && left !== lastTick.current) { lastTick.current = left; sfx.tickUrgent(); }
+      }
       if (v?.status === "playing" && v.turn_ends && Date.now() + offset.current >= new Date(v.turn_ends).getTime() + 300) tick();
     }, 250);
     return () => clearInterval(t);
-  }, [v?.status, v?.turn_ends, tick]);
+  }, [v?.status, v?.turn_ends, v?.turn, v?.me, tick]);
 
   // Rejoin from Home while the game is on; forget it when it's over.
   useEffect(() => {
@@ -114,26 +136,34 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     const L = v.last;
     if (!first && L?.kind === "move" && L.seat !== undefined && L.token !== undefined && L.from !== undefined && L.to !== undefined) {
       const colour = v.seats[L.seat]?.colour ?? 0;
-      const steps = L.from < 0 ? [0] : Array.from({ length: L.to - L.from }, (_, k) => L.from! + k + 1);
-      const run = ++walking.current;
-      steps.forEach((prog, k) => {
-        window.setTimeout(() => {
-          if (walking.current !== run) return;
-          setShown((sh) => { const n = sh.map((r) => [...r]); n[colour][L.token!] = prog; return n; });
-          if (prog === 56) sfx.home(); else sfx.hop();
-        }, k * STEP_MS);
-      });
+      const a = ahead.current;
+      let run: number, ms: number;
+      if (a && a.colour === colour && a.token === L.token && a.to === L.to) {
+        // Already walking since the tap: just settle the board when it lands.
+        ahead.current = null;
+        run = walking.current;
+        ms = Math.max(0, a.doneAt - Date.now());
+      } else {
+        ahead.current = null;
+        ({ run, ms } = walk(colour, L.token, L.from, L.to));
+      }
       window.setTimeout(() => {
         if (walking.current !== run) return;
         if (L.caught?.length) sfx.capture();
         else if (L.to !== 56 && ludoOnSafe(colour, L.to!)) sfx.bell(); // landed on a safe square
         setShown(target);
-      }, steps.length * STEP_MS + 60);
+      }, ms + 60);
     } else {
       walking.current++;
       setShown(target);
     }
-    if (!first && L?.seat !== v.me && (L?.kind === "roll" || L?.kind === "nomove" || L?.kind === "skip")) sfx.dice();
+    const before = prev.current;
+    prev.current = v;
+    // Someone else's roll (also one that moved their only token straight away).
+    const rolledNow = L?.kind === "roll" || L?.kind === "nomove" || L?.kind === "skip" || (L?.kind === "move" && before?.phase === "roll" && before.turn === L.seat);
+    if (!first && L?.seat !== v.me && rolledNow) sfx.dice();
+    // Your turn starts: a short chime.
+    if (!first && v.status === "playing" && v.turn === v.me && v.phase === "roll" && (before?.turn !== v.me || before?.phase !== "roll" || before.seq !== v.seq) && !(L?.seat === v.me && L?.kind === "roll")) sfx.slot();
     if (v.status === "done" && v.winner !== null) { if (v.winner === v.me) sfx.bigWin(); else sfx.lose(); }
   }, [v]);
 
@@ -141,13 +171,27 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     if (!tableId.current || busy) return;
     setBusy(true);
     if (action === "roll") { setRolling(true); sfx.dice(); }
+    // A move starts walking at once; the server's answer then only confirms it.
+    if (action === "move" && token !== undefined && v?.dice && mySeat) {
+      const from = mySeat.tokens[token];
+      const to = from < 0 ? 0 : from + v.dice;
+      const { ms } = walk(mySeat.colour, token, from, to);
+      ahead.current = { colour: mySeat.colour, token, to, doneAt: Date.now() + ms };
+    }
     const [res] = await Promise.all([
       supabase().rpc("ld_act", { p_table: tableId.current, p_action: action, p_token: token ?? null }),
       new Promise((r) => setTimeout(r, action === "roll" ? 550 : 0)),
     ]);
     setRolling(false);
     setBusy(false);
-    if (res.error) { showToast(errText(res.error)); pull(); return; }
+    if (res.error) {
+      showToast(errText(res.error));
+      ahead.current = null;
+      walking.current++;
+      setShown(byColour(v)); // undo a move shown ahead of the server
+      pull();
+      return;
+    }
     take(res.data as View);
   };
 
@@ -211,7 +255,9 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       <LudoSeatPanel
         colour={c} name={s.me ? "You" : s.name} emoji={s.emoji} align={align} top={top} dim={!!s.left} note={s.left ? "left" : undefined}
         active={active} timerKey={active ? `${v.seq}-${v.turn}` : null}
-        dice={v.dice ?? v.last?.dice ?? null} rolling={!!s.me && rolling} canRoll={canRoll} onRoll={() => act("roll")}
+        dice={active ? v.dice ?? (v.last?.seat === si ? v.last.dice ?? null : null) : v.last?.seat === si ? v.last.dice ?? null : null}
+        showDice={!active && v.last?.seat === si && ["move", "nomove", "skip"].includes(v.last.kind)}
+        rolling={!!s.me && rolling} canRoll={canRoll} onRoll={() => act("roll")}
         home={s.tokens.filter((x) => x === 56).length}
       />
     );
