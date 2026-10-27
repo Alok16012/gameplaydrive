@@ -13,7 +13,8 @@ export type Route =
   | { name: "roulette" }
   | { name: "blackjack" }
   | { name: "plinko" }
-  | { name: "jili"; game: GameId } // a JILI game from the iGaming SoftAPI
+  | { name: "jili" } // the JILI lobby (iGaming SoftAPI)
+  | { name: "jiliplay"; uid: string; title: string } // one JILI game
   | { name: "stockmarket" }
   | { name: "cardtable"; game: GameId; table: string; buyIn: number; avoid?: string /* Switch table: not this one */ }
   | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number; cards?: 13 | 21; avoid?: string } // buyIn = point value (points) or entry fee; avoid = a table just left

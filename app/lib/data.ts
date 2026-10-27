@@ -20,7 +20,7 @@ export type GameId =
   | "roulette"
   | "blackjack"
   | "plinko"
-  | "super-ace";
+  | "jili";
 
 export interface Game {
   id: GameId;
@@ -51,7 +51,7 @@ export const GAMES: Game[] = [
   { id: "aviator", name: "Aviator", tag: "Crash Game", meta: "Crash • Live rounds", category: "casino", kind: "aviator", from: "#2a0a10", to: "#0b0b0f", glow: "#e50914", players: "Live", online: 11240, phase: 1 },
   { id: "roulette", name: "Roulette", tag: "Casino Style", meta: "European • Single zero", category: "casino", kind: "roulette", from: "#15803d", to: "#052e16", glow: "#22c55e", players: "Live", online: 8650, phase: 1 },
   { id: "blackjack", name: "Blackjack", tag: "21", meta: "Blackjack • vs Dealer", category: "card", kind: "blackjack", from: "#334155", to: "#0b1220", glow: "#94a3b8", players: "1", online: 7120, phase: 1 },
-  { id: "super-ace", name: "Super Ace", tag: "JILI Slot", meta: "JILI • Slot • Free play", category: "casino", kind: "jili", from: "#b8860b", to: "#3b1d04", glow: "#f5c542", players: "Live", online: 7310, phase: 1 },
+  { id: "jili", name: "JILI Games", tag: "300+ Slots", meta: "JILI • Slots, Fishing, Crash • Free play", category: "casino", kind: "jili", from: "#b8860b", to: "#3b1d04", glow: "#f5c542", players: "Live", online: 7310, phase: 1 },
   { id: "plinko", name: "Plinko", tag: "Drop Game", meta: "Plinko • Instant", category: "casino", kind: "plinko", from: "#db2777", to: "#4a0a2c", glow: "#f472b6", players: "Live", online: 9840, phase: 1 },
   { id: "chess", name: "Chess", tag: "Board Game", meta: "Board Game • 2 Players", category: "board", kind: "board", from: "#4a5368", to: "#171b27", glow: "#8a94ad", players: "2", online: 4410, phase: 3 },
 ];

@@ -18,7 +18,7 @@ export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (game.kind === "cricket") nav.push({ name: "cricket" });
   else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko" || game.kind === "stockmarket") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
-  else if (game.kind === "jili") nav.push({ name: "jili", game: game.id });
+  else if (game.kind === "jili") nav.push({ name: "jili" });
   else nav.push({ name: "lobby", game: game.id });
 }
 

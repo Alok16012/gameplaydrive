@@ -118,10 +118,10 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
       );
     case "blackjack":
       return scale(<Fan size={size} cards={[{ r: "A", s: "♠" }, { r: "K", s: "♥" }]} />);
-    case "super-ace":
-      // JILI's own artwork for the game (served by the provider's image CDN).
+    case "jili":
+      // JILI's own artwork (Super Ace, its best-known slot) from the provider's image CDN.
       // eslint-disable-next-line @next/next/no-img-element
-      return <img src="https://imagedelivery.net/nVyft9zNw2I0pNVtrnC1zA/879/public" alt="Super Ace" className="rounded-xl object-cover shadow-lg" style={{ width: 66 * s, height: 66 * s }} />;
+      return <img src="https://imagedelivery.net/nVyft9zNw2I0pNVtrnC1zA/879/public" alt="JILI" className="rounded-xl object-cover shadow-lg" style={{ width: 66 * s, height: 66 * s }} />;
     case "plinko":
       return (
         <div className="relative" style={{ width: 52 * s, height: 46 * s }}>
