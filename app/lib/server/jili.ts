@@ -2,7 +2,15 @@
 // in the app. Free play (demo) needs nothing but our token; real-coin play (launch + bet callbacks) needs a
 // whitelisted server IP and GGR credit on the SoftAPI account — not wired up yet.
 
+import { selectOne } from "./supabaseAdmin";
+
 export interface JiliGameInfo { uid: string; name: string; category: string; logo: string | null }
+
+/** Games the Super Admin switched off (Admin → JILI Games, app_settings 'jili_games', migration 111). */
+export async function jiliHidden(): Promise<Set<string>> {
+  const r = await selectOne<{ value: { hidden?: string[] } }>("app_settings", "select=value&key=eq.jili_games").catch(() => null);
+  return new Set((r?.value?.hidden ?? []).map(String));
+}
 
 const BASE = () => process.env.SOFTAPI_URL ?? "https://world-casino-api.com/api/v1";
 const TOKEN = () => {
@@ -39,8 +47,8 @@ export async function jiliGames(): Promise<JiliGameInfo[]> {
 
 /** A free-play URL for a JILI game on our account (no coins involved). */
 export async function jiliDemoUrl(uid: string): Promise<string> {
-  const games = await jiliGames();
-  if (!games.some((g) => g.uid === uid)) throw new Error("Unknown game");
+  const [games, hidden] = await Promise.all([jiliGames(), jiliHidden()]);
+  if (!games.some((g) => g.uid === uid) || hidden.has(uid)) throw new Error("This game is not available");
   const r = await fetch(`${BASE()}/demo?token=${encodeURIComponent(TOKEN())}&game_uid=${encodeURIComponent(uid)}`, { cache: "no-store" });
   const text = (await r.text()).trim();
   if (!text.startsWith("http")) {

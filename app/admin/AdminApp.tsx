@@ -13,6 +13,7 @@ import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
 import { BOT_AVATARS, randomBal, randomName, useBotConfig, type BotProfile } from "../lib/botpool";
 import { CREATES, ROLE_LABEL, coins, createAccount, downline, fmtPhone, ownerOptions, setStatus, transferCoins, updateAccount, useAccounts, type Account, type Role } from "../lib/hierarchy";
+import { JiliAdmin } from "./JiliAdmin";
 import { staffEmail } from "../lib/loginEmail";
 import { apiFetch, errText, supabase } from "../lib/supabase";
 import { OutcomeControlView } from "./OutcomeControlView";
@@ -25,7 +26,7 @@ import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePassword
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "alerts" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "whatsapp" | "audit";
+type Section = "dashboard" | "alerts" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "jili" | "whatsapp" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -66,6 +67,7 @@ export default function AdminApp() {
     { id: "bots", label: "Bots", icon: <BotIcon size={18} />, roles: ["superadmin"] },
     { id: "network", label: "Network", icon: <Network size={18} />, roles: ["superadmin", "admin"] },
     { id: "config", label: "Game Config", icon: <Gamepad2 size={18} />, roles: ["superadmin"] },
+    { id: "jili", label: "JILI Games", icon: <Gamepad2 size={18} />, roles: ["superadmin"] },
     { id: "reports", label: "Reports", icon: <BarChart3 size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "audit", label: "Audit Log", icon: <ClipboardList size={18} />, roles: ["superadmin", "admin", "agent"] },
   ];
@@ -194,6 +196,7 @@ export default function AdminApp() {
           {sec === "bots" && <BotsView />}
           {sec === "network" && <NetworkView {...ctx} />}
           {sec === "config" && <ConfigView />}
+          {sec === "jili" && <JiliAdmin />}
           {sec === "whatsapp" && (
             <div className="space-y-6 max-w-4xl">
               <SupportCard me={me} />
