@@ -423,7 +423,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
           <>
             <div className="text-sm text-[var(--ink-soft)]">
               {gameId === "ludo"
-                ? `Play with friends only. ${ludoN === 2 ? "1 vs 1" : "4 players"} (switch above); the game starts when the table is full.`
+                ? `Play with friends only. ${ludoN === 2 ? "1 vs 1 (switch above); the game starts when your friend joins." : "Up to 4 players (switch above); it starts when the table is full, or you start it with 2 or 3 in."}`
                 : rummy ? "Play with friends only. You're the host: start the game whenever 2 or more are in (it starts by itself when 6 are)."
                 : "Play with friends only. A game starts when at least 2 players are in."}
             </div>

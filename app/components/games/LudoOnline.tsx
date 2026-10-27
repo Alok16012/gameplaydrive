@@ -195,6 +195,16 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     take(res.data as View);
   };
 
+  // The host (who made the table) can start a 4-player table with 2 or 3 in (migration 105).
+  const hostStart = async () => {
+    if (!tableId.current || busy) return;
+    setBusy(true);
+    const { data, error } = await supabase().rpc("ld_host_start", { p_table: tableId.current });
+    setBusy(false);
+    if (error) return showToast(errText(error));
+    take(data as View);
+  };
+
   const leave = async () => {
     setConfirmLeave(false);
     if (tableId.current) {
@@ -320,6 +330,14 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
                 })}
               </div>
               <div className="text-[11px] text-white/45 mt-3">Pot 🪙 {v?.pot ?? 0} • winner gets the pot less the {Math.round((v?.fee ?? 0.1) * 100)}% platform fee. Leave before the start and your entry comes back.</div>
+              {v && v.seats[0]?.me && v.seats.length < v.max_players && (
+                v.seats.length >= 2
+                  ? <button onClick={hostStart} disabled={busy} className="btn-green w-full rounded-2xl py-3 mt-4 text-sm font-semibold">Start now with {v.seats.length} players</button>
+                  : <div className="text-[12px] text-white/55 mt-3 text-center">You&apos;re the host — start as soon as a friend joins, or wait for the table to fill.</div>
+              )}
+              {v && !v.seats[0]?.me && v.seats.length >= 2 && v.seats.length < v.max_players && (
+                <div className="text-[12px] text-white/55 mt-3 text-center">The host can start now, or wait for the table to fill.</div>
+              )}
             </div>
           </div>
         ) : (
