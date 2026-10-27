@@ -351,7 +351,8 @@ export function Roulette({ nav }: { nav: Nav }) {
                     if (c === 11 && r === 1) zones.push({ side: "st_34@end", x: 12, y: 1.5, w: 0.36, h: 3 });
                     if (c === 11 && r < 2) zones.push({ side: `s_${n - 1}_${n}@end`, x: 12, y: r + 1, w: 0.4, h: 0.4 });
                     // …and its two outer corners (by 36 at the top, by 34 against the dozens) are Street 34-36 too.
-                    if (c === 11 && r === 0) zones.push({ side: "st_34@c0", x: 12, y: 0, w: 0.45, h: 0.45 });
+                    // (the one by 36 sits a little inside so its chip stays on the table, not over the rim)
+                    if (c === 11 && r === 0) zones.push({ side: "st_34@c0", x: 12, y: 0.25, w: 0.45, h: 0.5 });
                     if (c === 11 && r === 2) zones.push({ side: "st_34@c3", x: 12, y: 3, w: 0.45, h: 0.45 });
                     return zones.map((z) => <BetZone key={z.side} {...z} bets={bets} shown={shown} onPlace={place} />);
                   }),
