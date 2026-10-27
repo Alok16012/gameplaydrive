@@ -245,7 +245,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
   // Private rummy tables take whole coins per point.
   const privEntries = rummy ? RUMMY_STAKES[mode].filter((v) => v >= (mode === "points" ? 1 : 10)).slice(0, 3) : gameId === "poker" ? [25, 100, 1000] : [10 * m, 50 * m, 100 * m];
   // Private tables take any amount the creator picks (checked again by the server).
-  const privMin = (rummy && mode !== "points") || gameId === "ludo" ? 10 : 1;
+  const privMin = (rummy && mode !== "points") || gameId === "ludo" || gameId === "chess" ? 10 : 1;
   const privMax = 100000000;
   const privStake = privAmt === "" ? privEntries[1] : Number(privAmt);
   // Rummy gets one table per stake on the ladder (Points has 7, Pool/Deals have 8).
@@ -311,6 +311,8 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
     try {
       const code = gameId === "ludo"
         ? await supabase().rpc("ld_create_private", { p_entry: privStake, p_players: ludoN }).then(({ data, error }) => { if (error) throw error; return data as string; })
+        : gameId === "chess"
+        ? await supabase().rpc("ch_create_private", { p_entry: privStake }).then(({ data, error }) => { if (error) throw error; return data as string; })
         : gameId === "teen-patti" || gameId === "poker"
         ? await createServerPrivate(gameId === "poker" ? "poker" : "teenpatti", privStake)
         : await supabase().rpc("rm_create_private", { p_mode: mode, p_stake: privStake, p_deals: mode === "deals" ? 2 : 0, p_cards: cards }).then(({ data, error }) => { if (error) throw error; return data as string; });
@@ -419,15 +421,16 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
         <button onClick={() => setPriv(true)} className="btn-green w-full py-3.5 rounded-2xl flex items-center justify-center gap-2"><Users size={18} /> Private Table</button>
       </div>
       <Sheet open={priv} onClose={() => setPriv(false)} title="Private Table">
-        {online || gameId === "ludo" ? (
+        {online || gameId === "ludo" || gameId === "chess" ? (
           <>
             <div className="text-sm text-[var(--ink-soft)]">
               {gameId === "ludo"
                 ? `Play with friends only. ${ludoN === 2 ? "1 vs 1 (switch above); the game starts when your friend joins." : "Up to 4 players (switch above); it starts when the table is full, or you start it with 2 or 3 in."}`
+                : gameId === "chess" ? "Play a friend, 1 vs 1: the game starts when they join with your code. Colours are drawn at random, 10 minutes each; the winner takes both entries less the platform fee."
                 : rummy ? "Play with friends only. You're the host: start the game whenever 2 or more are in (it starts by itself when 6 are)."
                 : "Play with friends only. A game starts when at least 2 players are in."}
             </div>
-            <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy || gameId === "ludo" ? "Entry" : "Boot"}</div>
+            <div className="text-xs text-white/60 mt-4">{rummy ? `${RUMMY_MODES[mode].short} • ` : ""}{rummy && mode === "points" ? "Coins per point" : rummy || gameId === "ludo" || gameId === "chess" ? "Entry" : "Boot"}</div>
             <div className="grid grid-cols-3 gap-2 mt-2">
               {privEntries.map((b) => (
                 <button key={b} onClick={() => setPrivAmt(String(b))} className={`card py-3 text-center text-sm ${privStake === b ? "ring-2 ring-neon-400" : ""}`}>{inr(b)}</button>
