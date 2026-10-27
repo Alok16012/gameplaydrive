@@ -148,7 +148,7 @@ export function GameHistory({ nav }: { nav: Nav }) {
   const detail = useRoundDetail();
   const [openId, setOpenId] = useState<string | null>(null);
   // One row per round: total staked, what it paid back and the net result.
-  const rows = groupRounds(txns.filter((t) => t.type === "bet" || t.type === "winning" || t.type === "bonus")).map((r) => ({ r, g: GAMES.find((g) => r.game.startsWith(g.name)) }));
+  const rows = groupRounds(txns.filter((t) => t.type === "bet" || t.type === "winning" || t.type === "bonus")).map((r) => ({ r, g: GAMES.find((g) => r.game.startsWith(g.name) || (g.kind === "jili" && r.game === "JILI")) }));
   return (
     <div className="pb-10 fadein">
       <Header title="Game History" onBack={nav.back} />
