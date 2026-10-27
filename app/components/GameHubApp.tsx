@@ -154,7 +154,7 @@ function Shell() {
     case "blackjack": screen = <Blackjack nav={nav} />; break;
     case "plinko": screen = <Plinko nav={nav} />; break;
     case "jili": screen = <JiliLobby nav={nav} />; break;
-    case "jiliplay": screen = <JiliGame key={route.uid} nav={nav} uid={route.uid} title={route.title} />; break;
+    case "jiliplay": screen = <JiliGame key={route.uid} nav={nav} uid={route.uid} title={route.title} demo={route.demo !== false} />; break;
     case "stockmarket": screen = <StockMarket nav={nav} />; break;
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"

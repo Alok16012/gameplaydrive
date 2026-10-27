@@ -8,7 +8,7 @@ import { useStore } from "../../lib/store";
 import type { JiliGameInfo } from "../../lib/server/jili";
 import type { Nav } from "../nav";
 
-// JILI games from the iGaming SoftAPI, played inside the app — with coins (1 coin = ₹1; SoftAPI settles every round
+// JILI games from the iGaming SoftAPI, played inside the app — with coins (SoftAPI settles every round
 // to /api/jili/callback, migration 112) or in free play with JILI's practice credits.
 
 const CATS = ["All", "Slots", "Fishing", "Crash", "Mines", "Table & Casino", "Mini games"] as const;
@@ -72,13 +72,8 @@ export function JiliLobby({ nav }: { nav: Nav }) {
         {games && shown.length === 0 && <div className="text-sm text-white/50 text-center py-10">No game matches “{q}”.</div>}
         <div className="grid grid-cols-3 gap-2.5">
           {shown.map((g) => (
-            <button key={g.uid} onClick={() => nav.push({ name: "jiliplay", uid: g.uid, title: g.name })} className="text-left active:scale-95 transition">
-              <div className="aspect-square rounded-xl overflow-hidden border border-amber-300/20 shadow-lg bg-gradient-to-br from-amber-700 to-[#2a1405] grid place-items-center">
-                {g.logo
-                  // eslint-disable-next-line @next/next/no-img-element
-                  ? <img src={g.logo} alt={g.name} loading="lazy" className="w-full h-full object-cover" />
-                  : <span className="px-2 text-center text-[12px] font-bold text-amber-100 leading-tight">{g.name}</span>}
-              </div>
+            <button key={g.uid} onClick={() => nav.push({ name: "jiliplay", uid: g.uid, title: g.name, demo: g.demo })} className="text-left active:scale-95 transition">
+              <JiliThumb g={g} />
               <div className="mt-1 text-[11px] font-medium truncate">{g.name}</div>
             </button>
           ))}
@@ -88,8 +83,32 @@ export function JiliLobby({ nav }: { nav: Nav }) {
   );
 }
 
-/** One JILI game, full screen inside the app: with coins (1 coin = ₹1, settled after every round) or free play. */
-export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: string }) {
+/** A game's picture, always whole (JILI's are square or tall 3:4): the picture fitted over a blurred copy of itself;
+ *  a name card when there is none or it fails to load. "Coins" marks games without free play. */
+function JiliThumb({ g }: { g: JiliGameInfo }) {
+  const [bad, setBad] = useState(false);
+  return (
+    <div className="relative aspect-square rounded-xl overflow-hidden border border-amber-300/20 shadow-lg bg-gradient-to-br from-amber-700 to-[#2a1405] grid place-items-center">
+      {g.logo && !bad ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={g.logo} alt="" aria-hidden loading="lazy" className="absolute inset-0 w-full h-full object-cover blur-md scale-110 opacity-60" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={g.logo} alt={g.name} loading="lazy" onError={() => setBad(true)} className="relative w-full h-full object-contain" />
+        </>
+      ) : (
+        <span className="px-2 text-center leading-tight">
+          <span className="block text-[9px] font-extrabold tracking-widest text-amber-300/80">JILI</span>
+          <span className="block text-[12px] font-bold text-amber-50">{g.name}</span>
+        </span>
+      )}
+      {!g.demo && <span className="absolute top-1 left-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[8px] font-bold text-neon-400">COINS</span>}
+    </div>
+  );
+}
+
+/** One JILI game, full screen inside the app: with coins (settled after every round) or free play. */
+export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: string; title: string; demo?: boolean }) {
   const { total, refresh, showToast } = useStore();
   const [ready, setReady] = useState<boolean | null>(null); // real-coin play set up on the server?
   const [mode, setMode] = useState<"coins" | "free" | null>(null);
@@ -101,7 +120,7 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
     apiFetch("/api/jili/launch?check=1").then((r) => r.json()).then((j: { ready?: boolean }) => setReady(!!j.ready)).catch(() => setReady(false));
   }, []);
   // Without real-coin play on this server, go straight to free play.
-  useEffect(() => { if (ready === false && mode === null) setMode("free"); }, [ready, mode]);
+  useEffect(() => { if (ready === false && mode === null && demo) setMode("free"); }, [ready, mode, demo]);
 
   useEffect(() => {
     if (!mode) return;
@@ -137,7 +156,7 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
         <div className="leading-tight min-w-0">
           <div className="text-sm font-semibold truncate">{title}</div>
           <div className={`text-[10px] ${mode === "coins" ? "text-neon-400" : "text-amber-300"}`}>
-            {mode === "coins" ? "JILI • Playing with your coins (1 coin = ₹1)" : mode === "free" ? "JILI • Free play — practice credits, no coins used" : "JILI"}
+            {mode === "coins" ? "JILI • Playing with your coins" : mode === "free" ? "JILI • Free play — practice credits, no coins used" : "JILI"}
           </div>
         </div>
         {url && (
@@ -160,8 +179,10 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
               <button onClick={() => setMode("coins")} disabled={ready !== true} className="btn-green w-full rounded-2xl py-3.5 mt-6 font-semibold disabled:opacity-50">
                 Play with coins <span className="opacity-80 font-normal">• {inr(total)}</span>
               </button>
-              <div className="text-[11px] text-white/45 mt-1.5">1 coin = ₹1 • every round&apos;s win or loss goes to your coins and Game History</div>
-              <button onClick={() => setMode("free")} className="btn-ghost w-full rounded-2xl py-3 mt-4 text-sm">Free play (practice credits)</button>
+              <div className="text-[11px] text-white/45 mt-1.5">Every round&apos;s win or loss goes directly to your coins and Game History</div>
+              {demo
+                ? <button onClick={() => setMode("free")} className="btn-ghost w-full rounded-2xl py-3 mt-4 text-sm">Free play (practice credits)</button>
+                : <div className="text-[11px] text-white/45 mt-4">JILI offers this game with coins only — no free play.</div>}
             </div>
           </div>
         ) : url ? (
@@ -172,7 +193,8 @@ export function JiliGame({ nav, uid, title }: { nav: Nav; uid: string; title: st
               <div>
                 <div className="text-sm text-white/80">{err}</div>
                 <div className="flex gap-2 justify-center mt-4">
-                  {mode === "coins" && <button onClick={() => setMode("free")} className="btn-ghost rounded-xl px-4 py-2.5 text-sm">Try free play</button>}
+                  {mode === "coins" && demo && <button onClick={() => setMode("free")} className="btn-ghost rounded-xl px-4 py-2.5 text-sm">Try free play</button>}
+                  {mode === "free" && ready && <button onClick={() => setMode("coins")} className="btn-green rounded-xl px-4 py-2.5 text-sm">Play with coins</button>}
                   <button onClick={nav.back} className="btn-ghost rounded-xl px-4 py-2.5 text-sm">Back to JILI games</button>
                 </div>
               </div>
