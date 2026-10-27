@@ -73,8 +73,13 @@ const BALL_DROP_MS = 1000;
 const BALL_TURNS = 10;
 const BALL_HOPS = 5;
 
+/** A spot at the far end of the grid that places a bet also offered elsewhere ("st_34@end" is Street 34-36 tapped
+ *  on the end edge): the chip stays where it was put, the server gets the plain bet. */
+const plain = (side: string) => side.replace(/@end$/, "");
+
 /** Does a bet win on number n? (Display only — the server settles every bet.) */
-function wins(side: string, n: number) {
+function wins(spot: string, n: number) {
+  const side = plain(spot);
   if (side.startsWith("n_")) return Number(side.slice(2)) === n;
   if (side.startsWith("s_") || side.startsWith("q_") || side.startsWith("t_")) return side.slice(2).split("_").map(Number).includes(n); // split / corner / trio
   if (side.startsWith("st_")) { const a = Number(side.slice(3)); return n >= a && n <= a + 2; } // street
@@ -212,7 +217,7 @@ export function Roulette({ nav }: { nav: Nav }) {
       };
       if (placed.length) {
         setLastBets(placed);
-        supabase().rpc("roulette_spin", { p_bets: placed, p_round: String(round) }).then(({ data, error }) => {
+        supabase().rpc("roulette_spin", { p_bets: placed.map((b) => ({ ...b, side: plain(b.side) })), p_round: String(round) }).then(({ data, error }) => {
           if (error) {
             showToast(errText(error));
             setBets([]);
@@ -340,6 +345,10 @@ export function Roulette({ nav }: { nav: Nav }) {
                     if (c === 0) zones.push({ side: `s_0_${n}`, x: 0, y: r + 0.5, w: 0.36, h: 0.55 });
                     if (c === 0 && r < 2) zones.push({ side: `t_0_${n - 1}_${n}`, x: 0, y: r + 1, w: 0.4, h: 0.4 });
                     if (c === 0 && r === 2) zones.push({ side: "ff", x: 0, y: 3, w: 0.4, h: 0.4 });
+                    // The far end (34-35-36 against the row boxes): the whole edge is Street 34-36, its two corners the
+                    // splits 34/35 and 35/36.
+                    if (c === 11 && r === 1) zones.push({ side: "st_34@end", x: 12, y: 1.5, w: 0.36, h: 3 });
+                    if (c === 11 && r < 2) zones.push({ side: `s_${n - 1}_${n}@end`, x: 12, y: r + 1, w: 0.4, h: 0.4 });
                     return zones.map((z) => <BetZone key={z.side} {...z} bets={bets} shown={shown} onPlace={place} />);
                   }),
                 )}
@@ -482,8 +491,8 @@ function BetZone({ side, x, y, w, h, bets, shown, onPlace }: {
     <button
       data-sfx="off"
       onClick={() => onPlace(side)}
-      aria-label={rouletteSide(side)}
-      className={`absolute pointer-events-auto grid place-items-center ${/^(q_|t_|sl_|ff)/.test(side) ? "z-[2]" : "z-[1]"}`}
+      aria-label={rouletteSide(plain(side))}
+      className={`absolute pointer-events-auto grid place-items-center ${/^(q_|t_|sl_|ff)/.test(side) || /^s_.*@end$/.test(side) ? "z-[2]" : "z-[1]"}`}
       style={{ left: `${((x - w / 2) / 12) * 100}%`, top: `${((y - h / 2) / 3) * 100}%`, width: `${(w / 12) * 100}%`, height: `${(h / 3) * 100}%` }}
     >
       {my > 0 && (
