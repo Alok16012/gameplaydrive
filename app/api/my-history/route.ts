@@ -2,7 +2,7 @@ import { selectAll, userFromToken } from "../../lib/server/supabaseAdmin";
 
 // GET /api/my-history — the signed-in player's recent rounds with what they bet on and how it came out, keyed the way
 // the ledger notes name them, so Game History can show the detail under each row:
-//   "aviator:<round>", "stockmarket:<round>", "roulette:<spin>", "blackjack:<hand>",
+//   "aviator:<round>", "stockmarket:<round>", "roulette:<round or spin>", "blackjack:<hand>",
 //   "dragon-tiger:<round>" / "andar-bahar:<round>" / "lucky-7:<round>" (casino_rounds, migration 062),
 //   "cricket:<event name>" (their bets on that match).
 // These tables are server-only, so the service role reads them here, always filtered to the caller.
@@ -24,8 +24,8 @@ export async function GET(req: Request) {
       "av_bets", `select=round_id,slot,amount,auto,cash_mult,payout&user_id=eq.${uid}&order=id.desc&limit=${LIMIT}`)),
     safe(selectAll<{ round_id: number; side: string; amount: number; cash_tick: number | null; payout: number }>(
       "sm_bets", `select=round_id,side,amount,cash_tick,payout&user_id=eq.${uid}&order=id.desc&limit=${LIMIT}`)),
-    safe(selectAll<{ id: number; num: number; stake: number; payout: number }>(
-      "rl_spins", `select=id,num,stake,payout&user_id=eq.${uid}&order=id.desc&limit=${LIMIT}`)),
+    safe(selectAll<{ id: number; num: number; stake: number; payout: number; round: string | null; bets: unknown }>(
+      "rl_spins", `select=id,num,stake,payout,round,bets&user_id=eq.${uid}&order=id.desc&limit=${LIMIT}`)),
     safe(selectAll<{ id: number; dealer: unknown; hands: unknown; status: string; payout: number }>(
       "bj_hands", `select=id,dealer,hands,status,payout&user_id=eq.${uid}&status=eq.done&order=id.desc&limit=${LIMIT}`)),
     safe(selectAll<{ event_name: string; market_name: string; runner_name: string; bet_type: string; market_type: string; odds: number; line: number | null; stake: number; status: string; payout: number; result: string | null }>(
@@ -62,7 +62,8 @@ export async function GET(req: Request) {
     out[k] = v;
   }
 
-  for (const s of rl) out[`roulette:${s.id}`] = { num: s.num };
+  // Spins since 099 carry the table's Round # (what the ledger note names first); older ones only their Spin #.
+  for (const s of rl) out[`roulette:${s.round ?? s.id}`] = { num: s.num, bets: s.bets ?? [] };
   for (const h of bj) out[`blackjack:${h.id}`] = { dealer: h.dealer, hands: h.hands };
 
   for (const b of sport) {

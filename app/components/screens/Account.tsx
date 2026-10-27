@@ -12,7 +12,7 @@ import { Avatar, Header, Toggle } from "../ui";
 import type { Nav } from "../nav";
 import { ChangePasswordModal } from "../ChangePasswordModal";
 import { supabase } from "../../lib/supabase";
-import { cardText, rouletteText, sideLabel, type CardJ } from "../../lib/roundText";
+import { cardText, rouletteSide, rouletteText, sideLabel, type CardJ } from "../../lib/roundText";
 
 export function More({ nav }: { nav: Nav }) {
   const { player, txns, total } = useStore();
@@ -78,6 +78,12 @@ const detailKey = (game: string, hand?: string) => {
 };
 const n = (v: unknown) => Math.round(Number(v)).toLocaleString("en-IN");
 const cards = (cs: unknown) => ((cs as CardJ[]) ?? []).map(cardText).join(" ");
+/** Chips on the same spot added up, in the order first placed: "Tiger 1,000" ×5 → "Tiger 5,000". */
+const betsOn = (bets: { side: string; v: number }[], label: (side: string) => string) => {
+  const sum = new Map<string, number>();
+  for (const b of bets) sum.set(b.side, (sum.get(b.side) ?? 0) + Number(b.v));
+  return [...sum].map(([side, v]) => `${label(side)} ${n(v)}`).join(", ");
+};
 
 /** One line saying what you bet and what happened, plus the full breakdown when the row is opened. */
 function roundLines(key: string, d: Detail): { summary: string; more: string[] } {
@@ -93,7 +99,10 @@ function roundLines(key: string, d: Detail): { summary: string; more: string[] }
     const close = d.close === null ? "Round still running" : `Market closed ${Number(d.close) > 1 ? "Up" : Number(d.close) < 1 ? "Down" : "flat"} (${((Number(d.close) - 1) * 100).toFixed(2)}%)`;
     return { summary: `${bets.map((b) => `${sideLabel(b.side)} ${n(b.amount)}${b.cashTick !== null && b.cashTick < 80 ? " (closed early)" : ""}`).join(" • ")} • ${close}`, more: [] };
   }
-  if (game === "roulette") return { summary: `Ball landed on ${rouletteText(Number(d.num))}`, more: [] };
+  if (game === "roulette") {
+    const on = betsOn((d.bets as { side: string; v: number }[]) ?? [], rouletteSide);
+    return { summary: `${on ? `${on} • ` : ""}Ball on ${rouletteText(Number(d.num))}`, more: [] };
+  }
   if (game === "blackjack") {
     const hands = (d.hands as { cards: CardJ[]; result?: string; bet?: number }[]) ?? [];
     return {
@@ -106,17 +115,17 @@ function roundLines(key: string, d: Detail): { summary: string; more: string[] }
     const line = (b: (typeof bets)[number]) => `${b.market} • ${b.runner} ${b.type} @ ${b.rate ?? "—"} • ${n(b.stake)} → ${b.status === "OPEN" ? "waiting for result" : b.status === "VOID" ? "void (returned)" : b.status === "WON" ? "won" : "lost"}${b.result ? ` (result: ${b.result})` : ""}`;
     return { summary: bets.length === 1 ? line(bets[0]) : `${bets.length} bets on this match — tap to see them`, more: bets.length > 1 ? bets.map(line) : [] };
   }
-  // Andar Bahar / Dragon Tiger / Lucky 7
+  // Andar Bahar / Dragon Tiger / Lucky 7: your bet (chips on one side added up) and how it came out, in one line.
   const bets = (d.bets as { side: string; v: number }[]) ?? [];
   const c = (d.cards as Record<string, unknown>) ?? {};
-  const you = `Your bet: ${bets.map((b) => `${sideLabel(b.side)} ${n(b.v)}`).join(", ") || "—"}`;
+  const you = betsOn(bets, sideLabel) || "—";
   const won = d.winner ? `${sideLabel(String(d.winner))} won` : "";
   if (game === "andar-bahar") {
     const a = (c.andar as CardJ[]) ?? [], b = (c.bahar as CardJ[]) ?? [];
-    return { summary: `${you} • ${won} • Joker ${cardText(c.joker as CardJ)}`, more: [`Andar: ${cards(a)}`, `Bahar: ${cards(b)}`, `${a.length + b.length} cards dealt`] };
+    return { summary: `${you} • ${won} (Joker ${cardText(c.joker as CardJ)}, ${a.length + b.length} cards)`, more: [`Andar: ${cards(a)}`, `Bahar: ${cards(b)}`] };
   }
-  if (game === "dragon-tiger") return { summary: `${you} • ${won}`, more: [`Dragon ${cardText(c.dragon as CardJ)} vs Tiger ${cardText(c.tiger as CardJ)}`] };
-  return { summary: `${you} • ${won}`, more: [`Card: ${cardText(c.card as CardJ)}`] };
+  if (game === "dragon-tiger") return { summary: `${you} • ${won} (${cardText(c.dragon as CardJ)} vs ${cardText(c.tiger as CardJ)})`, more: [] };
+  return { summary: `${you} • ${won} (${cardText(c.card as CardJ)})`, more: [] };
 }
 
 function useRoundDetail() {
