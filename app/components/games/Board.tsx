@@ -707,16 +707,18 @@ const CELL = 100 / 15;
 /** The Ludo board with its tokens (shared by the practice table and the online private table). */
 /** Size of each token when several share a square, by how many there are (7 = seven or more). */
 const CLUSTER_SCALE = [1, 1, 0.62, 0.56, 0.54, 0.46, 0.46, 0.4];
-/** Where the k-th of n tokens on one square sits, as an offset from the square's centre in % of the square. */
+/** Where the k-th of n tokens on one square sits, as an offset from the square's centre in % of the square. A token
+ *  stands on the bottom of its square, so the front row stays at 0 and back rows rise (negative): every token of the
+ *  cluster stays inside the square. */
 function clusterSpot(n: number, k: number): [number, number] {
   const fixed: Record<number, [number, number][]> = {
     2: [[-22, 0], [22, 0]],
-    3: [[0, -18], [-22, 12], [22, 12]],
-    4: [[-22, -18], [22, -18], [-22, 14], [22, 14]],
+    3: [[0, -30], [-22, 0], [22, 0]],
+    4: [[-22, -30], [22, -30], [-22, 0], [22, 0]],
   };
   if (fixed[n]) return fixed[n][k] ?? [0, 0];
   const rows = Math.ceil(n / 3), row = Math.floor(k / 3), col = k % 3;
-  return [(col - 1) * 30, (row - (rows - 1) / 2) * (rows > 2 ? 22 : 30)];
+  return [(col - 1) * 30, (row - (rows - 1)) * (rows > 2 ? 22 : 30)];
 }
 
 export function LudoBoardSurface({ tokens, inPlay, glowAt, onTap, overlay, turns = 0, blinkYard = null }: {
