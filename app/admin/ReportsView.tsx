@@ -7,7 +7,6 @@ import {
   TrendingUp,
   Activity,
   Lock,
-  Gamepad2,
   Trophy,
   BarChart2,
   ShieldAlert,
