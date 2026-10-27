@@ -501,7 +501,9 @@ function BetZone({ side, x, y, w, h, bets, shown, onPlace }: {
       style={{ left: `${((x - w / 2) / 12) * 100}%`, top: `${((y - h / 2) / 3) * 100}%`, width: `${(w / 12) * 100}%`, height: `${(h / 3) * 100}%` }}
     >
       {my > 0 && (
-        <span className={`pointer-events-none rounded-full ${win ? "shadow-[0_0_14px_4px_#fde047]" : ""}`}><MiniChip v={my} size={24} ring /></span>
+        // A chip on the grid's outer edge (streets, six lines, first four, the far end) is drawn just inside the
+        // numbers rather than over the line, so it never hangs over the dozens, the row boxes or the rim.
+        <span className={`pointer-events-none rounded-full ${win ? "shadow-[0_0_14px_4px_#fde047]" : ""}`} style={{ transform: `translate(${x >= 12 ? -55 : 0}%, ${y >= 3 ? -55 : 0}%)` }}><MiniChip v={my} size={24} ring /></span>
       )}
     </button>
   );
