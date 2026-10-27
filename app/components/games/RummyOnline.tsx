@@ -34,6 +34,7 @@ interface View {
   wild: Card | null; open_top: RCard | null; stock_count: number; prize: number; match_over: boolean; result: Result | null; seats: Seat[];
   queued: boolean; me: number | null; my_cards: RCard[] | null; my_groups: number[][] | null; due_at: string | null; turn_secs: number; server_now: string;
   discards?: RCard[]; log?: Move[]; open_joker_ok?: boolean; // public table info (migration 024)
+  lobby?: { name: string; emoji: string; me: boolean }[] | null; host_me?: boolean; // private table before the first deal (104)
 }
 
 const cardTxt = (c?: RCard | null) => (c ? `${c.r}${c.s ?? ""}` : "");
@@ -344,6 +345,16 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     take(data as View);
   };
 
+  // Private table: the host deals when they are ready (migration 104).
+  const hostStart = async () => {
+    if (!tableId.current || busy) return;
+    setBusy(true);
+    const { data, error } = await supabase().rpc("rm_host_start", { p_table: tableId.current });
+    setBusy(false);
+    if (error) return showToast(errText(error));
+    take(data as View);
+  };
+
   // A private table's format comes from the table itself.
   const mode = v?.mode ?? askedMode;
   const stake = v?.stake ?? askedStake;
@@ -580,7 +591,24 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           {!v || v.status === "waiting" ? (
             <div className="text-center">
               <div className="text-[15px] font-semibold">{v?.code ? "Waiting for friends…" : "Finding players…"}</div>
-              <div className="text-[13px] text-white/70 mt-1">{v?.next_at ? `Dealing in ${Math.ceil(secsTo(v.next_at))}s` : v?.code ? "A private table starts when 2 players are in" : ""}</div>
+              {v?.code && !!v.lobby?.length && (
+                <div className="flex flex-wrap justify-center gap-1.5 mt-2 px-4">
+                  {v.lobby.map((p, i) => (
+                    <span key={i} className={`pill px-2.5 py-1 text-[12px] ${p.me ? "bg-neon-400/20 border border-neon-400/40" : "bg-white/10"}`}>
+                      {p.emoji} {p.me ? "You" : p.name}{i === 0 && <span className="text-gold-300"> • Host</span>}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="text-[13px] text-white/70 mt-1.5">
+                {v?.next_at ? `Dealing in ${Math.ceil(secsTo(v.next_at))}s`
+                  : v?.code ? (v.lobby?.length ?? 0) < 2 ? "Share the code — you need at least 2 players"
+                  : v.host_me ? `${v.lobby!.length} of 6 in • start now or wait for more` : "Waiting for the host to start"
+                  : ""}
+              </div>
+              {v?.code && v.host_me && !v.next_at && (v.lobby?.length ?? 0) >= 2 && (
+                <button onClick={hostStart} disabled={busy} className="btn-green rounded-full px-6 py-2.5 mt-3 text-sm font-semibold">Start game ({v.lobby!.length} players)</button>
+              )}
             </div>
           ) : v.status === "dealdone" && res ? (
             <div className="text-center fadein">
