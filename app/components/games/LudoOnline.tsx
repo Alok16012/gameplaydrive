@@ -41,6 +41,8 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
   const [rolling, setRolling] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stepping, setStepping] = useState(false); // a token is walking: no roll prompt until it lands
+  // Each seat's last roll, so a dice waiting to be rolled shows that player's own last number (never a blank face).
+  const [rolledBy, setRolledBy] = useState<Record<number, number>>({});
   const [confirmLeave, setConfirmLeave] = useState(false);
   const tableId = useRef<string | null>(null);
   const offset = useRef(0);
@@ -163,6 +165,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     }
     const before = prev.current;
     prev.current = v;
+    if (L?.seat !== undefined && L.dice) setRolledBy((r) => (r[L.seat!] === L.dice ? r : { ...r, [L.seat!]: L.dice! }));
     // Someone else's roll (also one that moved their only token straight away).
     const rolledNow = L?.kind === "roll" || L?.kind === "nomove" || L?.kind === "skip" || (L?.kind === "move" && before?.phase === "roll" && before.turn === L.seat);
     if (!first && L?.seat !== v.me && rolledNow) sfx.dice();
@@ -270,7 +273,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       <LudoSeatPanel
         colour={c} name={s.me ? "You" : s.name} emoji={s.emoji} align={align} top={top} dim={!!s.left} note={s.left ? "left" : undefined}
         active={active} timerKey={active ? `${v.seq}-${v.turn}` : null}
-        dice={active ? v.dice ?? (v.last?.seat === si ? v.last.dice ?? null : null) : v.last?.seat === si ? v.last.dice ?? null : null}
+        dice={active ? v.dice ?? rolledBy[si] ?? 6 : v.last?.seat === si ? v.last.dice ?? null : null}
         showDice={!active && v.last?.seat === si && ["move", "nomove", "skip"].includes(v.last.kind)}
         rolling={!!s.me && rolling} canRoll={canRoll} onRoll={() => act("roll")}
         home={s.tokens.filter((x) => x === 56).length}
