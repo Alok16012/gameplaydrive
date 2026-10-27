@@ -279,6 +279,9 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   const [turn, setTurn] = useState(0);
   const [dice, setDice] = useState(6);
   const [rolling, setRolling] = useState(false);
+  // From your tap on the dice until the token has been picked / moved (or the turn passes): the dice can't be rolled
+  // again, so its "roll" prompt doesn't flash up for a moment between the dice landing and the move starting.
+  const [deciding, setDeciding] = useState(false);
   const [moving, setMoving] = useState(false);
   const [awaitMove, setAwaitMove] = useState(false);
   const [msg, setMsg] = useState("Roll a 6 to bring a token out");
@@ -534,21 +537,26 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   };
 
   const myRoll = async () => {
-    if (turn !== 0 || rolling || moving || awaitMove || winner !== null) return;
-    const d = await roll(0);
-    if (d < 0) return nextTurn(0);
-    const opts = movable(0, d);
-    if (!opts.length) {
-      setMsg(`You rolled ${d} — no move`);
-      await sleep(600);
-      return nextTurn(0);
+    if (turn !== 0 || rolling || moving || awaitMove || deciding || winner !== null) return;
+    setDeciding(true);
+    try {
+      const d = await roll(0);
+      if (d < 0) return nextTurn(0);
+      const opts = movable(0, d);
+      if (!opts.length) {
+        setMsg(`You rolled ${d} — no move`);
+        await sleep(600);
+        return nextTurn(0);
+      }
+      // One choice (or every choice lands on the same square): just move it.
+      snap({ dice: d, awaitMove: true }); // rolled: leaving now can't buy a re-roll
+      const lands = new Set(opts.map((i) => (tokRef.current[0][i] === -1 ? -1 : tokRef.current[0][i] + d)));
+      if (opts.length === 1 || lands.size === 1) return afterMyMove(await move(0, opts[0], d));
+      setAwaitMove(true);
+      setMsg(`You rolled ${d} — tap a glowing token`);
+    } finally {
+      setDeciding(false);
     }
-    // One choice (or every choice lands on the same square): just move it.
-    snap({ dice: d, awaitMove: true }); // rolled: leaving now can't buy a re-roll
-    const lands = new Set(opts.map((i) => (tokRef.current[0][i] === -1 ? -1 : tokRef.current[0][i] + d)));
-    if (opts.length === 1 || lands.size === 1) return afterMyMove(await move(0, opts[0], d));
-    setAwaitMove(true);
-    setMsg(`You rolled ${d} — tap a glowing token`);
   };
 
   // Your clock ran out: roll (if you hadn't) and make the best move for you.
@@ -610,7 +618,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
   // restart the timer ring.)
   const badge = (p: number, align: "left" | "right", top = false) => {
     const active = started && turn === p && winner === null;
-    const canRoll = p === 0 && started && turn === 0 && !rolling && !moving && !awaitMove && winner === null;
+    const canRoll = p === 0 && started && turn === 0 && !rolling && !moving && !awaitMove && !deciding && winner === null;
     return (
       <LudoSeatPanel
         colour={p} name={names[p]} emoji={p === 0 ? "🧑🏽" : ["", "👨🏻", "👩🏽", "🧔🏾"][p]} align={align} top={top} bot={p > 0}
@@ -633,7 +641,7 @@ function Ludo({ nav, table, buyIn, players = 4 }: { nav: Nav; table: string; buy
           turns={TURNS}
           glowAt={(p, i) => p === 0 && myOpts.includes(i)}
           onTap={tapToken}
-          blinkYard={started && winner === null && turn === 0 && !rolling && !moving && !awaitMove ? 0 : null}
+          blinkYard={started && winner === null && turn === 0 && !rolling && !moving && !awaitMove && !deciding ? 0 : null}
           overlay={!started && (
             <div className="absolute inset-0 bg-black/55 grid place-items-center z-30">
               <Waiting lowBal={lowBal} left={firstIn} onRetry={start} onAddCash={() => nav.push({ name: "addcash" })} />

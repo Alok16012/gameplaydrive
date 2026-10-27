@@ -40,6 +40,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
   const [shown, setShown] = useState<number[][]>(empty); // tokens on screen (walk one square at a time)
   const [rolling, setRolling] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stepping, setStepping] = useState(false); // a token is walking: no roll prompt until it lands
   const [confirmLeave, setConfirmLeave] = useState(false);
   const tableId = useRef<string | null>(null);
   const offset = useRef(0);
@@ -62,6 +63,8 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
         if (prog === 56) sfx.home(); else sfx.hop();
       }, k * STEP_MS);
     });
+    setStepping(true);
+    window.setTimeout(() => { if (walking.current === run) setStepping(false); }, steps.length * STEP_MS + 60);
     return { run, ms: steps.length * STEP_MS };
   }, []);
 
@@ -155,6 +158,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       }, ms + 60);
     } else {
       walking.current++;
+      setStepping(false);
       setShown(target);
     }
     const before = prev.current;
@@ -188,6 +192,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
       showToast(errText(res.error));
       ahead.current = null;
       walking.current++;
+      setStepping(false);
       setShown(byColour(v)); // undo a move shown ahead of the server
       pull();
       return;
@@ -260,7 +265,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
     if (si < 0 || !v) return <span />;
     const s = v.seats[si];
     const active = v.status === "playing" && v.turn === si;
-    const canRoll = !!s.me && myTurn && v.phase === "roll" && !busy && !done;
+    const canRoll = !!s.me && myTurn && v.phase === "roll" && !busy && !stepping && !done;
     return (
       <LudoSeatPanel
         colour={c} name={s.me ? "You" : s.name} emoji={s.emoji} align={align} top={top} dim={!!s.left} note={s.left ? "left" : undefined}
@@ -349,7 +354,7 @@ export function LudoOnline({ nav, code, entry }: { nav: Nav; code: string; entry
               turns={turns}
               glowAt={(c, i) => c === myColour && movable.includes(i)}
               onTap={(c, i) => { if (c === myColour && movable.includes(i)) act("move", i); }}
-              blinkYard={myTurn && v?.phase === "roll" && !busy && !done ? myColour : null}
+              blinkYard={myTurn && v?.phase === "roll" && !busy && !stepping && !done ? myColour : null}
             />
             <div className="flex justify-between items-center mt-2 px-1 min-h-[46px]">{badge(ludoColourAt(3, turns), "left")}{badge(ludoColourAt(2, turns), "right")}</div>
             <div className="mt-3 flex flex-col items-center">
