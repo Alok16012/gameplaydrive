@@ -10,6 +10,7 @@ import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { HomeButton, Money, PlayingCard, Sheet } from "../ui";
 import { LandscapeStage } from "./LandscapeStage";
 import { BotTag, TimerAvatar } from "./bots";
+import { TableMenu } from "./TableMenu";
 import type { Nav } from "../nav";
 import type { TableResponse } from "../../lib/server/teenpatti";
 import type { ActionType } from "../../lib/teenpatti/engine";
@@ -89,7 +90,7 @@ function Btn({ opt, label, amount, className, onClick, busy, pending, onBlocked 
   );
 }
 
-export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number; code?: string }) {
+export function TeenPattiClassic({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: number; code?: string; avoid?: string }) {
   const { total, showToast, applyBalance } = useStore();
   const [resp, setResp] = useState<TableResponse | null>(null);
   const [err, setErr] = useState("");
@@ -121,7 +122,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   // Sit down, then follow the table.
   useEffect(() => {
     let alive = true;
-    api<TableResponse>("/api/teenpatti/join", { method: "POST", body: JSON.stringify(code ? { code } : { boot: buyIn }) })
+    api<TableResponse>("/api/teenpatti/join", { method: "POST", body: JSON.stringify(code ? { code } : { boot: buyIn, ...(avoid ? { avoid } : {}) }) })
       .then((r) => { if (!alive) return; tableId.current = r.table.id; take(r); })
       .catch((e) => alive && setErr(e.message));
     const poll = async () => {
@@ -178,6 +179,29 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   };
   const away = () => { showToast("Your seat is kept for a minute — tap Rejoin to come back"); nav.back(); };
 
+  // Table menu (Leave): leave, sit out / I'm back, switch table, leaderboard.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuBusy, setMenuBusy] = useState(false);
+  const sitOut = async (on: boolean) => {
+    if (!tableId.current || menuBusy) return;
+    setMenuBusy(true);
+    try {
+      take(await api<TableResponse>("/api/teenpatti/sitout", { method: "POST", body: JSON.stringify({ table: tableId.current, on }) }));
+      setMenuOpen(false);
+      showToast(on ? "You're sitting out — you won't be dealt in until you're back" : "Welcome back — you're in from the next hand");
+    } catch (e) { showToast((e as Error).message); }
+    setMenuBusy(false);
+  };
+  const switchTable = async () => {
+    if (menuBusy) return;
+    setMenuBusy(true);
+    const old = tableId.current;
+    if (old) await api("/api/teenpatti/leave", { method: "POST", body: JSON.stringify({ table: old }) }).catch(() => {});
+    clearActive();
+    nav.back();
+    nav.push({ name: "cardtable", game: "teen-patti", table: `S-${Date.now() % 1000000}`, buyIn, ...(old ? { avoid: old } : {}) });
+  };
+
   if (err && !resp) {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center gap-4 px-6 text-center fadein">
@@ -191,6 +215,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
   const me = v?.me ?? null;
   const myId = me?.playerId;
   const seats = tbl?.seats ?? [];
+  const sittingOutNow = !!seats.find((s) => s.playerId === resp?.you)?.sittingOut;
   const mySeatNo = seats.find((s) => s.playerId === myId)?.seat ?? -1;
   // Clockwise from the seat after yours (play moves that way).
   // Everyone else: seated players, plus anyone still in the hand whose seat was given up (a bumped bot).
@@ -316,7 +341,7 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
           <div className="ml-auto flex items-center gap-3">
             <button onClick={() => setRules(true)} className="text-[12px] text-white/60 flex items-center gap-1 active:scale-95 transition-transform"><BookOpen size={13} /> Rules</button>
             <Money n={total} className="text-sm font-semibold text-neon-400" />
-            <button onClick={leave} className="text-[12px] text-white/60 flex items-center gap-1 active:scale-95 transition-transform"><LogOut size={13} /> Leave</button>
+            <button onClick={() => setMenuOpen(true)} className="text-[12px] text-white/60 flex items-center gap-1 active:scale-95 transition-transform"><LogOut size={13} /> Leave</button>
           </div>
         </div>
 
@@ -507,6 +532,17 @@ export function TeenPattiClassic({ nav, buyIn, code }: { nav: Nav; buyIn: number
       </div>
 
 
+      {sittingOutNow && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-50 flex items-center gap-2 rounded-full bg-black/80 border border-amber-300/40 pl-4 pr-1.5 py-1.5 shadow-xl">
+          <span className="text-[12px] text-amber-200">You&apos;re sitting out</span>
+          <button onClick={() => sitOut(false)} disabled={menuBusy} className="btn-green rounded-full px-3 py-1 text-[12px] font-semibold">I&apos;m back</button>
+        </div>
+      )}
+      <TableMenu
+        open={menuOpen} onClose={() => setMenuOpen(false)} game="Teen Patti" busy={menuBusy}
+        sittingOut={sittingOutNow} sitOutNote="from the next hand"
+        onLeave={() => { setMenuOpen(false); leave(); }} onSitOut={sitOut} onSwitch={tbl?.code ? undefined : switchTable}
+      />
       <Sheet open={rules} onClose={() => setRules(false)} title="Teen Patti rules">
         <div className="text-sm text-[var(--ink-soft)] space-y-3">
           <div>

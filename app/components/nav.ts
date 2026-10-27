@@ -14,7 +14,7 @@ export type Route =
   | { name: "blackjack" }
   | { name: "plinko" }
   | { name: "stockmarket" }
-  | { name: "cardtable"; game: GameId; table: string; buyIn: number }
+  | { name: "cardtable"; game: GameId; table: string; buyIn: number; avoid?: string /* Switch table: not this one */ }
   | { name: "rummy"; table: string; buyIn: number; mode: RummyMode; deals?: number; cards?: 13 | 21; avoid?: string } // buyIn = point value (points) or entry fee; avoid = a table just left
   | { name: "board"; game: GameId; table: string; buyIn: number; players?: 2 | 4 } // Ludo: 2 or 4 players
   | { name: "wallet" }

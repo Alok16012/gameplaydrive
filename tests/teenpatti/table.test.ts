@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Ctx, Rng, Rules } from "../../app/lib/teenpatti/engine.ts";
 import { checkInvariants } from "../../app/lib/teenpatti/engine.ts";
-import { AWAY_MS, NEXT_HAND_MS, advanceTable, command, fillBots, sitDown, standUp, touch, waitingForPlayers, type TableState } from "../../app/lib/teenpatti/table.ts";
+import { AWAY_MS, NEXT_HAND_MS, advanceTable, command, fillBots, setSittingOut, sitDown, standUp, touch, waitingForPlayers, type TableState } from "../../app/lib/teenpatti/table.ts";
 import { viewFor } from "../../app/lib/teenpatti/view.ts";
 
 function seeded(seed = 1): Rng {
@@ -223,4 +223,21 @@ test("bots come and go: a bot past its 2-5 minute stay leaves between hands, at 
   // Within a minute of sitting down nobody leaves.
   const adv2 = advanceTable(adv.table, { now: later + 30_000, balances: { a: 10_000_000 }, rng });
   assert.ok(adv2.table.seats.filter((s) => s.bot).every((s) => after.includes(s.playerId)) || adv2.table.hand === adv.table.hand);
+});
+
+test("sitting out keeps the seat but is not dealt in; coming back deals you in again", () => {
+  const rng = seeded(5);
+  let t = sitDown(sitDown(fresh("SITOUT"), human("a"), 0).table, human("b"), 0).table;
+  t = setSittingOut(t, "a", true);
+  const bal = { a: 500, b: 500, c: 500 };
+  let adv = advanceTable(t, { now: 1000, balances: bal, rng });
+  assert.equal(adv.table.hand, null, "only one player is in: no hand");
+  assert.equal(waitingForPlayers(adv.table, bal, 1000), true);
+  assert.ok(adv.table.seats.some((s) => s.playerId === "a" && s.sittingOut), "a keeps the seat");
+  t = sitDown(adv.table, human("c"), 1000).table;
+  adv = advanceTable(t, { now: adv.table.nextHandAt!, balances: bal, rng });
+  assert.deepEqual(Object.keys(adv.table.hand!.players).sort(), ["b", "c"]);
+  assert.ok(adv.ledger.every((e) => e.playerId !== "a"), "a pays no boot");
+  const back = setSittingOut(adv.table, "a", false);
+  assert.equal(back.seats.find((s) => s.playerId === "a")!.sittingOut, undefined);
 });

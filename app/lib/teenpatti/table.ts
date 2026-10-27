@@ -127,6 +127,8 @@ export interface TableSeat {
    *  stacks) lack it and are replaced at their table's next hand. */
   stack?: 1;
   lastSeen: number;
+  /** Humans only: sitting out — keeps the seat but is not dealt in until they come back. */
+  sittingOut?: boolean;
 }
 
 export interface TableState {
@@ -176,6 +178,11 @@ export function sitDown(t: TableState, p: { playerId: string; name: string; emoj
 
 export function standUp(t: TableState, playerId: string): TableState {
   return { ...t, seats: t.seats.filter((s) => s.playerId !== playerId) };
+}
+
+/** Sit out from the next hand on (the current one plays on), or come back in. */
+export function setSittingOut(t: TableState, playerId: string, on: boolean): TableState {
+  return { ...t, seats: t.seats.map((s) => (s.playerId === playerId && !s.bot ? { ...s, sittingOut: on || undefined } : s)) };
 }
 
 export function touch(t: TableState, playerId: string, now: number): TableState {
@@ -326,7 +333,8 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   const bots = rotateBots(settleBotStacks(t, ctx.rng), ctx.now);
   t = { ...t, seats: [...t.seats.filter((s) => !s.bot && ctx.now - s.lastSeen < AWAY_MS), ...bots].sort((a, b) => a.seat - b.seat) };
   t = fillBots(t, ctx.rng, ctx.now);
-  const seats: Seat[] = t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
+  // Players sitting out keep their seats but are not dealt in.
+  const seats: Seat[] = t.seats.filter((s) => s.bot || !s.sittingOut).map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
   const handNo = t.handNo + 1;
   const deck = buildEngagingTeenPattiDeck(seats, t.dealerSeat, t.boot, ctx.balances, botBalances, ctx.outcomeModes, ctx.rng);
@@ -355,6 +363,6 @@ export function command(t: TableState, cmd: Command, ctx: Ctx): Advance & { ok: 
 
 /** Can fewer than two seated players pay the boot right now? (The screen says "waiting" instead of counting down.) */
 export function waitingForPlayers(t: TableState, balances: Record<string, number>, now: number) {
-  const can = t.seats.filter((s) => (s.bot ? (s.bal ?? 0) >= t.boot : (balances[s.playerId] ?? 0) >= t.boot && now - s.lastSeen < AWAY_MS));
+  const can = t.seats.filter((s) => (s.bot ? (s.bal ?? 0) >= t.boot : !s.sittingOut && (balances[s.playerId] ?? 0) >= t.boot && now - s.lastSeen < AWAY_MS));
   return can.length < 2;
 }

@@ -6,7 +6,7 @@
 import { insertRow, rpc, selectAll, selectOne } from "./supabaseAdmin";
 import { TableError, rng, type Timing } from "./teenpatti";
 import type { Command, Ctx, HandState, Rules } from "../poker/engine";
-import { advanceTable, command, fillBots, seatOf, sitDown, standUp, touch, waitingForPlayers, type TableLedgerEntry, type TableSeat, type TableState } from "../poker/table";
+import { advanceTable, command, fillBots, seatOf, setSittingOut, sitDown, standUp, touch, waitingForPlayers, type TableLedgerEntry, type TableSeat, type TableState } from "../poker/table";
 import { viewFor, type HandView } from "../poker/view";
 
 export { TableError };
@@ -189,14 +189,25 @@ export async function leave(id: string, playerId: string, allowed?: Promise<unkn
   }, [playerId], allowed);
 }
 
+/** Sit out from the next hand (the current one plays on) or come back in; returns your view of the table. */
+export async function sitOut(id: string, playerId: string, on: boolean, allowed?: Promise<unknown>) {
+  await withTable(id, (t) => {
+    if (!seatOf(t, playerId)) throw new TableError("You are not at this table");
+    return { table: setSittingOut(t, playerId, on), ledger: [], result: null };
+  }, [playerId], allowed);
+  return poll(id, playerId);
+}
+
 export interface PokerTableResponse {
   table: {
     id: string; code: string | null; boot: number; handNo: number; nextHandAt: number | null; waiting: boolean; serverNow: number;
     rules: Rules;
-    seats: { seat: number; playerId: string; name: string; emoji: string; bot: boolean; bal: number | null; away: boolean }[];
+    seats: { seat: number; playerId: string; name: string; emoji: string; bot: boolean; bal: number | null; away: boolean; sittingOut?: boolean }[];
   };
   view: HandView | null;
   balance: number;
+  /** The viewer's player id (they may be seated but not in the hand, e.g. sitting out). */
+  you: string;
 }
 
 function respond(t: TableState, viewerId: string, balances: Record<string, number>, now: number): PokerTableResponse {
@@ -207,18 +218,20 @@ function respond(t: TableState, viewerId: string, balances: Record<string, numbe
   return {
     table: {
       id: t.id, code: t.code, boot: t.boot, handNo: t.handNo, nextHandAt: t.nextHandAt, waiting: waitingForPlayers(t, balances, now), serverNow: now, rules: t.rules,
-      seats: t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, emoji: s.emoji, bot: s.bot, bal: s.bot ? botBal(s) : null, away: !s.bot && now - s.lastSeen > 20000 })),
+      seats: t.seats.map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, emoji: s.emoji, bot: s.bot, bal: s.bot ? botBal(s) : null, away: !s.bot && now - s.lastSeen > 20000, ...(s.sittingOut ? { sittingOut: true } : {}) })),
     },
     view: t.hand ? viewFor(t.hand, viewerId, balance) : null,
     balance,
+    you: viewerId,
   };
 }
 
 /** Public tables with room, best first (most humans), for one boot. */
-export async function findPublic(boot: number) {
+export async function findPublic(boot: number, avoid?: string) {
   const rows = await selectAll<Row>("pk_tables", `select=*&boot=eq.${boot}&code=is.null&order=updated_at.desc&limit=50`);
   const now = Date.now();
-  const open = rows.map(fromRow).filter((t) => t.seats.filter((s) => !s.bot).length < 6);
+  // Switch table passes the table being left, so the player lands somewhere else.
+  const open = rows.map(fromRow).filter((t) => t.id !== avoid && t.seats.filter((s) => !s.bot).length < 6);
   open.sort((a, b) => b.seats.filter((s) => !s.bot && now - s.lastSeen < 60000).length - a.seats.filter((s) => !s.bot && now - s.lastSeen < 60000).length);
   return open[0] ?? null;
 }

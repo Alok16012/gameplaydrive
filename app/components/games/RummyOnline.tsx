@@ -11,6 +11,7 @@ import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, HomeButton, Money, PlayingCard, Sheet } from "../ui";
 import { BotTag, DealerChip, ResultSheet, TimerAvatar, dealerSeat } from "./bots";
 import { LandscapeStage } from "./LandscapeStage";
+import { TableMenu } from "./TableMenu";
 import type { Nav, RummyMode } from "../nav";
 
 // 13 and 21 Card Rummy on the game server (migrations 003 and 011). The server deals from two (21 cards: three)
@@ -23,6 +24,7 @@ export const MODE_LABEL: Record<RummyMode, string> = { points: "Points Rummy", p
 interface Seat {
   uid?: string; name: string; emoji: string; bot: boolean; bal: number; in_match?: boolean; playing?: boolean; dropped?: boolean; middle?: boolean;
   wrong?: boolean; out?: boolean; score?: number; action?: string | null; left?: boolean; picked?: number | null; turns?: number;
+  sitout?: boolean; // sitting out: keeps the seat, not dealt in (107)
 }
 interface Row { seat: number; name: string; bot: boolean; uid?: string; pts: number | null; score: number; note: string; out: boolean; coins: number | null; hand: RCard[][] | null }
 interface Result { winner: number; winner_name: string; rows: Row[]; match_over: boolean; champion: number | null; champion_name: string | null; prize: number; deal_no: number; wild: Card; rake: number }
@@ -355,6 +357,19 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
     take(data as View);
   };
 
+  // Table menu (Exit / Leave table): leave, sit out / I'm back, switch table, leaderboard.
+  const [tableMenu, setTableMenu] = useState(false);
+  const sitOut = async (on: boolean) => {
+    if (!tableId.current || busy) return;
+    setBusy(true);
+    const { data, error } = await supabase().rpc("rm_sit_out", { p_table: tableId.current, p_on: on });
+    setBusy(false);
+    if (error) return showToast(errText(error));
+    take(data as View);
+    setTableMenu(false);
+    showToast(on ? "You're sitting out — you won't be dealt in until you're back" : "Welcome back — you're in from the next deal");
+  };
+
   // A private table's format comes from the table itself.
   const mode = v?.mode ?? askedMode;
   const stake = v?.stake ?? askedStake;
@@ -537,7 +552,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 {v?.log && <button onClick={() => { setMenu(false); setMoves(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Table moves &amp; discards</button>}
                 <button onClick={() => { setMenu(false); setScores(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Scoreboard</button>
                 {lastRes && <button onClick={() => { setMenu(false); setLastOpen(true); }} className="w-full text-left px-4 py-2.5 hover:bg-white/5">Last deal — all hands</button>}
-                <button onClick={() => { setMenu(false); leave(); }} className="w-full text-left px-4 py-2.5 text-rose-300 hover:bg-white/5">Leave table</button>
+                <button onClick={() => { setMenu(false); setTableMenu(true); }} className="w-full text-left px-4 py-2.5 text-rose-300 hover:bg-white/5">Leave table</button>
               </div>
             )}
           </div>
@@ -771,7 +786,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
           </div>
         )}
         {/* Bottom-right: exit the table (asks first) */}
-        <button onClick={() => setExitAsk(true)} aria-label="Exit the table" className={`absolute z-20 bottom-2 right-[2%] rounded-full border-2 border-rose-300/80 py-1.5 font-bold flex items-center gap-1.5 bg-black/40 text-rose-200 shadow-md active:scale-95 transition-all ${tight ? "px-2.5 text-[13px]" : "px-3 sm:px-3.5 text-[14px] sm:text-[15px]"}`}>
+        <button onClick={() => setTableMenu(true)} aria-label="Exit the table" className={`absolute z-20 bottom-2 right-[2%] rounded-full border-2 border-rose-300/80 py-1.5 font-bold flex items-center gap-1.5 bg-black/40 text-rose-200 shadow-md active:scale-95 transition-all ${tight ? "px-2.5 text-[13px]" : "px-3 sm:px-3.5 text-[14px] sm:text-[15px]"}`}>
           <LogOut size={16} />{!tight && " Exit"}
         </button>
         {!inDeal && v && mode !== "points" && (
@@ -880,6 +895,17 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
         </div>
       </Sheet>
 
+      {mySeat?.sitout && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-50 flex items-center gap-2 rounded-full bg-black/80 border border-amber-300/40 pl-4 pr-1.5 py-1.5 shadow-xl">
+          <span className="text-[12px] text-amber-200">You&apos;re sitting out</span>
+          <button onClick={() => sitOut(false)} disabled={busy} className="btn-green rounded-full px-3 py-1 text-[12px] font-semibold">I&apos;m back</button>
+        </div>
+      )}
+      <TableMenu
+        open={tableMenu} onClose={() => setTableMenu(false)} game="Rummy" busy={busy || moving}
+        sittingOut={!!mySeat?.sitout} sitOutNote={mode === "points" ? "from the next deal" : "from the next game"}
+        onLeave={() => { setTableMenu(false); setExitAsk(true); }} onSitOut={sitOut} onSwitch={v?.code ? undefined : () => { setTableMenu(false); joinAnother(); }}
+      />
       <Sheet open={exitAsk} onClose={() => setExitAsk(false)} title="Exit table?">
         <div className="text-sm text-[var(--ink-soft)]">
           {inDeal && mySeat?.playing && !mySeat.dropped

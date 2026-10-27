@@ -154,9 +154,9 @@ function Shell() {
     case "stockmarket": screen = <StockMarket nav={nav} />; break;
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"
-      ? <TeenPattiAuto key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
+      ? <TeenPattiAuto key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} avoid={route.avoid} />
       : route.game === "poker"
-      ? <PokerOnline key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} />
+      ? <PokerOnline key={route.table + route.buyIn} nav={nav} buyIn={route.buyIn} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} avoid={route.avoid} />
       : <CardTable nav={nav} gameId={route.game} table={route.table} buyIn={route.buyIn} />; break;
     case "rummy": screen = <RummyOnline key={route.table + route.mode + route.buyIn + (route.cards ?? 13)} nav={nav} mode={route.mode} stake={route.buyIn} deals={route.deals ?? 2} cards={route.cards ?? 13} code={route.table.startsWith("P-") ? route.table.slice(2) : undefined} avoid={route.avoid} />; break;
     case "board": screen = route.game === "ludo" && route.table.startsWith("P-")
@@ -199,6 +199,6 @@ export default function GameHubApp() {
 
 /** Teen Patti on the realtime game server when it's up; otherwise the Supabase engine, so the game never stops. */
 // Classic Teen Patti: dealt and settled by our own server (app/lib/teenpatti, /api/teenpatti).
-function TeenPattiAuto(props: { nav: Nav; buyIn: number; code?: string }) {
+function TeenPattiAuto(props: { nav: Nav; buyIn: number; code?: string; avoid?: string }) {
   return <TeenPattiClassic {...props} />;
 }
