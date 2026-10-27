@@ -29,12 +29,13 @@ import { Aviator } from "./games/Aviator";
 import { Roulette } from "./games/Roulette";
 import { Blackjack } from "./games/Blackjack";
 import { Plinko } from "./games/Plinko";
+import { JiliGame } from "./games/JiliGame";
 import { StockMarket } from "./games/StockMarket";
 import { Cricket } from "./games/Cricket";
 import { ForceChangePasswordModal } from "./ChangePasswordModal";
 
 // Screens that show a Home icon next to Back: every game and game lobby.
-const GAME_ROUTES = new Set<Route["name"]>(["lobby", "casino", "cricket", "aviator", "roulette", "blackjack", "plinko", "stockmarket", "cardtable", "rummy", "board"]);
+const GAME_ROUTES = new Set<Route["name"]>(["lobby", "casino", "cricket", "aviator", "roulette", "blackjack", "plinko", "stockmarket", "cardtable", "rummy", "board", "jili"]);
 
 const TAB_OF: Partial<Record<Route["name"], Tab>> = { home: "home", games: "games", wallet: "wallet", more: "more" };
 
@@ -152,6 +153,7 @@ function Shell() {
     case "roulette": screen = <Roulette nav={nav} />; break;
     case "blackjack": screen = <Blackjack nav={nav} />; break;
     case "plinko": screen = <Plinko nav={nav} />; break;
+    case "jili": screen = <JiliGame key={route.game} nav={nav} game={route.game} />; break;
     case "stockmarket": screen = <StockMarket nav={nav} />; break;
     case "casino": screen = route.game === "lucky-7" ? <LuckySeven nav={nav} /> : <Casino key={route.game} nav={nav} gameId={route.game} />; break;
     case "cardtable": screen = route.game === "teen-patti"
