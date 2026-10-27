@@ -14,11 +14,15 @@ import {
   CheckCircle2,
   Save,
   KeyRound,
+  ListOrdered,
+  Trash2,
 } from "lucide-react";
 import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
-import { apiFetch, authToken, supabase } from "../lib/supabase";
+import { apiFetch, authToken, errText, supabase } from "../lib/supabase";
 import type { SportBetRow } from "../lib/cricketApi";
 import { ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
+import { groupRounds, type Round } from "../lib/history";
+import { toTxn, type LedgerRow } from "../lib/store";
 
 export interface UserExchangeMeta {
   partnershipName?: string;
@@ -87,6 +91,7 @@ export function UserDetailsModal({
   const [stats, setStats] = useState<AccountStats | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [showSportsExposure, setShowSportsExposure] = useState(false);
+  const [showBets, setShowBets] = useState(false);
   const [showResetPw, setShowResetPw] = useState(false);
 
   // Saved partnership details plus live ledger figures.
@@ -543,6 +548,17 @@ export function UserDetailsModal({
                 Password
               </button>
 
+              {isPlayer && (
+                <button
+                  type="button"
+                  onClick={() => setShowBets(true)}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/20 flex items-center gap-1.5 transition"
+                >
+                  <ListOrdered size={13} />
+                  Bets
+                </button>
+              )}
+
               {onOpenOutcome && me.role === "superadmin" && (
                 <button
                   type="button"
@@ -565,6 +581,10 @@ export function UserDetailsModal({
           </div>
         </div>
       </div>
+
+      {showBets && (
+        <BetHistoryModal target={target} canDelete={me.role === "superadmin"} onClose={() => setShowBets(false)} onChanged={onReload} />
+      )}
 
       {showSportsExposure && (
         <LiveSportsExposureModal target={target} onClose={() => setShowSportsExposure(false)} />
@@ -636,6 +656,91 @@ function LiveSportsExposureModal({ target, onClose }: { target: Account; onClose
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A player's bets, one row per round as in their own Game History; the Super Admin can delete one (admin_delete_bet,
+ *  migration 110): it disappears everywhere and its coins are reversed — the stake back, any winnings taken back. */
+function BetHistoryModal({ target, canDelete, onClose, onChanged }: { target: Account; canDelete: boolean; onClose: () => void; onChanged?: () => void }) {
+  const [rows, setRows] = useState<Round[] | null>(null);
+  const [ask, setAsk] = useState<Round | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const load = async () => {
+    const { data } = await supabase().from("ledger").select("id, amount, kind, note, created_at").eq("user_id", target.id).in("kind", ["bet", "win", "refund"]).order("id", { ascending: false }).limit(400);
+    setRows(groupRounds(((data ?? []) as LedgerRow[]).map(toTxn)));
+  };
+  useEffect(() => { load(); }, [target.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const del = async (r: Round) => {
+    setBusy(true);
+    setMsg("");
+    const { data, error } = await supabase().rpc("admin_delete_bet", { p_user: target.id, p_ledger_ids: r.ids.map(Number) });
+    setBusy(false);
+    setAsk(null);
+    if (error) return setMsg(errText(error));
+    const ch = Number((data as { coins_change: number }).coins_change);
+    setMsg(`Bet deleted • ${ch >= 0 ? "+" : "−"}${Math.abs(ch).toLocaleString("en-IN")} coins to ${target.name}`);
+    load();
+    onChanged?.();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-[520px] bg-[#1e2430] text-slate-200 rounded-2xl overflow-hidden shadow-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900">
+          <h3 className="font-bold tracking-wider text-sm text-white">BETS • {target.name} ({target.code})</h3>
+          <button onClick={onClose} className="text-white/60 hover:text-white p-1 rounded-lg bg-white/5"><X size={16} /></button>
+        </div>
+        <div className="px-4 py-2.5 bg-slate-800/50 text-xs text-white/50 border-b border-white/5">
+          {canDelete ? "Deleting a bet removes it everywhere and reverses its coins (stake back, winnings taken back)." : "Latest bets, one row per round."}
+          {msg && <div className="mt-1 text-amber-300">{msg}</div>}
+        </div>
+        <div className="p-3 max-h-[65vh] overflow-y-auto">
+          {rows === null ? (
+            <div className="py-8 text-center text-white/40 text-sm">Loading…</div>
+          ) : rows.length === 0 ? (
+            <div className="py-8 text-center text-white/40 text-sm">No bets yet.</div>
+          ) : rows.map((r) => {
+            const net = r.paid - r.staked;
+            return (
+              <div key={r.id} className="flex items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-white truncate">{r.game}</div>
+                  <div className="text-[11px] text-white/50 truncate">{[r.hand ?? r.desc, r.when].filter(Boolean).join(" • ")}</div>
+                  <div className="text-[11px] text-white/40">Bet {r.staked.toLocaleString("en-IN")}{r.paidOut ? ` • Got ${r.paid.toLocaleString("en-IN")}` : ""}</div>
+                </div>
+                <div className={`text-sm font-bold font-mono shrink-0 ${net > 0 ? "text-emerald-400" : net < 0 ? "text-rose-400" : "text-white/60"}`}>{net > 0 ? "+" : net < 0 ? "−" : ""}{Math.abs(net).toLocaleString("en-IN")}</div>
+                {canDelete && (
+                  <button onClick={() => setAsk(r)} disabled={busy} className="shrink-0 p-2 rounded-lg text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20" title="Delete this bet"><Trash2 size={14} /></button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {ask && (
+        <div className="fixed inset-0 z-[70] grid place-items-center bg-black/60 px-6" onClick={(e) => { e.stopPropagation(); setAsk(null); }}>
+          <div className="w-full max-w-[360px] rounded-2xl bg-[#0d1230] border border-white/10 p-5 text-center text-white" onClick={(e) => e.stopPropagation()}>
+            <div className="text-lg font-semibold">Delete this bet?</div>
+            <div className="text-sm text-white/65 mt-1.5">{ask.game} • {ask.hand ?? ask.desc} • {ask.when}</div>
+            <div className="text-sm mt-2">
+              {ask.paid - ask.staked < 0
+                ? <>Its stake <b>{(ask.staked - ask.paid).toLocaleString("en-IN")}</b> goes back to {target.name}.</>
+                : ask.paid - ask.staked > 0
+                ? <>Its winnings <b>{(ask.paid - ask.staked).toLocaleString("en-IN")}</b> are taken back from {target.name}.</>
+                : <>No coins change.</>}
+            </div>
+            <div className="text-[11px] text-white/45 mt-1">It disappears from their Game History and every report. This can&apos;t be undone.</div>
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button onClick={() => setAsk(null)} className="rounded-xl py-2.5 text-sm bg-white/10">Keep</button>
+              <button onClick={() => del(ask)} disabled={busy} className="rounded-xl py-2.5 text-sm font-semibold bg-rose-500">{busy ? "Deleting…" : "Delete"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

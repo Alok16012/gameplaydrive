@@ -2,7 +2,7 @@
 
 import type { Txn } from "./data";
 
-export type Round = { id: string; game: string; desc: string; when: string; hand?: string; staked: number; paid: number; paidOut: boolean; lastAt: number; settled: boolean };
+export type Round = { id: string; game: string; desc: string; when: string; hand?: string; staked: number; paid: number; paidOut: boolean; lastAt: number; settled: boolean; ids: string[] /* its ledger lines */ };
 
 /**
  * Rounds from the coin ledger (newest first in, newest first out). Each bet and payout joins its round:
@@ -29,13 +29,14 @@ export function groupRounds(txns: Txn[]): Round[] {
       if (!r || (t.amount < 0 && (start || r.paidOut)) || (hand && r.hand && hand !== r.hand)) {
         // A new round of the same game means the previous one is over, paid or not.
         if (r) r.settled = true;
-        r = { id: t.id, game, desc: desc.replace(/(^| • )(Buy-in \(max loss\)|Entry|Buy-in returned|Boot|Bet|Win|Won)$/i, ""), when, hand, staked: 0, paid: 0, paidOut: false, lastAt: 0, settled: false };
+        r = { id: t.id, game, desc: desc.replace(/(^| • )(Buy-in \(max loss\)|Entry|Buy-in returned|Boot|Bet|Win|Won)$/i, ""), when, hand, staked: 0, paid: 0, paidOut: false, lastAt: 0, settled: false, ids: [] };
         open[game] = r;
         rounds.push(r);
       }
       if (!r.hand && hand) r.hand = hand;
       if (handKey) byHand[handKey] = r;
     }
+    r.ids.push(t.id);
     if (t.amount < 0) r.staked -= t.amount;
     else { r.paid += t.amount; r.paidOut = true; }
     r.when = when;

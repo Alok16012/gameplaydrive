@@ -39,7 +39,7 @@ interface Store {
 
 const Ctx = createContext<Store | null>(null);
 
-interface LedgerRow { id: number; amount: number; kind: string; note: string | null; created_at: string }
+export interface LedgerRow { id: number; amount: number; kind: string; note: string | null; created_at: string }
 
 const KIND: Record<string, { type: TxnType; title: string }> = {
   mint: { type: "deposit", title: "Coins received" },
@@ -51,7 +51,7 @@ const KIND: Record<string, { type: TxnType; title: string }> = {
   refund: { type: "bonus", title: "Refund" },
 };
 
-const toTxn = (r: LedgerRow): Txn => ({
+export const toTxn = (r: LedgerRow): Txn => ({
   id: String(r.id),
   type: KIND[r.kind]?.type ?? "bet",
   title: KIND[r.kind]?.title ?? r.kind,

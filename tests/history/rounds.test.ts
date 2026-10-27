@@ -50,3 +50,16 @@ test("rummy points: buy-in and its return make one row; the next buy-in starts a
   assert.deepEqual([r[1].staked, r[1].paid], [160, 80]);
   assert.deepEqual([r[0].staked, r[0].paid], [160, 0]);
 });
+
+test("each round keeps the ids of its ledger lines (the Super Admin deletes a bet by them)", () => {
+  const txns = [
+    row(800, "Dragon Tiger • Round #88257 • Win", "11:12"),
+    row(-400, "Dragon Tiger • Round #88257 • Bet", "11:12"),
+    row(-200, "Dragon Tiger • Round #88256 • Bet", "11:11"),
+  ];
+  const [a, b] = [txns[0].id, txns[1].id];
+  const r = groupRounds(txns);
+  const won = r.find((x) => x.hand === "Round #88257")!;
+  assert.deepEqual([...won.ids].sort(), [a, b].sort());
+  assert.equal(r.find((x) => x.hand === "Round #88256")!.ids.length, 1);
+});
