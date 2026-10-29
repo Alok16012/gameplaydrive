@@ -1599,20 +1599,26 @@ function BotsView() {
 }
 
 /** One game's admin settings (app_settings.games[id]). The same values apply to every player. */
-type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast"; outcome_mode?: "fair" | "force_win" | "force_loss" };
-type Field = "bets" | "rake" | "turn" | "blind_limit" | "bot_speed";
+type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; rtp?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast"; outcome_mode?: "fair" | "force_win" | "force_loss" };
+type Field = "bets" | "rake" | "rtp" | "turn" | "blind_limit" | "bot_speed";
+/** RTP on "Fair" for the house games (migration 114): the default, and the most the game can return — its natural
+ *  return with every round dealt as it comes. Stock Market's RTP is 100 − its platform fee. */
+const RTP: Partial<Record<GameId, { def: number; max: number }>> = {
+  "dragon-tiger": { def: 91, max: 97 }, "andar-bahar": { def: 91, max: 99 }, "lucky-7": { def: 91, max: 92 }, aviator: { def: 93, max: 99 },
+  roulette: { def: 91, max: 97 }, plinko: { def: 91, max: 99 }, blackjack: { def: 91, max: 99 }, "stock-market": { def: 91, max: 100 },
+};
 const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "cricket", fields: [], note: "Locking stops new bets. Bets already placed still settle" },
   { id: "teen-patti", fields: ["rake", "turn", "blind_limit"], note: "Fee is taken from each pot. Boots follow the table list" },
   { id: "rummy", fields: ["rake", "turn"], note: "13 and 21 Card. Fee on Points winnings and Pool/Deals prize pools" },
-  { id: "dragon-tiger", fields: ["bets"], note: "Limits apply to the total staked per round" },
-  { id: "andar-bahar", fields: ["bets"], note: "Limits apply to the total staked per round" },
-  { id: "lucky-7", fields: ["bets"], note: "Limits apply to the total staked per round" },
-  { id: "aviator", fields: ["bets"], note: "Limits apply to each bet slot" },
-  { id: "stock-market", fields: ["bets", "rake"], note: "Limits apply to each chip placed on Up / Down. Fee is taken from every payout (default 1%)" },
-  { id: "roulette", fields: ["bets"], note: "Limits apply to the total staked per spin" },
-  { id: "plinko", fields: ["bets"], note: "Limits apply to each ball" },
-  { id: "blackjack", fields: ["bets"], note: "Limits apply to each hand (double / split too)" },
+  { id: "dragon-tiger", fields: ["bets", "rtp"], note: "Limits apply to the total staked per round" },
+  { id: "andar-bahar", fields: ["bets", "rtp"], note: "Limits apply to the total staked per round" },
+  { id: "lucky-7", fields: ["bets", "rtp"], note: "Limits apply to the total staked per round" },
+  { id: "aviator", fields: ["bets", "rtp"], note: "Limits apply to each bet slot" },
+  { id: "stock-market", fields: ["bets", "rtp"], note: "Limits apply to each chip placed on Up / Down. RTP comes from the fee on every payout: RTP 91% = 9% fee" },
+  { id: "roulette", fields: ["bets", "rtp"], note: "Limits apply to the total staked per spin" },
+  { id: "plinko", fields: ["bets", "rtp"], note: "Limits apply to each ball" },
+  { id: "blackjack", fields: ["bets", "rtp"], note: "Limits apply to each hand (double / split too)" },
   { id: "ludo", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "chess", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "poker", fields: ["bets", "rake", "turn"], note: "Limits apply to the table boot. Fee comes off every pot; turn time applies to every table" },
@@ -1634,9 +1640,10 @@ export function ConfigView() {
   const save = async (id: string) => {
     const d = get(id), old = cfg?.[id] ?? {};
     const changed: Record<string, unknown> = {};
-    for (const k of ["enabled", "min_bet", "max_bet", "rake", "turn", "blind_limit", "bot_speed", "outcome_mode"] as (keyof GameCfg)[]) {
+    for (const k of ["enabled", "min_bet", "max_bet", "rake", "rtp", "turn", "blind_limit", "bot_speed", "outcome_mode"] as (keyof GameCfg)[]) {
       if (d[k] !== old[k]) changed[k] = d[k] === undefined || (d[k] as unknown) === "" ? null : d[k];
     }
+    if (id === "stock-market" && changed.rake === null) changed.rake = 100 - RTP["stock-market"]!.def; // a blank RTP is the default, not "no fee"
     const { error } = await supabase().rpc("set_game_settings", { p_game: id, p_cfg: changed });
     setMsg((m) => ({ ...m, [id]: error ? (/set_game_settings/.test(errText(error)) ? "Run migration 018/020 first" : errText(error)) : "Saved — applies to new bets and tables" }));
     if (!error) load();
@@ -1684,6 +1691,17 @@ export function ConfigView() {
                       <label className="text-xs text-white/60">Max bet (coins)<input type="number" min={1} placeholder="No limit" value={d.max_bet ?? ""} onChange={(e) => set(id, { max_bet: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>
                     </>}
                     {fields.includes("rake") && <label className="text-xs text-white/60">Platform fee %<input type="number" min={0} max={25} step={0.5} placeholder={id === "teen-patti" || id === "poker" ? "5" : id === "stock-market" ? "1" : "10"} value={d.rake ?? ""} onChange={(e) => set(id, { rake: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
+                    {fields.includes("rtp") && (() => {
+                      const r = RTP[id]!;
+                      // Stock Market keeps its RTP as the platform fee (100 − RTP).
+                      const val = id === "stock-market" ? (d.rake == null ? "" : String(100 - d.rake)) : d.rtp ?? "";
+                      const put = (v: string) => (id === "stock-market" ? set(id, { rake: v === "" ? undefined : 100 - Number(v) }) : set(id, { rtp: num(v) }));
+                      return (
+                        <label className="text-xs text-white/60">RTP % <span className="text-white/35">({id === "stock-market" ? 75 : 70}–{r.max})</span>
+                          <input type="number" min={id === "stock-market" ? 75 : 70} max={r.max} step={0.5} placeholder={String(r.def)} value={val} onChange={(e) => put(e.target.value)} className={`${inputCls} mt-1`} />
+                        </label>
+                      );
+                    })()}
                     {fields.includes("turn") && <label className="text-xs text-white/60">Turn time (seconds)<input type="number" min={10} max={90} placeholder={id === "rummy" ? "30" : "15"} value={d.turn ?? ""} onChange={(e) => set(id, { turn: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("blind_limit") && <label className="text-xs text-white/60">Blind chaals per player<input type="number" min={1} max={10} placeholder="3" value={d.blind_limit ?? ""} onChange={(e) => set(id, { blind_limit: num(e.target.value) })} className={`${inputCls} mt-1`} /></label>}
                     {fields.includes("bot_speed") && (
@@ -1702,6 +1720,11 @@ export function ConfigView() {
                     </label>
                   </div>
                   <div className="text-[11px] text-white/40 mt-2">{note}.</div>
+                  {RTP[id] && (
+                    <div className="text-[11px] text-amber-200/70 mt-1">
+                      RTP {id === "stock-market" ? (d.rake == null ? RTP[id]!.def : 100 - d.rake) : d.rtp ?? RTP[id]!.def}% on Fair — of every ₹100 bet, about that much comes back to players over many rounds; the house keeps the rest. Force Win / Force Loss (here or in Win / Loss) override it.
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mt-3">
                     <span className={`text-xs ${msg[id]?.startsWith("Saved") ? "text-neon-400" : "text-rose-300"}`}>{msg[id]}</span>
                     <button disabled={!dirty} onClick={() => save(id)} className="btn-green rounded-xl px-4 py-2 text-sm">Save</button>
