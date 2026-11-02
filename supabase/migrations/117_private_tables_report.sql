@@ -19,10 +19,10 @@ alter table public.rm_tables add column if not exists created_at timestamptz not
 update public.rm_tables set created_at = updated_at where created_at > updated_at;
 alter table public.tp2_tables add column if not exists host uuid references public.profiles (id) on delete set null;
 alter table public.pk_tables add column if not exists host uuid references public.profiles (id) on delete set null;
--- Existing private tables: the first human in the seats is as close as it gets.
-update public.tp2_tables t set host = (select (s ->> 'playerId')::uuid from jsonb_array_elements(t.seats) s where not coalesce((s ->> 'bot')::boolean, false) order by (s ->> 'seat')::int limit 1)
+-- Existing private tables: the first human in the seats (still an account) is as close as it gets.
+update public.tp2_tables t set host = (select (s ->> 'playerId')::uuid from jsonb_array_elements(t.seats) s where not coalesce((s ->> 'bot')::boolean, false) and exists (select 1 from profiles p where p.id = (s ->> 'playerId')::uuid) order by (s ->> 'seat')::int limit 1)
   where code is not null and host is null;
-update public.pk_tables t set host = (select (s ->> 'playerId')::uuid from jsonb_array_elements(t.seats) s where not coalesce((s ->> 'bot')::boolean, false) order by (s ->> 'seat')::int limit 1)
+update public.pk_tables t set host = (select (s ->> 'playerId')::uuid from jsonb_array_elements(t.seats) s where not coalesce((s ->> 'bot')::boolean, false) and exists (select 1 from profiles p where p.id = (s ->> 'playerId')::uuid) order by (s ->> 'seat')::int limit 1)
   where code is not null and host is null;
 
 create or replace function public.rm_tables_host()
@@ -174,6 +174,8 @@ insert into table_fees (game, table_id, code, host, round, stake_in, paid_out, f
   from tp2_ledger l join tp2_tables t on t.id = l.table_id
   where t.code is not null and not (l.hand_id = t.id || ':' || t.hand_no and coalesce(t.hand ->> 'phase', '') <> 'COMPLETED')
   group by l.table_id, t.code, t.host, l.hand_id
+  -- only hands that were paid out and whose lines still add up (a deleted bet leaves a hand that can't be read)
+  having bool_or(l.amount > 0) and -sum(l.amount) between 0 and floor(-sum(l.amount) filter (where l.amount < 0) * 0.25)
   on conflict do nothing;
 insert into table_fees (game, table_id, code, host, round, stake_in, paid_out, fee, created_at)
   select 'poker', l.table_id, t.code, t.host, 'Hand ' || split_part(l.hand_id, ':', 2),
@@ -181,6 +183,8 @@ insert into table_fees (game, table_id, code, host, round, stake_in, paid_out, f
   from pk_ledger l join pk_tables t on t.id = l.table_id
   where t.code is not null and not (l.hand_id = t.id || ':' || t.hand_no and coalesce(t.hand ->> 'phase', '') <> 'COMPLETED')
   group by l.table_id, t.code, t.host, l.hand_id
+  -- only hands that were paid out and whose lines still add up (a deleted bet leaves a hand that can't be read)
+  having bool_or(l.amount > 0) and -sum(l.amount) between 0 and floor(-sum(l.amount) filter (where l.amount < 0) * 0.25)
   on conflict do nothing;
 
 -- ---------------------------------------------------------------------------------------------------------------
