@@ -488,6 +488,8 @@ function AccountsView({ role, me, accounts, reload }: Ctx & { role: Role }) {
                     <span className="text-[10px] text-sky-300 bg-sky-500/15 border border-sky-500/25 rounded px-1.5 py-0.5 opacity-60 group-hover:opacity-100 transition">Card</span>
                   </div>
                   <div className="text-[11px] text-white/50">{role === "player" && u.username ? `@${u.username} • ` : ""}{u.code} • {u.created}</div>
+                  {/* On a phone the Coins column is off to the right — show the balance under the name too. */}
+                  <div className="md:hidden text-xs font-semibold tabular-nums text-gold-300 mt-0.5">{coins(u.coins)}</div>
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   {presence.online(u.id)
