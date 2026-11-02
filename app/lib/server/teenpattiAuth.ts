@@ -50,6 +50,7 @@ export async function callerFromRequest(req: Request): Promise<{ playerId: strin
 export async function checkCanPlay(playerId: string, boot: number) {
   try {
     await rpc("game_guard", { g: "teen-patti", amount: boot, check_size: true });
+    await rpc("player_game_guard", { p_uid: playerId, p_game: "teen-patti" }); // locked for this player (115)?
     await rpc("check_bet_room", { p_uid: playerId, amount: boot });
   } catch (e) {
     throw new TableError(e instanceof Error ? e.message.replace(/^.*?: /, "") : "Teen Patti is not available right now", 400);

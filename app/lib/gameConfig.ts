@@ -46,6 +46,27 @@ export const isClosed = (s: All, id: string) => {
   return false;
 };
 export const latestSettings = () => latest;
+
+// Games the Super Admin / agent locked for this player (migration 115). The server refuses them anyway; the app marks
+// the tiles and says why instead of opening the game.
+let myLocks = new Set<string>();
+let locksCache: { at: number; p: Promise<Set<string>> } | null = null;
+/** Lock key for a game id (both Rummy variants are one switch). */
+export const lockKey = (id: string) => (id === "rummy21" ? "rummy" : id);
+export function loadMyLocks(): Promise<Set<string>> {
+  if (locksCache && Date.now() - locksCache.at < 30000) return locksCache.p;
+  const p = Promise.resolve(supabase().rpc("my_locked_games"))
+    .then(({ data, error }) => (error ? myLocks : (myLocks = new Set((data ?? []) as string[]))))
+    .catch(() => myLocks);
+  locksCache = { at: Date.now(), p };
+  return p;
+}
+export const isLockedForMe = (id: string) => myLocks.has(lockKey(id));
+export function useMyLocks(): Set<string> {
+  const [s, setS] = useState<Set<string>>(myLocks);
+  useEffect(() => { loadMyLocks().then(setS); }, []);
+  return s;
+}
 /** Platform fee as a fraction (e.g. 0.1), falling back to the game's default. */
 export const feeOf = (s: All, id: string, defPct: number) => Math.min(25, Math.max(0, s[key(id)]?.rake ?? defPct)) / 100;
 /** Multiplier for bot thinking time: slow 1.6×, normal 1×, fast 0.55×. */

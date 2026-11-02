@@ -8,13 +8,14 @@ import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
-import { isClosed, latestSettings, useGameSettings } from "../../lib/gameConfig";
+import { isClosed, isLockedForMe, latestSettings, lockKey, useGameSettings, useMyLocks } from "../../lib/gameConfig";
 import type { Nav, RummyMode } from "../nav";
 
 const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21", "poker"];
 
 export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   if (isClosed(latestSettings(), game.id)) return toast?.(`${game.name} is closed for maintenance`);
+  if (isLockedForMe(game.id)) return toast?.(`${game.name} is locked for your account — please contact your agent`);
   if (game.kind === "cricket") nav.push({ name: "cricket" });
   else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko" || game.kind === "stockmarket") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
@@ -71,6 +72,7 @@ async function createServerPrivate(game: "teenpatti" | "poker", boot: number): P
 export function Home({ nav }: { nav: Nav }) {
   const { player, showToast } = useStore();
   const gs = useGameSettings();
+  const locks = useMyLocks();
   // Real players seated at Teen Patti / Rummy tables right now. Teen Patti tables live on the game server
   // (Railway); Rummy is still dealt from Supabase until it moves over too.
   const [live, setLive] = useState<Record<string, number>>({});
@@ -123,7 +125,7 @@ export function Home({ nav }: { nav: Nav }) {
 
       <div className="grid grid-cols-3 gap-2.5 mt-4">
         {GAMES.map((g) => (
-          <GameTile key={g.id} game={g} closed={isClosed(gs, g.id)} onClick={() => openGame(nav, g, showToast)} />
+          <GameTile key={g.id} game={g} closed={isClosed(gs, g.id) ? "Closed" : locks.has(lockKey(g.id)) ? "Locked" : false} onClick={() => openGame(nav, g, showToast)} />
         ))}
       </div>
 
@@ -163,6 +165,7 @@ export function Home({ nav }: { nav: Nav }) {
 export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports" | "card" | "casino" | "board" }) {
   const { showToast } = useStore();
   const gs = useGameSettings();
+  const locks = useMyLocks();
   const [cat, setCat] = useState(initial);
   const [q, setQ] = useState<string | null>(null);
   const list = GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
@@ -194,7 +197,7 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
               <div className="flex-1 min-w-0">
                 <div className="font-semibold">{g.name}</div>
                 <div className="text-xs text-[var(--ink-soft)]">{g.meta}</div>
-                {isClosed(gs, g.id) ? <span className="inline-block pill px-4 py-1.5 text-xs mt-2.5 bg-white/10 text-white/60">Closed</span> : <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>}
+                {isClosed(gs, g.id) || locks.has(lockKey(g.id)) ? <span className="inline-block pill px-4 py-1.5 text-xs mt-2.5 bg-white/10 text-white/60">{isClosed(gs, g.id) ? "Closed" : "Locked"}</span> : <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>}
               </div>
               <ChevronRight className="text-white/60 mr-1" />
             </div>

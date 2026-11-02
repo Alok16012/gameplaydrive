@@ -38,6 +38,7 @@ export async function rulesFor(boot: number): Promise<Rules> {
 export async function checkCanPlay(playerId: string, boot: number) {
   try {
     await rpc("game_guard", { g: "poker", amount: boot, check_size: true });
+    await rpc("player_game_guard", { p_uid: playerId, p_game: "poker" }); // locked for this player (115)?
     await rpc("check_bet_room", { p_uid: playerId, amount: boot });
   } catch (e) {
     throw new TableError(e instanceof Error ? e.message.replace(/^.*?: /, "") : "Poker is not available right now", 400);

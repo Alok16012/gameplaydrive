@@ -117,6 +117,7 @@ export async function jiliLaunch(userId: string, uid: string): Promise<{ url: st
   const [games, hidden] = await Promise.all([jiliGames(), jiliHidden()]);
   if (!games.some((g) => g.uid === uid) || hidden.has(uid)) throw new Error("This game is not available");
   await rpc("game_guard", { g: "jili", amount: 0, check_size: false }); // closed for maintenance?
+  await rpc("player_game_guard", { p_uid: userId, p_game: "jili" }); // locked for this player (115)?
   const w = await selectOne<{ coins: number }>("wallets", `select=coins&user_id=eq.${userId}`);
   const coins = Math.floor(Number(w?.coins ?? 0));
   if (coins < 1) throw new Error("Not enough coins — ask your agent");

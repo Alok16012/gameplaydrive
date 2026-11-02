@@ -16,6 +16,9 @@ import {
   KeyRound,
   ListOrdered,
   Trash2,
+  Lock,
+  Unlock,
+  Gamepad2,
 } from "lucide-react";
 import { type Account, type Role, ROLE_LABEL, coins } from "../lib/hierarchy";
 import { apiFetch, authToken, errText, supabase } from "../lib/supabase";
@@ -23,6 +26,7 @@ import type { SportBetRow } from "../lib/cricketApi";
 import { ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 import { groupRounds, type Round } from "../lib/history";
 import { toTxn, type LedgerRow } from "../lib/store";
+import { GAMES } from "../lib/data";
 
 export interface UserExchangeMeta {
   partnershipName?: string;
@@ -92,6 +96,7 @@ export function UserDetailsModal({
   const [reloadKey, setReloadKey] = useState(0);
   const [showSportsExposure, setShowSportsExposure] = useState(false);
   const [showBets, setShowBets] = useState(false);
+  const [showGames, setShowGames] = useState(false);
   const [showResetPw, setShowResetPw] = useState(false);
 
   // Saved partnership details plus live ledger figures.
@@ -559,6 +564,18 @@ export function UserDetailsModal({
                 </button>
               )}
 
+              {isPlayer && (
+                <button
+                  type="button"
+                  onClick={() => setShowGames(true)}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-700 hover:bg-amber-500/20 flex items-center gap-1.5 transition"
+                  title="Lock or unlock games for this player"
+                >
+                  <Gamepad2 size={13} />
+                  Games
+                </button>
+              )}
+
               {onOpenOutcome && me.role === "superadmin" && (
                 <button
                   type="button"
@@ -585,6 +602,8 @@ export function UserDetailsModal({
       {showBets && (
         <BetHistoryModal target={target} canDelete={me.role === "superadmin"} onClose={() => setShowBets(false)} onChanged={onReload} />
       )}
+
+      {showGames && <GamesLockModal target={target} onClose={() => setShowGames(false)} />}
 
       {showSportsExposure && (
         <LiveSportsExposureModal target={target} onClose={() => setShowSportsExposure(false)} />
@@ -741,6 +760,81 @@ function BetHistoryModal({ target, canDelete, onClose, onChanged }: { target: Ac
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Games this player may not play (migration 115): a switch per game, saved together. "Rummy" covers 13 and 21 Card. */
+const LOCKABLE = GAMES.filter((g) => g.id !== "rummy21").map((g) => ({ id: g.id, name: g.id === "rummy" ? "Rummy (13 & 21 Card)" : g.name }));
+
+function GamesLockModal({ target, onClose }: { target: Account; onClose: () => void }) {
+  const [saved, setSaved] = useState<string[] | null>(null);
+  const [locked, setLocked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    supabase().from("profiles").select("locked_games").eq("id", target.id).maybeSingle().then(({ data, error }) => {
+      if (error) return setMsg(/locked_games/.test(errText(error)) ? "Run migration 115 first" : errText(error));
+      const l = ((data?.locked_games ?? []) as string[]);
+      setSaved(l);
+      setLocked(new Set(l));
+    });
+  }, [target.id]);
+
+  const flip = (id: string) => setLocked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const dirty = saved !== null && (saved.length !== locked.size || saved.some((g) => !locked.has(g)));
+  const save = async () => {
+    setBusy(true);
+    setMsg("");
+    const { data, error } = await supabase().rpc("set_player_games", { target: target.id, p_locked: [...locked] });
+    setBusy(false);
+    if (error) return setMsg(errText(error));
+    const l = (data ?? []) as string[];
+    setSaved(l);
+    setLocked(new Set(l));
+    setMsg(l.length ? `Saved • ${l.length} game${l.length === 1 ? "" : "s"} locked for ${target.name}` : `Saved • every game unlocked for ${target.name}`);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-[460px] bg-[#1e2430] text-slate-200 rounded-2xl overflow-hidden shadow-2xl border border-white/10" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b border-white/10 flex items-center justify-between bg-slate-900">
+          <h3 className="font-bold tracking-wider text-sm text-white">GAMES • {target.name} ({target.code})</h3>
+          <button onClick={onClose} className="text-white/60 hover:text-white p-1 rounded-lg bg-white/5"><X size={16} /></button>
+        </div>
+        <div className="px-4 py-2.5 bg-slate-800/50 text-xs text-white/50 border-b border-white/5">
+          A locked game shows as &quot;Locked&quot; for this player and takes no bets from them. A table they are already playing at finishes its hand.
+          {msg && <div className={`mt-1 ${msg.startsWith("Saved") ? "text-emerald-300" : "text-amber-300"}`}>{msg}</div>}
+        </div>
+        <div className="p-3 max-h-[60vh] overflow-y-auto">
+          {saved === null ? (
+            <div className="py-8 text-center text-white/40 text-sm">{msg ? "" : "Loading…"}</div>
+          ) : (
+            <>
+              <div className="flex gap-2 mb-2">
+                <button onClick={() => setLocked(new Set())} className="flex-1 rounded-lg py-1.5 text-xs bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">Unlock all</button>
+                <button onClick={() => setLocked(new Set(LOCKABLE.map((g) => g.id)))} className="flex-1 rounded-lg py-1.5 text-xs bg-rose-500/15 border border-rose-500/30 text-rose-300">Lock all</button>
+              </div>
+              {LOCKABLE.map((g) => {
+                const on = !locked.has(g.id);
+                return (
+                  <button key={g.id} onClick={() => flip(g.id)} className="w-full flex items-center gap-3 py-2.5 px-1 border-b border-white/5 last:border-0 text-left">
+                    <span className={`p-1.5 rounded-lg ${on ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>{on ? <Unlock size={14} /> : <Lock size={14} />}</span>
+                    <span className="flex-1 text-sm text-white">{g.name}</span>
+                    <span className={`text-[11px] font-semibold ${on ? "text-emerald-300" : "text-rose-300"}`}>{on ? "Unlocked" : "Locked"}</span>
+                    <span className={`w-10 h-6 rounded-full p-0.5 transition-colors ${on ? "bg-emerald-500" : "bg-white/15"}`}><span className={`block w-5 h-5 rounded-full bg-white transition-transform ${on ? "translate-x-4" : ""}`} /></span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
+        <div className="p-3 border-t border-white/10 flex gap-2">
+          <button onClick={onClose} className="flex-1 rounded-xl py-2.5 text-sm bg-white/10">Close</button>
+          <button onClick={save} disabled={!dirty || busy} className="flex-1 rounded-xl py-2.5 text-sm font-semibold bg-emerald-500 text-white disabled:opacity-40">{busy ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
     </div>
   );
 }
