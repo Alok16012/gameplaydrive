@@ -127,9 +127,12 @@ export interface AccountStats {
   /** Current wallet balance. */
   pts: number;
   players: number;
-  /** Coins put into / taken out of this account's own wallet (transfers, mints, burns). */
+  /** Coins the account received from above (its upline / the Super Admin) and had taken back by them. */
   deposits: number;
   withdrawals: number;
+  /** Coins the account handed down to its agents / players, and took back from them (player: always 0). */
+  givenDown: number;
+  takenBack: number;
   /** Total staked, and paid back as wins + refunds, by those players. */
   turnover: number;
   returns: number;
@@ -145,10 +148,12 @@ async function liveStats(id: string, meta: UserExchangeMeta | null, profiles: Pr
     kids.set(p.parent_id, [...(kids.get(p.parent_id) || []), p.id]);
   }
   const role = new Map(profiles.map((p) => [p.id, p.role]));
-  const players: string[] = [];
-  const stack = [id];
+  const players: string[] = role.get(id) === "player" ? [id] : [];
+  const below = new Set<string>(); // everyone under this account
+  const stack = [...(kids.get(id) || [])];
   while (stack.length) {
     const cur = stack.pop()!;
+    below.add(cur);
     if (role.get(cur) === "player") players.push(cur);
     stack.push(...(kids.get(cur) || []));
   }
@@ -176,12 +181,18 @@ async function liveStats(id: string, meta: UserExchangeMeta | null, profiles: Pr
   // An open cricket bet's exposure is already debited as a bet; it is neither won nor lost yet.
   const clientPL = gameNet + exposure;
 
+  // The account's own coin movements, split by who was on the other side: above it (deposit / withdrawal) or
+  // under it (given to / taken back from its players and agents). Giving coins to a player is not a withdrawal.
   let deposits = 0;
   let withdrawals = 0;
-  const own = await selectAll<{ amount: number }>("ledger", `select=amount&order=id&kind=in.(transfer_in,transfer_out,mint,burn)&user_id=eq.${id}`);
+  let givenDown = 0;
+  let takenBack = 0;
+  const own = await selectAll<{ amount: number; counterparty: string | null }>("ledger", `select=amount,counterparty&order=id&kind=in.(transfer_in,transfer_out,mint,burn)&user_id=eq.${id}`);
   for (const r of own) {
     const amt = Number(r.amount);
-    if (amt > 0) deposits += amt;
+    const down = !!r.counterparty && below.has(r.counterparty);
+    if (amt > 0) { if (down) takenBack += amt; else deposits += amt; }
+    else if (down) givenDown -= amt;
     else withdrawals -= amt;
   }
 
@@ -197,6 +208,8 @@ async function liveStats(id: string, meta: UserExchangeMeta | null, profiles: Pr
     players: players.length,
     deposits,
     withdrawals,
+    givenDown,
+    takenBack,
     turnover,
     returns,
     exposure,

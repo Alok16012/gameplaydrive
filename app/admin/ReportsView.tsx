@@ -42,6 +42,7 @@ import { type Account, type Role, ROLE_LABEL, coins, fmtPhone } from "../lib/hie
 import { supabase, errText } from "../lib/supabase";
 import { GAMES } from "../lib/data";
 import { RoundLookup } from "./RoundLookup";
+import { PrivateTablesReport } from "./PrivateTablesReport";
 import type { SportBetRow } from "../lib/cricketApi";
 
 export type ReportSubTab =
@@ -56,7 +57,8 @@ export type ReportSubTab =
   | "user_auth"
   | "user_register"
   | "total_profit_loss"
-  | "user_win_loss";
+  | "user_win_loss"
+  | "private_tables";
 
 export const REPORT_TABS_LIST: { id: ReportSubTab; label: string; icon: React.ReactNode }[] = [
   { id: "account_statement", label: "Account Statement", icon: <FileText size={15} /> },
@@ -71,6 +73,7 @@ export const REPORT_TABS_LIST: { id: ReportSubTab; label: string; icon: React.Re
   { id: "user_register", label: "User Register Detail", icon: <Users size={15} /> },
   { id: "total_profit_loss", label: "Total Profit Loss", icon: <BarChart2 size={15} /> },
   { id: "user_win_loss", label: "User Win Loss", icon: <TrendingUp size={15} /> },
+  { id: "private_tables", label: "Private Tables", icon: <Hash size={15} /> },
 ];
 
 interface LedgerRow {
@@ -1739,6 +1742,8 @@ export function ReportsView({
             </div>
           </div>
         )}
+
+        {activeTab === "private_tables" && <PrivateTablesReport bounds={bounds} reloadKey={reloadKey} exportToCSV={exportToCSV} fmtDate={fmtDate} />}
 
         {/* ============================================================== */}
         {/* 9. USER AUTH & REGISTER DETAIL */}

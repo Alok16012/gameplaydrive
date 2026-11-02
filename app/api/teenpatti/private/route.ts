@@ -17,7 +17,7 @@ export async function POST(req: Request) {
       code = Array.from({ length: 6 }, () => ALPHABET[randomInt(ALPHABET.length)]).join("");
       if (!(await byCode(code))) break;
     }
-    const id = await createTable(boot, code);
+    const id = await createTable(boot, code, me.playerId);
     await join(id, me);
     return Response.json({ code, id });
   } catch (e) {

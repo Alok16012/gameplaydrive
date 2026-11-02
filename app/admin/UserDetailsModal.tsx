@@ -52,6 +52,8 @@ interface AccountStats {
   players: number;
   deposits: number;
   withdrawals: number;
+  givenDown: number;
+  takenBack: number;
   turnover: number;
   returns: number;
   exposure: number;
@@ -473,6 +475,18 @@ export function UserDetailsModal({
                     <span className="font-bold text-slate-700">Total Withdraw:</span>
                     <span className="text-rose-600 font-medium">{live(stats?.withdrawals)}</span>
                   </div>
+                  {!isPlayer && (
+                    <>
+                      <div className="grid grid-cols-[140px_1fr] items-baseline">
+                        <span className="font-bold text-slate-700">Given to {target.role === "admin" ? "agents / players" : "players"}:</span>
+                        <span className="text-slate-700 font-normal">{live(stats?.givenDown)}</span>
+                      </div>
+                      <div className="grid grid-cols-[140px_1fr] items-baseline">
+                        <span className="font-bold text-slate-700">Taken back from them:</span>
+                        <span className="text-slate-700 font-normal">{live(stats?.takenBack)}</span>
+                      </div>
+                    </>
+                  )}
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
                     <span className="font-bold text-slate-700">Turnover (bets):</span>
                     <span className="text-slate-700 font-normal">{live(stats?.turnover)}</span>
@@ -482,9 +496,15 @@ export function UserDetailsModal({
                     <span className="text-slate-700 font-normal">{live(stats?.returns)}</span>
                   </div>
                   <div className="grid grid-cols-[140px_1fr] items-baseline">
-                    <span className="font-bold text-slate-700">Client P/L:</span>
-                    <span className={plColor(clientPL)}>{live(clientPL)}</span>
+                    <span className="font-bold text-slate-700">{isPlayer ? "Player P/L:" : "Players' P/L:"}</span>
+                    <span className={plColor(clientPL)}>{live(clientPL)}<span className="text-slate-400 font-normal text-xs"> {clientPL < 0 ? "(lost in games)" : clientPL > 0 ? "(won in games)" : ""}</span></span>
                   </div>
+                  {!isPlayer && (
+                    <div className="grid grid-cols-[140px_1fr] items-baseline">
+                      <span className="font-bold text-slate-700">House side:</span>
+                      <span className={plColor(-clientPL)}>{live(-clientPL)}</span>
+                    </div>
+                  )}
 
                   <div
                     className={`grid grid-cols-[140px_1fr] items-baseline ${isPlayer && stats?.openBets ? "cursor-pointer hover:bg-slate-50 p-1 -ml-1 rounded transition" : ""}`}
@@ -504,7 +524,7 @@ export function UserDetailsModal({
                 </div>
                 {statsErr && <div className="text-xs text-rose-600 mt-3">{statsErr}</div>}
                 {!isPlayer && stats && (
-                  <div className="text-[11px] text-slate-500 mt-3">Turnover, P/L and exposure cover all {stats.players} players under this account.</div>
+                  <div className="text-[11px] text-slate-500 mt-3">Turnover and P/L are the games of all {stats.players} players under this account.</div>
                 )}
               </div>
             </>

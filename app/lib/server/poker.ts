@@ -137,9 +137,10 @@ export async function withTable<T>(id: string, step: Step<T>, players: string[] 
 
 export const advance = (id: string) => withTable(id, (t, ctx) => ({ ...advanceTable(t, ctx), result: null }));
 
-export async function createTable(boot: number, code: string | null) {
+/** A new table; `host` is the player who made a private one (Reports → Private Tables, migration 117). */
+export async function createTable(boot: number, code: string | null, host: string | null = null) {
   const rules = await rulesFor(boot);
-  const rows = (await insertRow("pk_tables", { boot, rules, code, seats: [] })) as { id: string }[];
+  const rows = (await insertRow("pk_tables", { boot, rules, code, host, seats: [] })) as { id: string }[];
   return rows[0].id;
 }
 
