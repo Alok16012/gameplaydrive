@@ -35,23 +35,34 @@ const beats = (a: Card[], b: Card[]) => compareKeys(evaluate(a).key, evaluate(b)
 const category = (h: Card[]) => evaluate(h).key[0]; // 1 high card … 6 trail
 
 /**
- * A rigged deal, built from random cards so no two hands look alike: in a force_loss deal the human gets a hand worth
- * playing (usually a pair or better, sometimes just a high card) and the deepest-stacked bot a hand that beats it;
- * in a force_win deal the human gets a good hand and every bot a lesser one. The other bots get hands around the
- * human's — some above it (they stay in the hand a while), most below — so the table plays out differently each
- * time. Any other human at the table gets a hand that can't spoil the result.
+ * The deal when the outcome is set (every hand against the house bots: force_win / force_loss, drawn per hand by
+ * get_outcome_mode to the RTP). Natural first: the whole deck shuffled and three cards dealt each, kept when the side
+ * meant to win holds the best hand outright — so the human's cards follow the real odds (a pair about one hand in
+ * six when they lose, more when they win, never "a pair every hand") and the same category isn't dealt three hands
+ * running when it can be helped. Only when forty natural deals give no usable one (they almost always do) is a deal
+ * built: the human gets a hand worth playing and the deepest-stacked bot one that beats it (force_loss), or the
+ * human a good hand and every bot a lesser one (force_win); any other human a hand that can't spoil the result.
  */
-function buildEngagingTeenPattiDeck(
+export function buildEngagingTeenPattiDeck(
   seats: Seat[],
   prevDealerSeat: number | null,
   boot: number,
   balances: Record<string, number>,
   botBalances: Record<string, number>,
   outcomeModes?: Record<string, string>,
-  rng?: Rng
-): Card[] | undefined {
+  rng?: Rng,
+  history: Record<string, number[]> = {} // humans' last hand categories (TableSeat.hist)
+): { deck: Card[]; humanId: string; cat: number } | undefined {
   if (!outcomeModes) return undefined;
   const ri = (n: number) => (n <= 1 ? 0 : rng ? rng.int(n) : Math.floor(Math.random() * n));
+  const shuffled = () => {
+    const d = fullDeck();
+    for (let i = d.length - 1; i > 0; i--) {
+      const j = ri(i + 1);
+      [d[i], d[j]] = [d[j], d[i]];
+    }
+    return d;
+  };
   const sortedSeats = [...seats].sort((a, b) => a.seat - b.seat);
   const can = (x: Seat) => (x.bot ? botBalances[x.playerId] ?? 0 : balances[x.playerId] ?? 0) >= boot;
   const playing = sortedSeats.filter(can);
@@ -71,12 +82,26 @@ function buildEngagingTeenPattiDeck(
   // The bot dealt the deciding hand is the one with the deepest stack, so it can keep up with a human who raises
   // hard (a short-stacked bot would run out of coins before the show).
   const richestBot = botIndices.reduce((best, i) => ((botBalances[orderSeats[i].playerId] ?? 0) > (botBalances[orderSeats[best].playerId] ?? 0) ? i : best), botIndices[0]);
+  const humanId = orderSeats[humanIdx].playerId;
 
-  const pool = fullDeck();
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = ri(i + 1);
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  // Natural deals: keep the first whose outright best hand is on the right side; one that would deal the human the
+  // same category a third time running is kept only as a last resort.
+  const hist = history[humanId] ?? [];
+  const repeat = hist.length >= 2 && hist[hist.length - 1] === hist[hist.length - 2] ? hist[hist.length - 1] : -1;
+  let spare: Card[] | null = null;
+  for (let k = 0; k < 40; k++) {
+    const d = shuffled();
+    const hs = orderSeats.map((_, i) => d.slice(i * 3, i * 3 + 3));
+    let best = 0;
+    for (let i = 1; i < hs.length; i++) if (beats(hs[i], hs[best])) best = i;
+    if (hs.some((h, i) => i !== best && !beats(hs[best], h))) continue; // a tie at the top: no outright winner
+    if (loss ? !orderSeats[best].bot : best !== humanIdx) continue;
+    if (category(hs[humanIdx]) === repeat) { spare ??= d; continue; }
+    return { deck: d, humanId, cat: category(hs[humanIdx]) };
   }
+  if (spare) return { deck: spare, humanId, cat: repeat };
+
+  const pool = shuffled();
   const hands = new Map<number, Card[]>();
 
   // The human's hand: worth playing — a pair or better most of the time, otherwise a high card with a face card in it.
@@ -112,7 +137,7 @@ function buildEngagingTeenPattiDeck(
   const deck: Card[] = [];
   for (let i = 0; i < orderSeats.length; i++) deck.push(...hands.get(i)!);
   deck.push(...pool);
-  return deck;
+  return { deck, humanId, cat: category(human) };
 }
 
 export interface TableSeat {
@@ -129,6 +154,9 @@ export interface TableSeat {
   lastSeen: number;
   /** Humans only: sitting out — keeps the seat but is not dealt in until they come back. */
   sittingOut?: boolean;
+  /** Humans only: the category (1 high card … 6 trail) of their last few dealt hands, so the same one isn't dealt
+   *  three hands running when it can be helped. */
+  hist?: number[];
 }
 
 export interface TableState {
@@ -337,10 +365,12 @@ function beginHand(t0: TableState, ctx: Ctx): Advance | null {
   const seats: Seat[] = t.seats.filter((s) => s.bot || !s.sittingOut).map((s) => ({ seat: s.seat, playerId: s.playerId, name: s.name, bot: s.bot }));
   const botBalances = Object.fromEntries(t.seats.filter((s) => s.bot).map((s) => [s.playerId, s.bal ?? 0]));
   const handNo = t.handNo + 1;
-  const deck = buildEngagingTeenPattiDeck(seats, t.dealerSeat, t.boot, ctx.balances, botBalances, ctx.outcomeModes, ctx.rng);
+  const history = Object.fromEntries(t.seats.filter((s) => s.hist).map((s) => [s.playerId, s.hist!]));
+  const rigged = buildEngagingTeenPattiDeck(seats, t.dealerSeat, t.boot, ctx.balances, botBalances, ctx.outcomeModes, ctx.rng, history);
+  if (rigged) t = { ...t, seats: t.seats.map((s) => (s.playerId === rigged.humanId ? { ...s, hist: [...(s.hist ?? []), rigged.cat].slice(-3) } : s)) };
   const r = startHand({
     tableId: t.id, handId: `${t.id}:${handNo}`, handNo, rules: t.rules, seats, prevDealerSeat: t.dealerSeat,
-    balances: ctx.balances, botBalances, now: ctx.now, rng: ctx.rng, deck,
+    balances: ctx.balances, botBalances, now: ctx.now, rng: ctx.rng, deck: rigged?.deck,
   });
   if (!r) {
     // Fewer than two can pay the boot: wait, and check again shortly.

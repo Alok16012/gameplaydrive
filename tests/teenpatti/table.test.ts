@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Ctx, Rng, Rules } from "../../app/lib/teenpatti/engine.ts";
 import { checkInvariants } from "../../app/lib/teenpatti/engine.ts";
-import { AWAY_MS, NEXT_HAND_MS, advanceTable, command, fillBots, setSittingOut, sitDown, standUp, touch, waitingForPlayers, type TableState } from "../../app/lib/teenpatti/table.ts";
+import { AWAY_MS, NEXT_HAND_MS, advanceTable, buildEngagingTeenPattiDeck, command, fillBots, setSittingOut, sitDown, standUp, touch, waitingForPlayers, type TableState } from "../../app/lib/teenpatti/table.ts";
+import { evaluate, compareKeys } from "../../app/lib/teenpatti/evaluator.ts";
 import { viewFor } from "../../app/lib/teenpatti/view.ts";
 
 function seeded(seed = 1): Rng {
@@ -240,4 +241,34 @@ test("sitting out keeps the seat but is not dealt in; coming back deals you in a
   assert.ok(adv.ledger.every((e) => e.playerId !== "a"), "a pays no boot");
   const back = setSittingOut(adv.table, "a", false);
   assert.equal(back.seats.find((s) => s.playerId === "a")!.sittingOut, undefined);
+});
+
+test("rigged deals are natural: the right side holds the best hand outright, the human's cards follow the real odds, no category three hands running", () => {
+  const rng = seeded(7);
+  const seats = [{ seat: 0, playerId: "h", name: "H", bot: false }, ...[1, 2, 3, 4].map((i) => ({ seat: i, playerId: `b${i}`, name: `B${i}`, bot: true }))];
+  let hist: number[] = [];
+  const bal = { h: 100000 };
+  const bots = Object.fromEntries(seats.filter((s) => s.bot).map((s) => [s.playerId, 50000]));
+  const cats: number[] = [];
+  let built = 0;
+  for (let n = 0; n < 600; n++) {
+    const mode = rng.int(100) < 48 ? "force_win" : "force_loss";
+    const r = buildEngagingTeenPattiDeck(seats, null, 10, bal, bots, { h: mode }, rng, { h: hist })!;
+    const order = [...seats.slice(1), seats[0]]; // dealer is seat 0 on the first hand: the deal starts after it
+    const hands = order.map((_, i) => r.deck.slice(i * 3, i * 3 + 3));
+    const hi = order.findIndex((s) => s.playerId === "h");
+    const best = hands.reduce((b, h, i) => (compareKeys(evaluate(h).key, evaluate(hands[b]).key) > 0 ? i : b), 0);
+    assert.equal(order[best].bot, mode === "force_loss", `${mode}: the wrong side holds the best hand`);
+    assert.equal(evaluate(hands[hi]).key[0], r.cat);
+    if (hands.some((h, i) => i !== best && compareKeys(evaluate(hands[best]).key, evaluate(h).key) <= 0)) built++;
+    cats.push(r.cat);
+    hist = [...hist, r.cat].slice(-3);
+  }
+  const pairs = cats.filter((c) => c === 2).length / cats.length;
+  assert.ok(pairs < 0.45, `a pair ${Math.round(pairs * 100)}% of hands (natural: about a sixth when losing, more when winning)`);
+  assert.ok(cats.filter((c) => c === 1).length / cats.length > 0.3, "high cards should be the most common hand");
+  let runs = 0;
+  for (let i = 2; i < cats.length; i++) if (cats[i] === cats[i - 1] && cats[i - 1] === cats[i - 2]) runs++;
+  assert.ok(runs <= cats.length * 0.02, `the same category three hands running ${runs} times`);
+  assert.equal(built, 0, "a built (non-natural) deal was needed");
 });
