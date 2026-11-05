@@ -105,6 +105,10 @@ export function softDecrypt(b64: string, key = secret()) {
 }
 
 export const COIN_TO_VND = Number(process.env.JILI_COIN_TO_VND ?? 1);
+/** Play currency and coins-to-currency rate per provider: JILI plays in VND (JILI_COIN_TO_VND per coin); Bharat Matka
+ *  takes INR only, 1 coin = ₹1. */
+const CURRENCY = (p: Provider) => (p === "matka" ? "INR" : process.env.JILI_CURRENCY ?? "VND");
+const RATE = (p: Provider) => (p === "matka" ? 1 : COIN_TO_VND);
 
 /** Is real-coin JILI configured on this server? */
 export const jiliRealReady = (p: Provider = "jili") =>
@@ -116,8 +120,8 @@ async function launchCap(p: Provider = "jili"): Promise<number> {
   const r = await fetch(`${BASE()}/ggr-balance?token=${encodeURIComponent(TOKEN(p))}`, { cache: "no-store" });
   const j = (await r.json().catch(() => null)) as { code?: number; data?: { wallet?: number } } | null;
   const usdt = Number(j?.data?.wallet ?? 0);
-  const vndPerUsdt = Number(process.env.SOFTAPI_VND_RATE ?? 25000);
-  return Math.floor((usdt / 0.05) * vndPerUsdt * 0.95); // 5% margin
+  const perUsdt = p === "matka" ? Number(process.env.SOFTAPI_INR_RATE ?? 88) : Number(process.env.SOFTAPI_VND_RATE ?? 25000);
+  return Math.floor((usdt / 0.05) * perUsdt * 0.95); // 5% margin
 }
 
 /** Launch a JILI game (or Bharat Matka, p = "matka") with the player's coins; returns the game URL. */
@@ -134,12 +138,13 @@ export async function jiliLaunch(userId: string, uid: string, p: Provider = "jil
   const coins = Math.floor(Number(w?.coins ?? 0));
   if (coins < 1) throw new Error("Not enough coins — ask your agent");
 
-  const playerVnd = Math.floor(coins * COIN_TO_VND);
+  const rate = RATE(p);
+  const playerVnd = Math.floor(coins * rate);
   const capVnd = await launchCap(p);
-  if (capVnd < COIN_TO_VND) throw new Error(`${PROVIDER_NAME[p]} is resting for a moment — please try again later`);
+  if (capVnd < rate) throw new Error(`${PROVIDER_NAME[p]} is resting for a moment — please try again later`);
 
   const balanceVnd = Math.min(playerVnd, capVnd);
-  const balance = Math.floor(balanceVnd / COIN_TO_VND); // coins taken into game
+  const balance = Math.floor(balanceVnd / rate); // coins taken into game
   const num = await rpc<number>("jili_player_num", { p_user: userId });
   const site = process.env.JILI_SITE_URL ?? "https://www.khelobaazi.in";
   const payload = {
@@ -150,7 +155,7 @@ export async function jiliLaunch(userId: string, uid: string, p: Provider = "jil
     timestamp: Date.now(),
     return: `${site}/`,
     callback: `${site}/api/jili/callback?k=${process.env.JILI_CALLBACK_KEY}&p=${p}`,
-    currency_code: process.env.JILI_CURRENCY ?? "VND",
+    currency_code: CURRENCY(p),
     language: "en",
   };
   const proxy = process.env.SOFTAPI_PROXY_URL ?? "https://srv2101978.hstgr.cloud/softapi";
@@ -177,10 +182,11 @@ export async function jiliCallback(body: Record<string, unknown>, p: Provider = 
   const rawWin = Number(n.win_amount ?? 0);
   const rawCredit = n.credit_amount != null ? Number(n.credit_amount) : null;
 
-  // Convert VND amounts back to Coins for the ledger
-  const betCoins = rawBet / COIN_TO_VND;
-  const winCoins = rawWin / COIN_TO_VND;
-  const creditCoins = rawCredit != null ? rawCredit / COIN_TO_VND : null;
+  // Convert the play currency (VND for JILI, INR for Matka) back to coins for the ledger
+  const rate = RATE(p);
+  const betCoins = rawBet / rate;
+  const winCoins = rawWin / rate;
+  const creditCoins = rawCredit != null ? rawCredit / rate : null;
 
   return rpc<Record<string, unknown>>("jili_settle", {
     p_serial: String(n.serial_number ?? ""),
