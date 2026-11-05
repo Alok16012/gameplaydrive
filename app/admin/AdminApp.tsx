@@ -7,7 +7,7 @@ import { useAutoUpdate } from "../lib/autoUpdate";
 import { claimSession, ensureSessionTag, useSingleSession } from "../lib/singleSession";
 import { useEffect, useMemo, useState } from "react";
 import { Bell,
-  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Check, ChevronDown, Copy, Eye, Pencil, RefreshCw, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
+  BarChart3, Gauge, Ban, Bot as BotIcon, Briefcase, Check, ChevronDown, Copy, Eye, Pencil, Percent, RefreshCw, ChevronRight, ClipboardList, Coins, Crown, Gamepad2, KeyRound, LayoutDashboard, LogOut, MessageCircle, Network, RotateCcw, Search, Sliders, Snowflake, Sparkles, Trash2, Trophy, UserPlus, Users, X,
 } from "lucide-react";
 import { GAMES, type GameId } from "../lib/data";
 import { GameIcon } from "../components/GameArt";
@@ -20,13 +20,14 @@ import { OutcomeControlView } from "./OutcomeControlView";
 import { CricketResultsView } from "./CricketResultsView";
 import { UserDetailsModal } from "./UserDetailsModal";
 import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView";
+import { RtpView, RTP } from "./RtpView";
 import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 
 // Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
 // that can create coins; Admin creates agents and players; Agent creates players. Everyone sees only their own
 // downline (row-level security) and every change is written to the audit log by the database.
 
-type Section = "dashboard" | "alerts" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "jili" | "whatsapp" | "audit";
+type Section = "dashboard" | "alerts" | "outcome" | "cricket" | "admins" | "agents" | "players" | "bots" | "network" | "reports" | "config" | "rtp" | "jili" | "whatsapp" | "audit";
 
 export default function AdminApp() {
   const { me, accounts, reload } = useAccounts();
@@ -67,6 +68,7 @@ export default function AdminApp() {
     { id: "bots", label: "Bots", icon: <BotIcon size={18} />, roles: ["superadmin"] },
     { id: "network", label: "Network", icon: <Network size={18} />, roles: ["superadmin", "admin"] },
     { id: "config", label: "Game Config", icon: <Gamepad2 size={18} />, roles: ["superadmin"] },
+    { id: "rtp", label: "RTP", icon: <Percent size={18} />, roles: ["superadmin"] },
     { id: "jili", label: "JILI Games", icon: <Gamepad2 size={18} />, roles: ["superadmin"] },
     { id: "reports", label: "Reports", icon: <BarChart3 size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "audit", label: "Audit Log", icon: <ClipboardList size={18} />, roles: ["superadmin", "admin", "agent"] },
@@ -196,6 +198,7 @@ export default function AdminApp() {
           {sec === "bots" && <BotsView />}
           {sec === "network" && <NetworkView {...ctx} />}
           {sec === "config" && <ConfigView />}
+          {sec === "rtp" && <RtpView />}
           {sec === "jili" && <JiliAdmin />}
           {sec === "whatsapp" && (
             <div className="space-y-6 max-w-4xl">
@@ -1603,12 +1606,6 @@ function BotsView() {
 /** One game's admin settings (app_settings.games[id]). The same values apply to every player. */
 type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; rtp?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast"; outcome_mode?: "fair" | "force_win" | "force_loss" };
 type Field = "bets" | "rake" | "rtp" | "turn" | "blind_limit" | "bot_speed";
-/** RTP on "Fair" for the house games (migration 114): the default, and the most the game can return — its natural
- *  return with every round dealt as it comes. Stock Market's RTP is 100 − its platform fee. */
-const RTP: Partial<Record<GameId, { def: number; max: number }>> = {
-  "dragon-tiger": { def: 91, max: 97 }, "andar-bahar": { def: 91, max: 99 }, "lucky-7": { def: 91, max: 92 }, aviator: { def: 93, max: 99 },
-  roulette: { def: 91, max: 97 }, plinko: { def: 91, max: 99 }, blackjack: { def: 91, max: 99 }, "stock-market": { def: 91, max: 100 },
-};
 const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "cricket", fields: [], note: "Locking stops new bets. Bets already placed still settle" },
   { id: "teen-patti", fields: ["rake", "turn", "blind_limit"], note: "Fee is taken from each pot. Boots follow the table list" },
