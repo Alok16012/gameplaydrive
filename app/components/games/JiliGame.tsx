@@ -108,7 +108,8 @@ function JiliThumb({ g }: { g: JiliGameInfo }) {
 }
 
 /** One JILI game, full screen inside the app: with coins (settled after every round) or free play. */
-export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: string; title: string; demo?: boolean }) {
+export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { nav: Nav; uid: string; title: string; demo?: boolean; provider?: "jili" | "matka" }) {
+  const brand = provider === "matka" ? "Bharat Matka" : "JILI";
   const { total, refresh, showToast } = useStore();
   const [ready, setReady] = useState<boolean | null>(null); // real-coin play set up on the server?
   const [mode, setMode] = useState<"coins" | "free" | null>(null);
@@ -117,8 +118,8 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
   const [cap, setCap] = useState<{ balance: number; coins: number } | null>(null); // fewer coins went in than you hold
 
   useEffect(() => {
-    apiFetch("/api/jili/launch?check=1").then((r) => r.json()).then((j: { ready?: boolean }) => setReady(!!j.ready)).catch(() => setReady(false));
-  }, []);
+    apiFetch(`/api/jili/launch?check=1&p=${provider}`).then((r) => r.json()).then((j: { ready?: boolean }) => setReady(!!j.ready)).catch(() => setReady(false));
+  }, [provider]);
   // Without real-coin play on this server, go straight to free play.
   useEffect(() => { if (ready === false && mode === null && demo) setMode("free"); }, [ready, mode, demo]);
 
@@ -127,7 +128,7 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
     let alive = true;
     setUrl(null);
     setErr("");
-    apiFetch(mode === "coins" ? `/api/jili/launch?uid=${encodeURIComponent(uid)}` : `/api/jili/demo?uid=${encodeURIComponent(uid)}`)
+    apiFetch(mode === "coins" ? `/api/jili/launch?uid=${encodeURIComponent(uid)}&p=${provider}` : `/api/jili/demo?uid=${encodeURIComponent(uid)}`)
       .then((r) => r.json())
       .then((j: { url?: string; error?: string; balance?: number; coins?: number }) => {
         if (!alive) return;
@@ -138,7 +139,7 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
       })
       .catch(() => alive && setErr("The game could not be opened — check your connection"));
     return () => { alive = false; };
-  }, [uid, mode]);
+  }, [uid, mode, provider]);
 
   // Coins won or lost in the game reach the wallet round by round: show the latest balance while playing and after.
   useEffect(() => {
@@ -147,7 +148,7 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
     return () => { clearInterval(t); refresh(); };
   }, [mode, url, refresh]);
 
-  const back = () => { if (mode === "coins") showToast("Your JILI wins and losses are in your coins and Game History"); nav.back(); };
+  const back = () => { if (mode === "coins") showToast(`Your ${brand} wins and losses are in your coins and Game History`); nav.back(); };
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-black">
@@ -156,7 +157,7 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
         <div className="leading-tight min-w-0">
           <div className="text-sm font-semibold truncate">{title}</div>
           <div className={`text-[10px] ${mode === "coins" ? "text-neon-400" : "text-amber-300"}`}>
-            {mode === "coins" ? "JILI • Playing with your coins" : mode === "free" ? "JILI • Free play — practice credits, no coins used" : "JILI"}
+            {mode === "coins" ? `${brand} • Playing with your coins` : mode === "free" ? `${brand} • Free play — practice credits, no coins used` : brand}
           </div>
         </div>
         {url && (
@@ -167,7 +168,7 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
       </div>
       {cap && url && (
         <div className="shrink-0 bg-amber-500/15 border-b border-amber-400/30 text-amber-100 text-[11px] px-3 py-1.5">
-          JILI me abhi ek baar me {inr(cap.balance)} tak — baaki {inr(cap.coins - cap.balance)} aapke wallet me safe hain.
+          {brand} me abhi ek baar me {inr(cap.balance)} tak — baaki {inr(cap.coins - cap.balance)} aapke wallet me safe hain.
         </div>
       )}
       <div className="relative flex-1 min-h-0">
@@ -175,14 +176,14 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
           <div className="absolute inset-0 grid place-items-center px-6">
             <div className="w-full max-w-[340px] text-center">
               <div className="text-lg font-bold">{title}</div>
-              <div className="text-xs text-white/55 mt-1">JILI • choose how to play</div>
+              <div className="text-xs text-white/55 mt-1">{brand} • choose how to play</div>
               <button onClick={() => setMode("coins")} disabled={ready !== true} className="btn-green w-full rounded-2xl py-3.5 mt-6 font-semibold disabled:opacity-50">
                 Play with coins <span className="opacity-80 font-normal">• {inr(total)}</span>
               </button>
               <div className="text-[11px] text-white/45 mt-1.5">Every round&apos;s win or loss goes directly to your coins and Game History</div>
               {demo
                 ? <button onClick={() => setMode("free")} className="btn-ghost w-full rounded-2xl py-3 mt-4 text-sm">Free play (practice credits)</button>
-                : <div className="text-[11px] text-white/45 mt-4">JILI offers this game with coins only — no free play.</div>}
+                : <div className="text-[11px] text-white/45 mt-4">{brand} offers this game with coins only — no free play.</div>}
             </div>
           </div>
         ) : url ? (
@@ -195,7 +196,7 @@ export function JiliGame({ nav, uid, title, demo = true }: { nav: Nav; uid: stri
                 <div className="flex gap-2 justify-center mt-4">
                   {mode === "coins" && demo && <button onClick={() => setMode("free")} className="btn-ghost rounded-xl px-4 py-2.5 text-sm">Try free play</button>}
                   {mode === "free" && ready && <button onClick={() => setMode("coins")} className="btn-green rounded-xl px-4 py-2.5 text-sm">Play with coins</button>}
-                  <button onClick={nav.back} className="btn-ghost rounded-xl px-4 py-2.5 text-sm">Back to JILI games</button>
+                  <button onClick={nav.back} className="btn-ghost rounded-xl px-4 py-2.5 text-sm">{provider === "matka" ? "Back" : "Back to JILI games"}</button>
                 </div>
               </div>
             ) : (

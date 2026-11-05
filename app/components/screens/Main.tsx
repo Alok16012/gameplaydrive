@@ -20,6 +20,7 @@ export function openGame(nav: Nav, game: Game, toast?: (m: string) => void) {
   else if (game.kind === "aviator" || game.kind === "roulette" || game.kind === "blackjack" || game.kind === "plinko" || game.kind === "stockmarket") nav.push({ name: game.kind });
   else if (game.kind === "casino") nav.push({ name: "casino", game: game.id });
   else if (game.kind === "jili") nav.push({ name: "jili" });
+  else if (game.kind === "matka") nav.push({ name: "jiliplay", uid: "1001325", title: "Bharat Matka", demo: false, provider: "matka" });
   else nav.push({ name: "lobby", game: game.id });
 }
 

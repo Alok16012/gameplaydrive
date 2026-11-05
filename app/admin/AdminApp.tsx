@@ -1621,6 +1621,7 @@ const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "ludo", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "chess", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "poker", fields: ["bets", "rake", "turn"], note: "Limits apply to the table boot. Fee comes off every pot; turn time applies to every table" },
+  { id: "matka", fields: [], note: "Bharat Matka (provider game). Locking stops new launches; a game already open plays on" },
 ];
 
 export function ConfigView() {

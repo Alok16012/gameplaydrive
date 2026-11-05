@@ -17,9 +17,15 @@ export async function jiliHidden(): Promise<Set<string>> {
 }
 
 const BASE = () => process.env.SOFTAPI_URL ?? "https://world-casino-api.com/api/v1";
-const TOKEN = () => {
-  const t = process.env.SOFTAPI_TOKEN;
-  if (!t) throw new Error("JILI is not set up on this server");
+/** The SoftAPI accounts we launch from: JILI (SOFTAPI_TOKEN / JILI_SECRET) and Bharat Matka (MATKA_TOKEN /
+ *  MATKA_SECRET) — each provider is licensed on its own account with its own token and secret. */
+export type Provider = "jili" | "matka";
+export const PROVIDER_NAME: Record<Provider, string> = { jili: "JILI", matka: "Bharat Matka" };
+/** Bharat Matka is one game on its account (brand 202). */
+export const MATKA_UID = "1001325";
+const TOKEN = (p: Provider = "jili") => {
+  const t = p === "matka" ? process.env.MATKA_TOKEN : process.env.SOFTAPI_TOKEN;
+  if (!t) throw new Error(`${PROVIDER_NAME[p]} is not set up on this server`);
   return t;
 };
 
@@ -83,9 +89,9 @@ export async function jiliDemoUrl(uid: string): Promise<string> {
 /** Players 100001.. were initially registered as INR on SoftAPI; an offset gives fresh VND IDs. */
 const MEMBER_OFFSET = 200000;
 
-const secret = () => {
-  const s = process.env.JILI_SECRET ?? "";
-  if (s.length !== 32) throw new Error("JILI with coins is not set up yet");
+const secret = (p: Provider = "jili") => {
+  const s = (p === "matka" ? process.env.MATKA_SECRET : process.env.JILI_SECRET) ?? "";
+  if (s.length !== 32) throw new Error(`${PROVIDER_NAME[p]} with coins is not set up yet`);
   return s;
 };
 /** SoftAPI's payload encryption: AES-256-ECB, PKCS7, Base64. */
@@ -101,30 +107,36 @@ export function softDecrypt(b64: string, key = secret()) {
 export const COIN_TO_VND = Number(process.env.JILI_COIN_TO_VND ?? 1);
 
 /** Is real-coin JILI configured on this server? */
-export const jiliRealReady = () => (process.env.JILI_SECRET ?? "").length === 32 && !!process.env.SOFTAPI_PROXY_KEY && !!process.env.JILI_CALLBACK_KEY;
+export const jiliRealReady = (p: Provider = "jili") =>
+  ((p === "matka" ? process.env.MATKA_SECRET : process.env.JILI_SECRET) ?? "").length === 32 && !!(p === "matka" ? process.env.MATKA_TOKEN : process.env.SOFTAPI_TOKEN)
+  && !!process.env.SOFTAPI_PROXY_KEY && !!process.env.JILI_CALLBACK_KEY;
 
 /** Most coins a launch may carry: SoftAPI wants GGR credit ≥ 5% of the launch balance. */
-async function launchCap(): Promise<number> {
-  const r = await fetch(`${BASE()}/ggr-balance?token=${encodeURIComponent(TOKEN())}`, { cache: "no-store" });
+async function launchCap(p: Provider = "jili"): Promise<number> {
+  const r = await fetch(`${BASE()}/ggr-balance?token=${encodeURIComponent(TOKEN(p))}`, { cache: "no-store" });
   const j = (await r.json().catch(() => null)) as { code?: number; data?: { wallet?: number } } | null;
   const usdt = Number(j?.data?.wallet ?? 0);
   const vndPerUsdt = Number(process.env.SOFTAPI_VND_RATE ?? 25000);
   return Math.floor((usdt / 0.05) * vndPerUsdt * 0.95); // 5% margin
 }
 
-/** Launch a JILI game with the player's coins; returns the game URL. */
-export async function jiliLaunch(userId: string, uid: string): Promise<{ url: string; balance: number; coins: number; balanceVnd: number }> {
-  const [games, hidden] = await Promise.all([jiliGames(), jiliHidden()]);
-  if (!games.some((g) => g.uid === uid) || hidden.has(uid)) throw new Error("This game is not available");
-  await rpc("game_guard", { g: "jili", amount: 0, check_size: false }); // closed for maintenance?
-  await rpc("player_game_guard", { p_uid: userId, p_game: "jili" }); // locked for this player (115)?
+/** Launch a JILI game (or Bharat Matka, p = "matka") with the player's coins; returns the game URL. */
+export async function jiliLaunch(userId: string, uid: string, p: Provider = "jili"): Promise<{ url: string; balance: number; coins: number; balanceVnd: number }> {
+  if (p === "matka") {
+    if (uid !== MATKA_UID) throw new Error("This game is not available");
+  } else {
+    const [games, hidden] = await Promise.all([jiliGames(), jiliHidden()]);
+    if (!games.some((g) => g.uid === uid) || hidden.has(uid)) throw new Error("This game is not available");
+  }
+  await rpc("game_guard", { g: p, amount: 0, check_size: false }); // closed for maintenance?
+  await rpc("player_game_guard", { p_uid: userId, p_game: p }); // locked for this player (115)?
   const w = await selectOne<{ coins: number }>("wallets", `select=coins&user_id=eq.${userId}`);
   const coins = Math.floor(Number(w?.coins ?? 0));
   if (coins < 1) throw new Error("Not enough coins — ask your agent");
 
   const playerVnd = Math.floor(coins * COIN_TO_VND);
-  const capVnd = await launchCap();
-  if (capVnd < COIN_TO_VND) throw new Error("JILI is resting for a moment — please try again later");
+  const capVnd = await launchCap(p);
+  if (capVnd < COIN_TO_VND) throw new Error(`${PROVIDER_NAME[p]} is resting for a moment — please try again later`);
 
   const balanceVnd = Math.min(playerVnd, capVnd);
   const balance = Math.floor(balanceVnd / COIN_TO_VND); // coins taken into game
@@ -134,10 +146,10 @@ export async function jiliLaunch(userId: string, uid: string): Promise<{ url: st
     user_id: String(num + MEMBER_OFFSET),
     balance: String(balanceVnd),
     game_uid: uid,
-    token: TOKEN(),
+    token: TOKEN(p),
     timestamp: Date.now(),
     return: `${site}/`,
-    callback: `${site}/api/jili/callback?k=${process.env.JILI_CALLBACK_KEY}`,
+    callback: `${site}/api/jili/callback?k=${process.env.JILI_CALLBACK_KEY}&p=${p}`,
     currency_code: process.env.JILI_CURRENCY ?? "VND",
     language: "en",
   };
@@ -145,20 +157,20 @@ export async function jiliLaunch(userId: string, uid: string): Promise<{ url: st
   const r = await fetch(proxy, {
     method: "POST",
     headers: { "content-type": "application/json", "x-proxy-key": process.env.SOFTAPI_PROXY_KEY ?? "" },
-    body: JSON.stringify({ token: TOKEN(), payload: softEncrypt(payload) }),
+    body: JSON.stringify({ token: TOKEN(p), payload: softEncrypt(payload, secret(p)) }),
     cache: "no-store",
   });
   const j = (await r.json().catch(() => null)) as { code?: number; msg?: string; data?: { url?: string } } | null;
   if (j?.code !== 0 || !j.data?.url) {
-    console.warn("jili launch failed:", r.status, j?.code, j?.msg);
-    throw new Error(j?.code === 1 ? "JILI is resting for a moment — please try again later" : j?.msg || "The game could not be opened");
+    console.warn(`${p} launch failed:`, r.status, j?.code, j?.msg);
+    throw new Error(j?.code === 1 ? `${PROVIDER_NAME[p]} is resting for a moment — please try again later` : j?.msg || "The game could not be opened");
   }
   return { url: j.data.url, balance, coins, balanceVnd };
 }
 
 /** One settle notice from SoftAPI (plain or { payload } encrypted) into the ledger. */
-export async function jiliCallback(body: Record<string, unknown>) {
-  const n = (typeof body.payload === "string" ? softDecrypt(body.payload) : body) as Record<string, unknown>;
+export async function jiliCallback(body: Record<string, unknown>, p: Provider = "jili") {
+  const n = (typeof body.payload === "string" ? softDecrypt(body.payload, secret(p)) : body) as Record<string, unknown>;
   const raw = Number(n.member_account);
   const member = raw >= MEMBER_OFFSET ? raw - MEMBER_OFFSET : raw;
   const rawBet = Number(n.bet_amount ?? 0);
@@ -179,5 +191,6 @@ export async function jiliCallback(body: Record<string, unknown>) {
     p_bet: betCoins,
     p_win: winCoins,
     p_credit: creditCoins,
+    p_label: p === "matka" ? "Matka" : "JILI", // the ledger note's game ("Matka • Bharat Matka • Round #…")
   });
 }

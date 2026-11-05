@@ -38,8 +38,9 @@ const ABOUT: Record<string, { kind: Kind; rtp: string; fee?: string; feeDef?: nu
   chess: { kind: "bots", rtp: "Games go the player's way just often enough — against the computer", fee: "Taken from both entries before the winner is paid (none on a draw)", feeDef: 10 },
   cricket: { kind: "exchange", rtp: "Live exchange — bets settle on the real match at the odds taken; no RTP to set" },
   jili: { kind: "provider", rtp: "JILI's own games and RNG (slots usually 96–97%); the RTP is set by the provider, not here" },
+  matka: { kind: "provider", rtp: "Bharat Matka runs on the provider's own draw; the return is set by the provider, not here" },
 };
-const RTP_ORDER: GameId[] = ["dragon-tiger", "andar-bahar", "lucky-7", "roulette", "plinko", "blackjack", "aviator", "stock-market", "teen-patti", "rummy", "poker", "ludo", "chess", "cricket", "jili"];
+const RTP_ORDER: GameId[] = ["dragon-tiger", "andar-bahar", "lucky-7", "roulette", "plinko", "blackjack", "aviator", "stock-market", "teen-patti", "rummy", "poker", "ludo", "chess", "cricket", "jili", "matka"];
 const FEE_ORDER: GameId[] = ["teen-patti", "rummy", "poker", "ludo", "chess", "stock-market"];
 
 type Cfg = { rtp?: number; rake?: number; outcome_mode?: string };
@@ -199,7 +200,7 @@ export function RtpView() {
                           <span className="font-semibold text-amber-300">{eff}%</span>
                           <div className="text-[11px] text-white/40">house keeps {Math.round((100 - eff) * 10) / 10}%{a.kind === "bots" && fee != null ? ` • fee ${fee}%` : ""}</div>
                         </>
-                      ) : <span className="text-xs text-white/40">{a.kind === "provider" ? "≈ 96–97% (JILI)" : "By the odds"}</span>}
+                      ) : <span className="text-xs text-white/40">{a.kind === "provider" ? (id === "jili" ? "≈ 96–97% (JILI)" : "Set by the provider") : "By the odds"}</span>}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {actual === null ? <span className="text-white/30">…</span> : paid === null ? <span className="text-xs text-white/40">No bets</span> : (
