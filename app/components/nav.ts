@@ -14,6 +14,7 @@ export type Route =
   | { name: "blackjack" }
   | { name: "plinko" }
   | { name: "jili" } // the JILI lobby (iGaming SoftAPI)
+  | { name: "nine" } // 9Wickets live exchange (iGaming SoftAPI, transfer wallet)
   | { name: "jiliplay"; uid: string; title: string; demo?: boolean; provider?: "jili" | "matka" } // one JILI game (demo false: coins only); provider matka: Bharat Matka
   | { name: "stockmarket" }
   | { name: "cardtable"; game: GameId; table: string; buyIn: number; avoid?: string /* Switch table: not this one */ }

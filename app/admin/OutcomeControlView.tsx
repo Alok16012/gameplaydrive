@@ -25,7 +25,7 @@ import { GAMES, type GameId } from "../lib/data";
 
 /** Games the outcome control applies to. Cricket Live is a betting exchange settled by the real match result, so it
  *  has no win / loss switch here. */
-const OUTCOME_GAMES = GAMES.filter((g) => g.id !== "cricket" && g.kind !== "jili" && g.kind !== "matka"); // JILI / Matka run on the provider's own RNG
+const OUTCOME_GAMES = GAMES.filter((g) => g.id !== "cricket" && g.kind !== "jili" && g.kind !== "matka" && g.kind !== "nine"); // JILI / Matka / 9Wickets run on the provider's side
 
 import { GameIcon } from "../components/GameArt";
 import { ROLE_LABEL, coins, type Account, type Role } from "../lib/hierarchy";

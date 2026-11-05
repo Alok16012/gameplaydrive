@@ -122,6 +122,10 @@ export function GameIcon({ id, big = false }: { id: GameId; big?: boolean }) {
       // JILI's own artwork (Super Ace, its best-known slot) from the provider's image CDN.
       // eslint-disable-next-line @next/next/no-img-element
       return <img src="https://imagedelivery.net/nVyft9zNw2I0pNVtrnC1zA/879/public" alt="JILI" className="rounded-xl object-cover shadow-lg" style={{ width: 66 * s, height: 66 * s }} />;
+    case "9wickets":
+      // 9Wickets' own logo (the provider's artwork).
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img src="https://igamingapis.com/wp-content/uploads/2026/06/1774284124-9wicketslogo_1__nHSY_O0YU.png" alt="9Wickets" className="rounded-xl object-contain bg-white/90 shadow-lg p-1" style={{ width: 66 * s, height: 66 * s }} />;
     case "matka":
       // Bharat Matka's own logo (the provider's artwork).
       // eslint-disable-next-line @next/next/no-img-element

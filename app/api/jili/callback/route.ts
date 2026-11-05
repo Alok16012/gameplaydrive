@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   const q = new URL(req.url).searchParams;
   const k = q.get("k");
   if (!process.env.JILI_CALLBACK_KEY || k !== process.env.JILI_CALLBACK_KEY) return new Response("forbidden", { status: 403 });
-  const p: Provider = q.get("p") === "matka" ? "matka" : "jili"; // which account's secret decrypts the notice
+  const p: Provider = q.get("p") === "matka" ? "matka" : q.get("p") === "9w" ? "9w" : "jili"; // which account's secret decrypts the notice
   let body: Record<string, unknown>;
   try { body = (await req.json()) as Record<string, unknown>; } catch { return new Response("bad request", { status: 400 }); }
   try {
