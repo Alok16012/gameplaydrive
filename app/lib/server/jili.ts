@@ -236,7 +236,11 @@ export async function nineCap(): Promise<number> {
 }
 
 export interface NineSession { id: number; coins_in: number; coins_out: number | null; session_id: string | null; status: string; launched_at: string }
-export const nineOpen = (userId: string) => rpc<NineSession | null>("nw_open", { p_user: userId });
+/** The player's open session, or null (PostgREST renders a function's empty composite result as a row of nulls). */
+export async function nineOpen(userId: string): Promise<NineSession | null> {
+  const r = await rpc<NineSession | null>("nw_open", { p_user: userId });
+  return r && r.id != null ? r : null;
+}
 
 /** Move coins into 9Wickets and open the sportsbook. A session still open from before is cashed out first. */
 export async function nineLaunch(userId: string, coins: number): Promise<{ url: string; session: number; coins: number }> {
