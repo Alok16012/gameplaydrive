@@ -115,13 +115,15 @@ export const jiliRealReady = (p: Provider = "jili") =>
   ((p === "matka" ? process.env.MATKA_SECRET : p === "9w" ? process.env.NINE_SECRET : process.env.JILI_SECRET) ?? "").length === 32 && !!(p === "matka" ? process.env.MATKA_TOKEN : p === "9w" ? process.env.NINE_TOKEN : process.env.SOFTAPI_TOKEN)
   && !!process.env.SOFTAPI_PROXY_KEY && !!process.env.JILI_CALLBACK_KEY;
 
-/** Most coins a launch may carry: SoftAPI wants GGR credit ≥ 5% of the launch balance. */
+/** Most coins a launch may carry: SoftAPI wants GGR credit against the launch balance.
+ *  For JILI (VND) it is ~5%; for Bharat Matka (INR) SoftAPI requires ~1% GGR in USDT. */
 async function launchCap(p: Provider = "jili"): Promise<number> {
   const r = await fetch(`${BASE()}/ggr-balance?token=${encodeURIComponent(TOKEN(p))}`, { cache: "no-store" });
   const j = (await r.json().catch(() => null)) as { code?: number; data?: { wallet?: number } } | null;
   const usdt = Number(j?.data?.wallet ?? 0);
-  const perUsdt = p === "jili" ? Number(process.env.SOFTAPI_VND_RATE ?? 25000) : Number(process.env.SOFTAPI_INR_RATE ?? 88);
-  return Math.floor((usdt / 0.05) * perUsdt * 0.95); // 5% margin
+  const perUsdt = p === "jili" ? Number(process.env.SOFTAPI_VND_RATE ?? 25000) : Number(process.env.SOFTAPI_INR_RATE ?? 90);
+  const ggrMargin = p === "matka" ? 0.01 : 0.05;
+  return Math.floor((usdt / ggrMargin) * perUsdt * 0.95); // 5% buffer below SoftAPI rejection threshold
 }
 
 /** Launch a JILI game (or Bharat Matka, p = "matka") with the player's coins; returns the game URL. */
