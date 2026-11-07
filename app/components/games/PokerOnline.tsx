@@ -48,11 +48,30 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return j as T;
 }
 
+/** One action button. Defined at module level so React keeps the same DOM button across the screen's many re-renders
+ *  (the clock ticks four times a second) — a button re-created mid-tap swallowed the tap, and players had to press
+ *  two or three times. Tall enough for a thumb; a blocked action says why instead of doing nothing. */
+function ActionBtn({ busy, opt, label, amount, className, onClick, onBlocked }: { busy: boolean; opt: { ok: boolean; reason: string | null }; label: string; amount?: number; className: string; onClick: () => void; onBlocked: (m: string) => void }) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      title={opt.reason ?? undefined}
+      onClick={() => (opt.ok ? onClick() : opt.reason && onBlocked(opt.reason))}
+      className={`rounded-xl px-3 min-h-[52px] text-sm font-bold border leading-tight transition active:scale-[.97] select-none touch-manipulation ${className} ${opt.ok ? "" : "opacity-40"} disabled:opacity-60`}
+    >
+      {label}{amount !== undefined && amount > 0 && <><br /><span className="text-[13px]">{inr(amount)}</span></>}
+    </button>
+  );
+}
+
 export function PokerOnline({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: number; code?: string; avoid?: string }) {
   const { total, showToast, applyBalance } = useStore();
   const [resp, setResp] = useState<PokerTableResponse | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0); // bumped by Retry when seating takes too long
+  const [slow, setSlow] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [rules, setRules] = useState(false);
   const [raising, setRaising] = useState(false);
@@ -87,8 +106,11 @@ export function PokerOnline({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: numb
     };
     const t = setInterval(poll, 1000);
     const clock = setInterval(() => setNow(Date.now()), 250);
-    return () => { alive = false; clearInterval(t); clearInterval(clock); };
-  }, [buyIn, code, take]);
+    // Seating normally takes under two seconds; past twelve, offer Retry / Back instead of a spinner forever.
+    setSlow(false);
+    const slowT = window.setTimeout(() => { if (alive && !tableId.current) setSlow(true); }, 12000);
+    return () => { alive = false; clearInterval(t); clearInterval(clock); window.clearTimeout(slowT); };
+  }, [buyIn, code, take, attempt]);
 
   const v = resp?.view ?? null;
   const tbl = resp?.table ?? null;
@@ -206,16 +228,6 @@ export function PokerOnline({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: numb
   const myCards = me?.cards ?? null;
   const stageName = v ? STAGE_NAMES[Math.min(4, v.stage)] : "";
   const winHand = settled?.reason === "SHOWDOWN" ? settled.reveal.find((r) => r.playerId === settled.winners[0]?.playerId)?.handName : null;
-  const Btn = ({ opt, label, amount, className, onClick }: { opt: { ok: boolean; reason: string | null }; label: string; amount?: number; className: string; onClick: () => void }) => (
-    <button
-      disabled={busy}
-      title={opt.reason ?? undefined}
-      onClick={() => (opt.ok ? onClick() : opt.reason && showToast(opt.reason))}
-      className={`rounded-lg px-4 py-1.5 text-[12px] font-bold border leading-tight transition ${className} ${opt.ok ? "" : "opacity-40"}`}
-    >
-      {label}{amount !== undefined && amount > 0 && <><br /><span className="text-[13px]">{inr(amount)}</span></>}
-    </button>
-  );
   const raiseStep = Math.max(1, tbl?.boot ?? 1);
   const openRaise = () => {
     if (!me?.raise.ok) return me?.raise.reason && showToast(me.raise.reason);
@@ -258,7 +270,16 @@ export function PokerOnline({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: numb
           {/* Board, pot and status */}
           <div className="absolute left-1/2 top-[40%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center text-center z-10 w-[70%]">
             {!resp ? (
-              <div className="text-[13px] text-white/80">Finding a table…</div>
+              slow ? (
+                <div className="fadein">
+                  <div className="text-[13px] text-white/80">Still finding a table…</div>
+                  <div className="text-[11px] text-white/50 mt-1">The connection seems slow.</div>
+                  <div className="flex gap-2 justify-center mt-3">
+                    <button type="button" onClick={() => setAttempt((a) => a + 1)} className="btn-green pill px-4 py-2 text-[12px]">Retry</button>
+                    <button type="button" onClick={nav.back} className="btn-ghost pill px-4 py-2 text-[12px]">Back</button>
+                  </div>
+                </div>
+              ) : <div className="text-[13px] text-white/80">Finding a table…</div>
             ) : !liveHand ? (
               <div className="fadein">
                 {settled && settled.reason !== "VOID" && (
@@ -381,8 +402,8 @@ export function PokerOnline({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: numb
                 ))}
               </div>
               <div className="grid grid-cols-2 gap-2 mt-2.5">
-                <button onClick={() => setRaising(false)} className="btn-ghost rounded-full py-2 text-[13px]">Cancel</button>
-                <button disabled={busy} onClick={() => act("RAISE", Math.max(me.raise.min, Math.min(me.raise.max, raiseAmt)))} className="btn-green rounded-full py-2 text-[13px]">Raise {inr(raiseAmt)}</button>
+                <button type="button" onClick={() => setRaising(false)} className="btn-ghost rounded-full min-h-[48px] text-[13px] touch-manipulation">Cancel</button>
+                <button type="button" disabled={busy} onClick={() => act("RAISE", Math.max(me.raise.min, Math.min(me.raise.max, raiseAmt)))} className="btn-green rounded-full min-h-[48px] text-[13px] touch-manipulation disabled:opacity-60">Raise {inr(raiseAmt)}</button>
               </div>
             </div>
           )}
@@ -394,13 +415,13 @@ export function PokerOnline({ nav, buyIn, code, avoid }: { nav: Nav; buyIn: numb
             <>
               <div className="text-center text-[11px] text-white/50 mb-1.5">{me.toCall > 0 ? (me.call.allIn ? `${inr(me.toCall)} to call — you have ${inr(me.call.amount)}: all in or fold` : `${inr(me.toCall)} to call`) : "Nothing to call"}</div>
               <div className="grid grid-cols-3 gap-2">
-                <Btn opt={me.fold} label="Fold" className="bg-[#8b1d2c] border-white/15 py-3 text-sm" onClick={() => act("FOLD")} />
+                <ActionBtn busy={busy} opt={me.fold} label="Fold" className="bg-[#8b1d2c] border-white/15" onClick={() => act("FOLD")} onBlocked={showToast} />
                 {me.toCall > 0
-                  ? <Btn opt={me.call} label={me.call.allIn ? "All in" : "Call"} amount={me.call.amount} className={`${me.call.allIn ? "bg-orange-600 border-orange-300/40" : "bg-sky-600 border-sky-300/30"} py-2 text-sm`} onClick={() => act("CALL")} />
-                  : <Btn opt={me.check} label="Check" className="bg-sky-600 border-sky-300/30 py-3 text-sm" onClick={() => act("CHECK")} />}
+                  ? <ActionBtn busy={busy} opt={me.call} label={me.call.allIn ? "All in" : "Call"} amount={me.call.amount} className={me.call.allIn ? "bg-orange-600 border-orange-300/40" : "bg-sky-600 border-sky-300/30"} onClick={() => act("CALL")} onBlocked={showToast} />
+                  : <ActionBtn busy={busy} opt={me.check} label="Check" className="bg-sky-600 border-sky-300/30" onClick={() => act("CHECK")} onBlocked={showToast} />}
                 {me.raise.allIn
-                  ? <Btn opt={me.raise} label="All in" amount={me.raise.max} className="bg-orange-600 border-orange-300/40 py-2 text-sm" onClick={() => act("RAISE", me.raise.max)} />
-                  : <Btn opt={me.raise} label={raising ? "Close" : "Raise"} className="bg-[#3d7a1f] border-lime-300/30 py-3 text-sm" onClick={openRaise} />}
+                  ? <ActionBtn busy={busy} opt={me.raise} label="All in" amount={me.raise.max} className="bg-orange-600 border-orange-300/40" onClick={() => act("RAISE", me.raise.max)} onBlocked={showToast} />
+                  : <ActionBtn busy={busy} opt={me.raise} label={raising ? "Close" : "Raise"} className="bg-[#3d7a1f] border-lime-300/30" onClick={openRaise} onBlocked={showToast} />}
               </div>
             </>
           ) : (

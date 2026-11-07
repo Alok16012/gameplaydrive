@@ -34,4 +34,27 @@ export function useAutoUpdate(inGame: boolean) {
 
   // Leaving a game with an update pending: reload now.
   useEffect(() => { if (!inGame && stale.current) window.location.reload(); }, [inGame]);
+
+  // A screen's code that can no longer be fetched (a deploy went out while this bundle was open and its chunks are
+  // gone): nothing on the page will work again until it reloads, so reload at once — even at a table; the table
+  // lives on the server and the player is seated again on return. Once per minute at most, so a real outage
+  // doesn't loop.
+  useEffect(() => {
+    if (BUILD_ID === "dev") return;
+    const chunkGone = (msg: string) => /ChunkLoadError|Loading chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(msg);
+    const reloadOnce = () => {
+      const last = Number(sessionStorage.getItem("kb-chunk-reload") ?? 0);
+      if (Date.now() - last < 60000) return;
+      sessionStorage.setItem("kb-chunk-reload", String(Date.now()));
+      window.location.reload();
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const r = e.reason as { name?: string; message?: string } | undefined;
+      if (chunkGone(`${r?.name ?? ""} ${r?.message ?? ""}`)) reloadOnce();
+    };
+    const onError = (e: ErrorEvent) => { if (chunkGone(`${e.message ?? ""}`)) reloadOnce(); };
+    window.addEventListener("unhandledrejection", onRejection);
+    window.addEventListener("error", onError);
+    return () => { window.removeEventListener("unhandledrejection", onRejection); window.removeEventListener("error", onError); };
+  }, []);
 }
