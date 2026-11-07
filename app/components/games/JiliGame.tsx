@@ -115,7 +115,6 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   const [mode, setMode] = useState<"coins" | "free" | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState("");
-  const [cap, setCap] = useState<{ balance: number; coins: number } | null>(null); // fewer coins went in than you hold
   const [fullscreen, setFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -163,7 +162,6 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
         if (!alive) return;
         if (j.url) {
           setUrl(j.url);
-          setCap(mode === "coins" && j.balance != null && j.coins != null && j.balance < j.coins ? { balance: j.balance, coins: j.coins } : null);
         } else setErr(j.error ?? "The game could not be opened");
       })
       .catch(() => alive && setErr("The game could not be opened — check your connection"));
@@ -196,11 +194,6 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
           </button>
         )}
       </div>
-      {cap && url && (
-        <div className="shrink-0 bg-amber-500/15 border-b border-amber-400/30 text-amber-100 text-[11px] px-3 py-1.5">
-          {brand} me abhi ek baar me {inr(cap.balance)} tak — baaki {inr(cap.coins - cap.balance)} aapke wallet me safe hain.
-        </div>
-      )}
       <div className="relative flex-1 min-h-0">
         {mode === null ? (
           <div className="absolute inset-0 grid place-items-center px-6">

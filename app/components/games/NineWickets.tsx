@@ -21,7 +21,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export function NineWickets({ nav }: { nav: Nav }) {
   const { refresh, showToast } = useStore();
   const [url, setUrl] = useState<string | null>(null);
-  const [capInfo, setCapInfo] = useState<{ coinsIn: number; walletCoins: number } | null>(null);
   const [busy, setBusy] = useState<"launch" | "cashout" | null>("launch");
   const [err, setErr] = useState("");
   const [bets, setBets] = useState<NineBet[] | null>(null);
@@ -64,11 +63,6 @@ export function NineWickets({ nav }: { nav: Nav }) {
     try {
       const r = await api<{ url: string; coins: number; walletCoins: number }>("/api/nine/launch", { method: "POST", body: JSON.stringify({}) });
       setUrl(r.url);
-      if (r.walletCoins != null && r.coins != null && r.coins < r.walletCoins) {
-        setCapInfo({ coinsIn: r.coins, walletCoins: r.walletCoins });
-      } else {
-        setCapInfo(null);
-      }
       refresh();
     } catch (e) {
       setErr((e as Error).message);
@@ -148,13 +142,6 @@ export function NineWickets({ nav }: { nav: Nav }) {
           </button>
         </div>
       </div>
-
-      {/* Launch cap banner if applicable */}
-      {capInfo && url && (
-        <div className="shrink-0 bg-emerald-500/15 border-b border-emerald-400/30 text-emerald-100 text-[11px] px-3 py-1.5">
-          9Wickets me abhi ek baar me {inr(capInfo.coinsIn)} tak — baaki {inr(capInfo.walletCoins - capInfo.coinsIn)} aapke wallet me safe hain.
-        </div>
-      )}
 
       {/* Main Container */}
       <div className="relative flex-1 min-h-0">
