@@ -244,19 +244,27 @@ export async function nineOpen(userId: string): Promise<NineSession | null> {
   return r && r.id != null ? r : null;
 }
 
-/** Move coins into 9Wickets and open the sportsbook. A session still open from before is cashed out first. */
-export async function nineLaunch(userId: string, coins: number): Promise<{ url: string; session: number; coins: number }> {
+/** Move coins into 9Wickets and open the sportsbook. A session still open from before is cashed out first.
+ *  If coins is omitted, takes the player's full wallet balance up to the launch cap. */
+export async function nineLaunch(userId: string, coins?: number): Promise<{ url: string; session: number; coins: number; walletCoins: number }> {
   if (await nineOpen(userId)) await nineCashout(userId);
   const cap = await nineCap();
   if (cap < 10) throw new Error("9Wickets is resting for a moment — please try again later");
-  if (coins > cap) throw new Error(`At most ${cap.toLocaleString("en-IN")} coins can go into 9Wickets right now`);
+
+  const w = await selectOne<{ coins: number }>("wallets", `select=coins&user_id=eq.${userId}`);
+  const walletCoins = Math.floor(Number(w?.coins ?? 0));
+  if (walletCoins < 10) throw new Error("At least 10 coins are required to play 9Wickets");
+
+  const toTake = Math.min(coins && coins >= 10 ? coins : walletCoins, cap, walletCoins);
+  if (toTake < 10) throw new Error("At least 10 coins are required to play 9Wickets");
+
   const num = await rpc<number>("jili_player_num", { p_user: userId });
-  const sid = await rpc<number>("nw_start", { p_user: userId, p_coins: coins });
+  const sid = await rpc<number>("nw_start", { p_user: userId, p_coins: toTake });
   try {
-    const j = await nineTransfer(num, coins, `in-${sid}`);
+    const j = await nineTransfer(num, toTake, `in-${sid}`);
     if (j.code !== 0 || !j.data?.url) throw new Error(j.code === 1 ? "9Wickets is resting for a moment — please try again later" : j.msg || "9Wickets could not be opened");
     await rpc("nw_opened", { p_id: sid, p_session: j.data.session_id != null ? String(j.data.session_id) : null });
-    return { url: j.data.url, session: sid, coins };
+    return { url: j.data.url, session: sid, coins: toTake, walletCoins };
   } catch (e) {
     await rpc("nw_cancel", { p_id: sid, p_why: e instanceof Error ? e.message : String(e) }).catch(() => {});
     throw e;

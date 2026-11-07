@@ -1,16 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ExternalLink, ListOrdered, LogOut } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronLeft, ListOrdered, Maximize, Minimize, RefreshCw, X } from "lucide-react";
 import { apiFetch } from "../../lib/supabase";
 import { inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
-import type { NineBet, NineSession } from "../../lib/server/jili";
+import type { NineBet } from "../../lib/server/jili";
 import type { Nav } from "../nav";
 
-// 9Wickets — a live cricket / sports exchange from iGaming SoftAPI (migration 121). It keeps its own wallet: the
-// player moves coins in, bets inside the sportsbook, and takes what is left back out ("Cash out & leave"). One
-// session at a time; a session left open is cashed out the next time the player comes here.
+// 9Wickets — a live cricket / sports exchange from iGaming SoftAPI (migration 121).
+// Seamless flow: opens directly with the player's wallet coins (auto-cashout on exit / re-entry).
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await apiFetch(path, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
@@ -20,133 +19,234 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function NineWickets({ nav }: { nav: Nav }) {
-  const { total, refresh, showToast } = useStore();
-  const [state, setState] = useState<{ ready: boolean; open: NineSession | null; cap: number } | null>(null);
-  const [amount, setAmount] = useState("");
+  const { refresh, showToast } = useStore();
   const [url, setUrl] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"launch" | "cashout" | null>(null);
+  const [capInfo, setCapInfo] = useState<{ coinsIn: number; walletCoins: number } | null>(null);
+  const [busy, setBusy] = useState<"launch" | "cashout" | null>("launch");
   const [err, setErr] = useState("");
   const [bets, setBets] = useState<NineBet[] | null>(null);
   const [showBets, setShowBets] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const s = await api<{ ready: boolean; open: NineSession | null; cap: number }>("/api/nine/state");
-      setState(s);
-      setAmount((a) => a || String(Math.max(10, Math.min(Math.floor(total), s.cap || 0))));
-    } catch (e) { setErr((e as Error).message); }
-  }, [total]);
-  useEffect(() => { load(); }, [load]);
+  // Fullscreen event listener (native device fullscreen)
+  useEffect(() => {
+    const onFsChange = () => {
+      const doc = document as unknown as { fullscreenElement?: Element; webkitFullscreenElement?: Element };
+      setFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
 
-  const launch = async (coins: number) => {
+  const toggleFullscreen = () => {
+    const doc = document as unknown as { fullscreenElement?: Element; webkitFullscreenElement?: Element; exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void };
+    const el = containerRef.current as unknown as { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void };
+    if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
+      if (el?.requestFullscreen) el.requestFullscreen().catch(() => setFullscreen((v) => !v));
+      else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else setFullscreen((v) => !v);
+    } else {
+      if (doc.exitFullscreen) doc.exitFullscreen().catch(() => {});
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+      setFullscreen(false);
+    }
+  };
+
+  // Launch directly with wallet coins on mount
+  const launch = useCallback(async () => {
     setBusy("launch");
     setErr("");
     try {
-      const r = await api<{ url: string }>("/api/nine/launch", { method: "POST", body: JSON.stringify({ coins }) });
+      const r = await api<{ url: string; coins: number; walletCoins: number }>("/api/nine/launch", { method: "POST", body: JSON.stringify({}) });
       setUrl(r.url);
+      if (r.walletCoins != null && r.coins != null && r.coins < r.walletCoins) {
+        setCapInfo({ coinsIn: r.coins, walletCoins: r.walletCoins });
+      } else {
+        setCapInfo(null);
+      }
       refresh();
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) {
+      setErr((e as Error).message);
+    }
     setBusy(null);
-  };
-  const cashout = async (leave: boolean) => {
+  }, [refresh]);
+
+  useEffect(() => {
+    launch();
+  }, [launch]);
+
+  // Cash out and return to home
+  const cashoutAndBack = async () => {
     setBusy("cashout");
-    setErr("");
     try {
       const r = await api<{ coins: number }>("/api/nine/cashout", { method: "POST" });
       await refresh();
-      showToast(r.coins > 0 ? `${inr(r.coins)} came back to your coins` : "Nothing left in 9Wickets to bring back");
-      setUrl(null);
-      if (leave) return nav.back();
-      load();
-    } catch (e) { setErr((e as Error).message); }
+      if (r.coins > 0) {
+        showToast(`${inr(r.coins)} came back to your coins`);
+      }
+    } catch {
+      // ignore error on exit, wallet is safe
+    }
     setBusy(null);
+    nav.back();
   };
+
   const loadBets = async () => {
     setShowBets(true);
     if (bets) return;
-    try { setBets((await api<{ bets: NineBet[] }>("/api/nine/bets")).bets); } catch { setBets([]); }
+    try {
+      setBets((await api<{ bets: NineBet[] }>("/api/nine/bets")).bets);
+    } catch {
+      setBets([]);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-black">
+    <div ref={containerRef} className="fixed inset-0 z-40 flex flex-col bg-black">
+      {/* Top Header */}
       <div className="h-11 shrink-0 flex items-center gap-2 px-2 bg-[#0b1f16] border-b border-white/10">
-        <button onClick={() => (url ? cashout(true) : nav.back())} disabled={busy === "cashout"} aria-label="Back" className="w-8 h-8 grid place-items-center rounded-full bg-white/10 active:scale-95"><ChevronLeft size={18} /></button>
+        <button
+          onClick={cashoutAndBack}
+          disabled={busy === "cashout"}
+          aria-label="Back"
+          className="w-8 h-8 grid place-items-center rounded-full bg-white/10 active:scale-95 disabled:opacity-50"
+        >
+          {busy === "cashout" ? <RefreshCw size={14} className="animate-spin text-white" /> : <ChevronLeft size={18} />}
+        </button>
+
         <div className="leading-tight min-w-0">
-          <div className="text-sm font-semibold">9Wickets</div>
-          <div className="text-[10px] text-emerald-300">{url ? "Live exchange • your coins are in the 9Wickets wallet" : "Live cricket & sports exchange"}</div>
-        </div>
-        {url && (
-          <div className="ml-auto flex items-center gap-2">
-            <a href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-white/60 flex items-center gap-1"><ExternalLink size={13} /> Full screen</a>
-            <button onClick={() => cashout(true)} disabled={busy === "cashout"} className="rounded-lg px-2.5 py-1.5 text-[11px] font-semibold bg-emerald-500 text-black flex items-center gap-1 disabled:opacity-50"><LogOut size={12} /> {busy === "cashout" ? "Cashing out…" : "Cash out & leave"}</button>
+          <div className="text-sm font-semibold truncate">9Wickets</div>
+          <div className="text-[10px] text-emerald-400 truncate">
+            {busy === "launch" ? "Connecting…" : busy === "cashout" ? "Cashing out to wallet…" : "Live cricket & sports exchange"}
           </div>
-        )}
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          {url && (
+            <button
+              onClick={toggleFullscreen}
+              type="button"
+              className="text-[11px] text-white/70 hover:text-white flex items-center gap-1 px-1.5 py-1 rounded-lg bg-white/5 active:scale-95 transition"
+            >
+              {fullscreen ? <Minimize size={13} /> : <Maximize size={13} />}
+              <span>{fullscreen ? "Exit full screen" : "Full screen"}</span>
+            </button>
+          )}
+
+          <button
+            onClick={loadBets}
+            type="button"
+            className="text-[11px] text-white/70 hover:text-white flex items-center gap-1 px-1.5 py-1 rounded-lg bg-white/5 active:scale-95 transition"
+          >
+            <ListOrdered size={13} />
+            <span className="hidden sm:inline">My bets</span>
+          </button>
+        </div>
       </div>
 
+      {/* Launch cap banner if applicable */}
+      {capInfo && url && (
+        <div className="shrink-0 bg-emerald-500/15 border-b border-emerald-400/30 text-emerald-100 text-[11px] px-3 py-1.5">
+          9Wickets me abhi ek baar me {inr(capInfo.coinsIn)} tak — baaki {inr(capInfo.walletCoins - capInfo.coinsIn)} aapke wallet me safe hain.
+        </div>
+      )}
+
+      {/* Main Container */}
       <div className="relative flex-1 min-h-0">
         {url ? (
-          <iframe src={url} title="9Wickets" className="absolute inset-0 w-full h-full border-0" allow="autoplay; fullscreen" allowFullScreen />
+          <iframe
+            src={url}
+            title="9Wickets"
+            className="absolute inset-0 w-full h-full border-0"
+            allow="autoplay; fullscreen"
+            allowFullScreen
+          />
         ) : (
-          <div className="absolute inset-0 overflow-y-auto px-5 py-6" style={{ background: "radial-gradient(120% 60% at 50% 0%, #0a3d2a 0%, #061a12 55%, #05080a 100%)" }}>
-            <div className="max-w-[380px] mx-auto">
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center px-6"
+            style={{ background: "radial-gradient(120% 60% at 50% 0%, #0a3d2a 0%, #061a12 55%, #05080a 100%)" }}
+          >
+            <div className="w-full max-w-[340px] text-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="https://igamingapis.com/wp-content/uploads/2026/06/1774284124-9wicketslogo_1__nHSY_O0YU.png" alt="9Wickets" className="h-12 mx-auto object-contain" />
-              <div className="text-center text-xs text-white/55 mt-2">Back & lay on live cricket, football, tennis and more. Your coins go into the 9Wickets wallet while you play and come back when you cash out.</div>
+              <img
+                src="https://igamingapis.com/wp-content/uploads/2026/06/1774284124-9wicketslogo_1__nHSY_O0YU.png"
+                alt="9Wickets"
+                className="h-12 mx-auto object-contain"
+              />
 
-              {state === null && !err && <div className="text-center text-sm text-white/50 py-10 animate-pulse">Loading…</div>}
-              {state && !state.ready && <div className="card p-4 mt-6 text-sm text-white/70 text-center">9Wickets is not available right now.</div>}
-
-              {state?.ready && state.open && (
-                <div className="card p-4 mt-6">
-                  <div className="text-sm font-semibold">You have a session open</div>
-                  <div className="text-xs text-white/55 mt-1">{inr(state.open.coins_in)} went into 9Wickets {new Date(state.open.launched_at).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}. Whatever is still in the wallet comes back when you cash out.</div>
-                  <div className="grid grid-cols-2 gap-2 mt-3">
-                    <button onClick={() => cashout(false)} disabled={!!busy} className="btn-ghost rounded-xl py-2.5 text-sm">{busy === "cashout" ? "Cashing out…" : "Cash out"}</button>
-                    <button onClick={() => launch(Math.max(10, Math.floor(Number(amount)) || 10))} disabled={!!busy} className="btn-green rounded-xl py-2.5 text-sm">{busy === "launch" ? "Opening…" : "Cash out & re-enter"}</button>
-                  </div>
+              {busy === "launch" && (
+                <div className="mt-6 flex flex-col items-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin" />
+                  <div className="text-sm font-medium text-emerald-100">Opening 9Wickets with your coins…</div>
+                  <div className="text-xs text-white/50">Your coins move securely into the sportsbook</div>
                 </div>
               )}
 
-              {state?.ready && !state.open && (
-                <div className="card p-4 mt-6">
-                  <div className="flex items-baseline justify-between"><span className="text-sm font-semibold">Coins to take in</span><span className="text-xs text-white/50">You have {inr(total)}</span></div>
-                  <input type="number" inputMode="numeric" min={10} max={Math.min(Math.floor(total), state.cap)} value={amount} onChange={(e) => setAmount(e.target.value)}
-                    className="w-full mt-2 bg-white/5 border border-white/15 rounded-xl px-3 py-3 text-lg font-semibold outline-none focus:border-emerald-400" />
-                  <div className="flex gap-1.5 mt-2">
-                    {[500, 1000, 2000, 5000].filter((v) => v <= Math.min(total, state.cap)).map((v) => (
-                      <button key={v} onClick={() => setAmount(String(v))} className="flex-1 rounded-lg py-1.5 text-xs bg-white/10">{v.toLocaleString("en-IN")}</button>
-                    ))}
-                    <button onClick={() => setAmount(String(Math.min(Math.floor(total), state.cap)))} className="flex-1 rounded-lg py-1.5 text-xs bg-white/10">Max</button>
+              {err && (
+                <div className="mt-6 card p-4 border border-rose-500/30 bg-rose-950/20">
+                  <div className="text-sm text-rose-300 font-medium">{err}</div>
+                  <div className="flex gap-2 justify-center mt-4">
+                    <button onClick={launch} className="btn-green rounded-xl px-4 py-2 text-sm font-semibold">
+                      Try again
+                    </button>
+                    <button onClick={nav.back} className="btn-ghost rounded-xl px-4 py-2 text-sm">
+                      Back
+                    </button>
                   </div>
-                  {state.cap < total && <div className="text-[11px] text-amber-200/80 mt-2">Abhi ek baar me {inr(state.cap)} tak hi ja sakte hain.</div>}
-                  <button onClick={() => launch(Math.floor(Number(amount)))} disabled={!!busy || !(Number(amount) >= 10)} className="btn-green w-full rounded-2xl py-3.5 mt-4 font-semibold disabled:opacity-50">
-                    {busy === "launch" ? "Opening…" : `Enter 9Wickets with ${inr(Math.floor(Number(amount)) || 0)}`}
-                  </button>
-                  <div className="text-[11px] text-white/45 mt-2 text-center">Bets settle inside 9Wickets. Press &quot;Cash out &amp; leave&quot; when you are done to bring your coins back.</div>
-                </div>
-              )}
-
-              {err && <div className="text-sm text-rose-300 text-center mt-4">{err}</div>}
-
-              <button onClick={loadBets} className="btn-ghost w-full rounded-xl py-2.5 mt-5 text-sm flex items-center justify-center gap-1.5"><ListOrdered size={14} /> My bets (last 7 days)</button>
-              {showBets && (
-                <div className="mt-3 space-y-2">
-                  {bets === null && <div className="text-center text-xs text-white/50 py-4">Loading…</div>}
-                  {bets && bets.length === 0 && <div className="text-center text-xs text-white/50 py-4">No bets in the last 7 days.</div>}
-                  {bets?.map((b, i) => (
-                    <div key={b.bet_id ?? i} className="card p-3 text-xs">
-                      <div className="font-semibold truncate">{b.event ?? b.sport ?? "Bet"}</div>
-                      <div className="text-white/60 truncate">{[b.market, b.selection, b.side].filter(Boolean).join(" • ")}{b.odds ? ` @ ${b.odds}` : ""}</div>
-                      <div className="flex justify-between mt-1"><span className="text-white/50">Stake {inr(Number(b.stake ?? 0))}</span>
-                        <span className={b.status !== "settled" ? "text-amber-300" : Number(b.profit_loss) >= 0 ? "text-emerald-400" : "text-rose-400"}>{b.status !== "settled" ? "Open" : `${Number(b.profit_loss) >= 0 ? "+" : "−"}${inr(Math.abs(Number(b.profit_loss ?? 0)))}`}</span></div>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
           </div>
         )}
       </div>
+
+      {/* Bets Modal / Sheet */}
+      {showBets && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in">
+          <div className="w-full max-w-md max-h-[80vh] flex flex-col bg-[#0b1f16] border border-white/10 rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-black/20">
+              <div className="text-sm font-semibold flex items-center gap-2 text-white">
+                <ListOrdered size={16} className="text-emerald-400" /> My bets (last 7 days)
+              </div>
+              <button onClick={() => setShowBets(false)} className="w-7 h-7 grid place-items-center rounded-full bg-white/10 active:scale-95 text-white/70">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+              {bets === null && <div className="text-center text-xs text-white/50 py-8">Loading your bets…</div>}
+              {bets && bets.length === 0 && <div className="text-center text-xs text-white/50 py-8">No bets in the last 7 days.</div>}
+              {bets?.map((b, i) => (
+                <div key={b.bet_id ?? i} className="card p-3 text-xs bg-white/5 border border-white/10 rounded-xl">
+                  <div className="font-semibold text-white truncate">{b.event ?? b.sport ?? "Bet"}</div>
+                  <div className="text-white/60 truncate mt-0.5">
+                    {[b.market, b.selection, b.side].filter(Boolean).join(" • ")}
+                    {b.odds ? ` @ ${b.odds}` : ""}
+                  </div>
+                  <div className="flex justify-between items-center mt-2 pt-2 border-t border-white/5">
+                    <span className="text-white/50">Stake: {inr(Number(b.stake ?? 0))}</span>
+                    <span
+                      className={`font-semibold ${
+                        b.status !== "settled"
+                          ? "text-amber-300"
+                          : Number(b.profit_loss) >= 0
+                          ? "text-emerald-400"
+                          : "text-rose-400"
+                      }`}
+                    >
+                      {b.status !== "settled" ? "Open" : `${Number(b.profit_loss) >= 0 ? "+" : "−"}${inr(Math.abs(Number(b.profit_loss ?? 0)))}`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ExternalLink, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronLeft, Maximize, Minimize, Search } from "lucide-react";
 import { apiFetch } from "../../lib/supabase";
 import { inr } from "../../lib/data";
 import { useStore } from "../../lib/store";
@@ -116,6 +116,35 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [cap, setCap] = useState<{ balance: number; coins: number } | null>(null); // fewer coins went in than you hold
+  const [fullscreen, setFullscreen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const doc = document as unknown as { fullscreenElement?: Element; webkitFullscreenElement?: Element };
+      setFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    const doc = document as unknown as { fullscreenElement?: Element; webkitFullscreenElement?: Element; exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void };
+    const el = containerRef.current as unknown as { requestFullscreen?: () => Promise<void>; webkitRequestFullscreen?: () => void };
+    if (!doc.fullscreenElement && !doc.webkitFullscreenElement) {
+      if (el?.requestFullscreen) el.requestFullscreen().catch(() => setFullscreen((v) => !v));
+      else if (el?.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else setFullscreen((v) => !v);
+    } else {
+      if (doc.exitFullscreen) doc.exitFullscreen().catch(() => {});
+      else if (doc.webkitExitFullscreen) doc.webkitExitFullscreen();
+      setFullscreen(false);
+    }
+  };
 
   useEffect(() => {
     apiFetch(`/api/jili/launch?check=1&p=${provider}`).then((r) => r.json()).then((j: { ready?: boolean }) => setReady(!!j.ready)).catch(() => setReady(false));
@@ -151,7 +180,7 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   const back = () => { if (mode === "coins") showToast(`Your ${brand} wins and losses are in your coins and Game History`); nav.back(); };
 
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-black">
+    <div ref={containerRef} className="fixed inset-0 z-40 flex flex-col bg-black">
       <div className="h-11 shrink-0 flex items-center gap-2 px-2 bg-[#0b0f24] border-b border-white/10">
         <button onClick={back} aria-label="Back" className="w-8 h-8 grid place-items-center rounded-full bg-white/10 active:scale-95"><ChevronLeft size={18} /></button>
         <div className="leading-tight min-w-0">
@@ -161,9 +190,10 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
           </div>
         </div>
         {url && (
-          <a href={url} target="_blank" rel="noopener noreferrer" className="ml-auto text-[11px] text-white/60 flex items-center gap-1 pr-1">
-            <ExternalLink size={13} /> Full screen
-          </a>
+          <button onClick={toggleFullscreen} type="button" className="ml-auto text-[11px] text-white/70 hover:text-white flex items-center gap-1 pr-1 active:scale-95 transition">
+            {fullscreen ? <Minimize size={13} /> : <Maximize size={13} />}
+            <span>{fullscreen ? "Exit full screen" : "Full screen"}</span>
+          </button>
         )}
       </div>
       {cap && url && (
