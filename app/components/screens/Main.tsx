@@ -368,7 +368,7 @@ export function Lobby({ nav, gameId }: { nav: Nav; gameId: GameId }) {
                 <button key={k} onClick={() => { setMode(k); setPrivAmt(""); }} className={`rounded-xl py-2 text-xs font-medium ${mode === k ? "btn-green" : "text-white/70"}`}>{RUMMY_MODES[k].short}</button>
               ))}
             </div>
-            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards from three decks + 3 printed jokers. Cut joker ± same-suit neighbours are jokers. Declare with 3 pure sequences (a 3 Naali counts). 3× 3 Naali or 8 Doubles = rummy; 7 Doubles = game maaf." : ""}</div>
+            <div className="text-[11px] text-[var(--ink-soft)] mb-3 px-1">{RUMMY_MODES[mode].about.replace("80", String(maxPts))}{cards === 21 ? " 21 cards from three decks + 3 printed jokers, up to 5 players. Jokers: every card of the cut rank, the same-suit card above (upper) and below (lower), and printed jokers. Declare with 3 pure sequences (a 3 Naali counts) and the rest in sets / sequences — or 3× 3 Naali, 8 Doubles, or 8 jokers. Drop 30, middle drop 70, full hand 120. Value cards (the cut card, upper, lower): 1 = 10, 2 = 30, 3 = 50 points; a marriage (all three) = 100 — paid by every player who didn't drop." : ""}</div>
           </>
         )}
         {gameId === "ludo" && (

@@ -5,7 +5,7 @@ import { dealSound, sfx, useSoundOnRise } from "../../lib/sound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownUp, ChevronLeft, ChevronUp, Hand, Layers, ListOrdered, LogOut, Menu, Plus, Trophy } from "lucide-react";
 import { inr, type Card } from "../../lib/data";
-import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, wildKey } from "../../lib/rummyRules";
+import { KIND_LABEL, cardPoints, scoreGroups, type RCard, isJoker, isValueCard, jokerCards, valueBonus, wildKey } from "../../lib/rummyRules";
 import { useStore } from "../../lib/store";
 import { errText, fire, joinOnce, supabase } from "../../lib/supabase";
 import { Header, HomeButton, Money, PlayingCard, Sheet } from "../ui";
@@ -26,7 +26,7 @@ interface Seat {
   wrong?: boolean; out?: boolean; score?: number; action?: string | null; left?: boolean; picked?: number | null; turns?: number;
   sitout?: boolean; // sitting out: keeps the seat, not dealt in (107)
 }
-interface Row { seat: number; name: string; bot: boolean; uid?: string; pts: number | null; score: number; note: string; out: boolean; coins: number | null; hand: RCard[][] | null }
+interface Row { seat: number; name: string; bot: boolean; uid?: string; pts: number | null; score: number; note: string; out: boolean; coins: number | null; hand: RCard[][] | null; bonus?: number | null /* 21 Card value-card / marriage bonus (123) */ }
 interface Result { winner: number; winner_name: string; rows: Row[]; match_over: boolean; champion: number | null; champion_name: string | null; prize: number; deal_no: number; wild: Card; rake: number }
 /** One turn on the table (server move log): where the card came from and what was thrown; or the deck reshuffle. */
 interface Move { seat?: number; name?: string; src?: "open" | "closed"; took?: RCard | null; threw?: RCard; reshuffle?: boolean }
@@ -642,6 +642,18 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                 )}
                 <div className={`relative rounded-[10px] ${myTurn && v.phase === "draw" ? "rc-glow" : ""}`}><RcBack w={deckW} h={deckH} /></div>
               </button>
+              {cards === 21 && jokerCards(v.wild) && (() => {
+                const j = jokerCards(v.wild)!;
+                const vb = valueBonus(v.my_cards ?? [], v.wild);
+                return (
+                  <div className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap pointer-events-none text-center z-10" style={{ top: deckH / 2 + 8 }}>
+                    <span className="pill bg-black/55 border border-white/15 px-2.5 py-0.5 text-[10px] text-white/80">
+                      Cut {j.cut.r}{j.cut.s} • Upper {j.upper.r}{j.upper.s} • Lower {j.lower.r}{j.lower.s}
+                      {vb.bonus > 0 && <span className="text-amber-300"> • {vb.marriages ? `Marriage +${vb.bonus}` : `Value +${vb.bonus}`}</span>}
+                    </span>
+                  </div>
+                );
+              })()}
               {/* Table moves: a small arrow in the gap between the closed deck and the open pile opens everyone's moves */}
               {v.log && (
                 <button onClick={() => setMoves(true)} aria-label="Table moves" className="absolute -translate-x-1/2 -translate-y-1/2 z-10 grid place-items-center rounded-full bg-black/45 border border-white/30 text-white shadow-[0_3px_8px_rgba(0,0,0,.45)] active:scale-90 transition-transform" style={{ left: `calc(45% + ${deckW / 4}px)`, width: Math.round(26 * S), height: Math.round(26 * S) }}>
@@ -728,7 +740,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
                             filter: dragging ? "drop-shadow(0 10px 14px rgba(0,0,0,.5))" : undefined,
                           }}
                         >
-                          <RcCard card={c} wild={isJoker(c, wild)} w={cw} h={ch} selected={sel.includes(c.id)} onClick={() => {}} />
+                          <RcCard card={c} wild={isJoker(c, wild)} value={cards === 21 && isValueCard(c, v?.wild)} w={cw} h={ch} selected={sel.includes(c.id)} onClick={() => {}} />
                         </div>
                       );
                     })}
@@ -935,7 +947,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
               const d = scoreGroups(declareGroups().map((g) => g.map((id) => byId.get(id)).filter(Boolean) as RCard[]), wild);
               return d.valid
                 ? <>Your {cards} cards form a valid hand. The selected card goes to the open pile.</>
-                : <span className="text-rose-300">These groups are not a valid declaration{cards === 21 ? " (21 cards need 3 pure sequences)" : ""}. A wrong show costs {maxPts} points.</span>;
+                : <span className="text-rose-300">These groups are not a valid declaration{cards === 21 ? " (21 cards need 3 pure sequences, or 3× 3 Naali, 8 Doubles or 8 jokers)" : ""}. A wrong show costs {maxPts} points.</span>;
             })()}
             <div className="grid grid-cols-2 gap-3 mt-5">
               <button onClick={() => setConfirm(null)} className="btn-ghost py-3 rounded-2xl">Cancel</button>
@@ -966,7 +978,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
             </div>
             {res.rows.map((r) => (
               <div key={r.seat} className={`grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 text-sm ${r.seat === me ? "bg-neon-400/10" : ""}`}>
-                <span className="truncate">{r.seat === res.winner && "🏆 "}{r.seat === me ? "You" : r.name}{r.bot && <BotTag />} <span className="text-[12px] text-white/40">{r.note}</span></span>
+                <span className="truncate">{r.seat === res.winner && "🏆 "}{r.seat === me ? "You" : r.name}{r.bot && <BotTag />} <span className="text-[12px] text-white/40">{r.note}</span>{!!r.bonus && <span className="text-[11px] text-amber-300"> • +{r.bonus} value</span>}</span>
                 <span className="text-right tabular-nums">{r.pts ?? "—"}</span>
                 <span className={`text-right tabular-nums w-16 ${r.out ? "text-rose-300" : ""}`}>
                   {mode === "points" ? (r.coins === null ? "—" : `${r.coins >= 0 ? "+" : "-"}${inr(r.coins)}`) : mode === "deals" ? `${r.score >= 0 ? "+" : ""}${r.score}` : r.out ? `${r.score} out` : r.score}
@@ -994,7 +1006,7 @@ export function RummyOnline({ nav, mode: askedMode, stake: askedStake, deals: as
 // ---------------------------------------------------------------- table pieces (styled like native rummy apps)
 
 /** A big card: large rank and suit in the corner (the part that shows when cards overlap), big suit below. */
-function RcCard({ card, w, h, wild, selected, onClick, className = "", style }: { card: Card; w: number; h: number; wild?: boolean; selected?: boolean; onClick?: () => void; className?: string; style?: React.CSSProperties }) {
+function RcCard({ card, w, h, wild, value, selected, onClick, className = "", style }: { card: Card; w: number; h: number; wild?: boolean; value?: boolean; selected?: boolean; onClick?: () => void; className?: string; style?: React.CSSProperties }) {
   const red = card.s === "♥" || card.s === "♦";
   const ink = red ? "#e11d2a" : "#111";
   if ((card.r as string) === "JK") {
@@ -1021,6 +1033,7 @@ function RcCard({ card, w, h, wild, selected, onClick, className = "", style }: 
       </div>
       <div className="absolute leading-none" style={{ right: w * 0.08, bottom: h * 0.05, color: ink, fontSize: h * 0.42 }}>{card.s}</div>
       {wild && <div className="absolute -left-1 top-1 rounded-r-md bg-sky-600 text-white font-bold grid place-items-center" style={{ width: h * 0.15, height: h * 0.18, fontSize: h * 0.12 }}>J</div>}
+      {value && <div className="absolute -left-1 rounded-r-md bg-amber-400 text-black font-bold grid place-items-center" style={{ top: h * 0.26, width: h * 0.15, height: h * 0.18, fontSize: h * 0.12 }} title="Value card">V</div>}
     </div>
   );
 }
