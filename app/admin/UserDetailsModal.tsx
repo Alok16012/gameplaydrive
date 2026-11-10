@@ -226,16 +226,17 @@ export function UserDetailsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 sm:p-4"
       onClick={onClose}
     >
+      {/* Never wider than the screen (equal margins), never taller: the details scroll inside, the buttons stay at the bottom. */}
       <div
-        className="w-full max-w-[480px] bg-[#f4f6f9] text-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10 my-auto animate-in fade-in zoom-in-95 duration-150"
+        className="w-full max-w-[480px] max-h-[calc(100dvh-24px)] sm:max-h-[calc(100dvh-32px)] flex flex-col min-w-0 bg-[#f4f6f9] text-slate-900 rounded-2xl overflow-hidden shadow-2xl border border-white/10 animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Dark Header */}
-        <div className="bg-[#1e2430] text-white px-5 py-3.5 flex items-center justify-between border-b border-white/5 select-none">
-          <div className="font-bold tracking-wider text-[15px] font-sans uppercase">
+        <div className="shrink-0 bg-[#1e2430] text-white px-4 sm:px-5 py-3.5 flex items-center justify-between gap-2 border-b border-white/5 select-none">
+          <div className="min-w-0 truncate font-bold tracking-wider text-[15px] font-sans uppercase">
             {titleDisplay}
           </div>
           <button
@@ -248,9 +249,9 @@ export function UserDetailsModal({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-4 sm:p-5 space-y-4 max-h-[82vh] overflow-y-auto">
+        <div className="flex-1 min-h-0 min-w-0 p-3 sm:p-5 space-y-4 overflow-y-auto overflow-x-hidden overscroll-contain">
           {/* User Profile Summary Card */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/70 shadow-sm flex flex-col items-center text-center">
+          <div className="bg-white rounded-2xl p-4 sm:p-5 min-w-0 border border-slate-200/70 shadow-sm flex flex-col items-center text-center">
             <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200/80 flex items-center justify-center text-slate-500 mb-2.5">
               <User size={32} className="text-slate-600" />
             </div>
@@ -284,7 +285,7 @@ export function UserDetailsModal({
 
           {/* Edit Form Toggle View */}
           {editing ? (
-            <div className="bg-white rounded-2xl p-5 border border-slate-200/70 shadow-sm space-y-4">
+            <div className="bg-white rounded-2xl p-4 sm:p-5 min-w-0 border border-slate-200/70 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                 <h3 className="text-[15px] font-bold text-slate-800">
                   Edit Partnership & Points
@@ -392,41 +393,41 @@ export function UserDetailsModal({
             <>
               {/* Card 1: Partnership Information — only admins and agents have a share */}
               {!isPlayer && (
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/70 shadow-sm">
+              <div className="bg-white rounded-2xl p-4 sm:p-5 min-w-0 border border-slate-200/70 shadow-sm">
                 <h3 className="text-[15px] font-bold text-slate-800 mb-3.5 tracking-tight">
                   Partnership Information
                 </h3>
 
                 <div className="space-y-2 text-[13.5px]">
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Partnership Name:</span>
                     <span className="text-slate-700 font-normal">{meta.partnershipName || "—"}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">User Part:</span>
                     <span className="text-slate-700 font-normal">{meta.userPart ?? 0}%</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Our Part:</span>
                     <span className="text-slate-700 font-normal">{meta.ourPart ?? 0}%</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Players Under:</span>
                     <span className="text-slate-700 font-normal">{live(stats?.players, false)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Client P/L:</span>
                     <span className={plColor(clientPL)}>{live(clientPL)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">User Share P/L:</span>
                     <span className={plColor(stats?.userShare ?? 0)}>{live(stats?.userShare)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Our Share P/L:</span>
                     <span className={plColor(stats?.ourShare ?? 0)}>{live(stats?.ourShare)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Remark:</span>
                     <span className="text-slate-700 font-normal">{meta.remark || "—"}</span>
                   </div>
@@ -435,77 +436,77 @@ export function UserDetailsModal({
               )}
 
               {/* Card 2: Account details and live ledger figures */}
-              <div className="bg-white rounded-2xl p-5 border border-slate-200/70 shadow-sm">
+              <div className="bg-white rounded-2xl p-4 sm:p-5 min-w-0 border border-slate-200/70 shadow-sm">
                 <h3 className="text-[15px] font-bold text-slate-800 mb-3.5 tracking-tight">
                   Additional Information
                 </h3>
 
                 <div className="space-y-2 text-[13.5px]">
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">User Name:</span>
                     <span className="text-slate-700 font-normal">{target.username || "—"}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Full Name:</span>
                     <span className="text-slate-700 font-normal">{target.name}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Role:</span>
                     <span className="text-slate-700 font-normal">{ROLE_LABEL[target.role]}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Mobile Number:</span>
                     <span className="text-slate-700 font-normal">{target.phone ? `+91 ${target.phone}` : "—"}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">City / State:</span>
                     <span className="text-slate-700 font-normal">{meta.city || target.state || "—"}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Balance pts:</span>
                     <span className="text-slate-900 font-semibold">{live(currentPts)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Total Deposit:</span>
                     <span className="text-emerald-600 font-medium">{live(stats?.deposits)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Total Withdraw:</span>
                     <span className="text-rose-600 font-medium">{live(stats?.withdrawals)}</span>
                   </div>
                   {!isPlayer && (
                     <>
-                      <div className="grid grid-cols-[140px_1fr] items-baseline">
+                      <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                         <span className="font-bold text-slate-700">Given to {target.role === "admin" ? "agents / players" : "players"}:</span>
                         <span className="text-slate-700 font-normal">{live(stats?.givenDown)}</span>
                       </div>
-                      <div className="grid grid-cols-[140px_1fr] items-baseline">
+                      <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                         <span className="font-bold text-slate-700">Taken back from them:</span>
                         <span className="text-slate-700 font-normal">{live(stats?.takenBack)}</span>
                       </div>
                     </>
                   )}
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Turnover (bets):</span>
                     <span className="text-slate-700 font-normal">{live(stats?.turnover)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Won + Refunds:</span>
                     <span className="text-slate-700 font-normal">{live(stats?.returns)}</span>
                   </div>
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">{isPlayer ? "Player P/L:" : "Players' P/L:"}</span>
                     <span className={plColor(clientPL)}>{live(clientPL)}<span className="text-slate-400 font-normal text-xs"> {clientPL < 0 ? "(lost in games)" : clientPL > 0 ? "(won in games)" : ""}</span></span>
                   </div>
                   {!isPlayer && (
-                    <div className="grid grid-cols-[140px_1fr] items-baseline">
+                    <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                       <span className="font-bold text-slate-700">House side:</span>
                       <span className={plColor(-clientPL)}>{live(-clientPL)}</span>
                     </div>
                   )}
 
                   <div
-                    className={`grid grid-cols-[140px_1fr] items-baseline ${isPlayer && stats?.openBets ? "cursor-pointer hover:bg-slate-50 p-1 -ml-1 rounded transition" : ""}`}
+                    className={`grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words ${isPlayer && stats?.openBets ? "cursor-pointer hover:bg-slate-50 p-1 -ml-1 rounded transition" : ""}`}
                     onClick={() => isPlayer && stats?.openBets && setShowSportsExposure(true)}
                   >
                     <span className="font-bold text-slate-700">Exposure:</span>
@@ -515,7 +516,7 @@ export function UserDetailsModal({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-[140px_1fr] items-baseline">
+                  <div className="grid grid-cols-[112px_minmax(0,1fr)] sm:grid-cols-[140px_minmax(0,1fr)] gap-x-2 items-baseline break-words">
                     <span className="font-bold text-slate-700">Created Date :</span>
                     <span className="text-slate-700 font-normal">{formatExactDate(target.createdAt)}</span>
                   </div>
@@ -537,8 +538,8 @@ export function UserDetailsModal({
           )}
 
           {/* Quick Action Footer Buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200">
-            <div className="flex gap-2">
+          <div className="sticky bottom-0 -mx-3 sm:-mx-5 -mb-3 sm:-mb-5 px-3 sm:px-5 pt-3 pb-3 sm:pb-5 bg-[#f4f6f9] border-t border-slate-200 space-y-2">
+            <div className="grid grid-cols-3 gap-2 [&>button]:justify-center [&>button]:min-h-[40px] [&>button]:px-2">
               {!editing && (
                 <button
                   type="button"
@@ -546,7 +547,7 @@ export function UserDetailsModal({
                   className="px-3 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 transition shadow-sm"
                 >
                   <Pencil size={13} />
-                  Edit Details
+                  Edit
                 </button>
               )}
 
@@ -609,7 +610,7 @@ export function UserDetailsModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white transition ml-auto"
+              className="w-full min-h-[42px] rounded-xl text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-white transition"
             >
               Close
             </button>
