@@ -1160,12 +1160,16 @@ function CreateModal({
     partnershipName: "",
     userPart: "0",
     ourPart: "0",
-    creditPts: "0",
+    deposit: "",
     remark: "",
   }));
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<Account | null>(null);
+  // Coins deposited with the new ID (one step): what went in, the new balance, or why it didn't.
+  const [dep, setDep] = useState<{ coins: number; balance: number | null; error?: string } | null>(null);
+  const isSuper = me.role === "superadmin";
+  const myCoins = accounts.find((a) => a.id === me.id)?.coins ?? me.coins;
   const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
   const staff = role !== "player";
   const credsText = (acc: Account) => `🎮 Khelobaazi login\nUsername: ${acc.username ?? f.username.trim().toLowerCase()}\nPassword: ${f.password}\n\nhttps://khelobaazi.in`;
@@ -1180,6 +1184,9 @@ function CreateModal({
       if (f.userPart === "" || !(up >= 0 && up <= 100) || !(our >= 0 && our <= 100) || up + our > 100)
         return setErr("User Part + Our Part must be between 0 and 100");
     }
+    const coinsIn = f.deposit.trim() === "" ? 0 : Number(f.deposit);
+    if (!Number.isInteger(coinsIn) || coinsIn < 0) return setErr("Deposit must be a whole number of coins");
+    if (coinsIn > 0 && !isSuper && coinsIn > myCoins) return setErr(`You only have 🪙 ${myCoins.toLocaleString("en-IN")} — deposit that or less`);
     setBusy(true);
     try {
       const acc = await createAccount({
@@ -1197,7 +1204,7 @@ function CreateModal({
             ourPart: Number(f.ourPart) || 0,
             remark: f.remark.trim(),
             city: f.city.trim(),
-            creditPts: Number(f.creditPts) || 0,
+            creditPts: coinsIn,
             exposure: 0,
             casinoPts: 0,
             sportsPts: 0,
@@ -1205,6 +1212,16 @@ function CreateModal({
           }
           : undefined,
       });
+      // The deposit, straight after the ID exists: the same transfer as the D button (a ledger line on both sides
+      // with sender, receiver and time, an audit entry, and the giver's balance checked by the database).
+      if (coinsIn > 0) {
+        try {
+          await transferCoins(acc.id, coinsIn, `Deposit • ${me.name} → ${acc.name} • New ID ${acc.code}`);
+          setDep({ coins: coinsIn, balance: coinsIn }); // a new ID starts at 0
+        } catch (e) {
+          setDep({ coins: coinsIn, balance: null, error: errText(e) });
+        }
+      }
       await reload();
       setDone(acc);
     } catch (e) {
@@ -1225,11 +1242,17 @@ function CreateModal({
             <div className="flex justify-between"><span className="text-white/60">Password</span><span className="font-mono">{f.password}</span></div>
             {staff && <div className="flex justify-between"><span className="text-white/60">City</span><span>{f.city}</span></div>}
             {staff && <div className="flex justify-between"><span className="text-white/60">Partnership</span><span>{f.partnershipName} ({f.userPart}%)</span></div>}
-            {staff && <div className="flex justify-between"><span className="text-white/60">Credit pts</span><span>🪙 {Number(f.creditPts).toLocaleString("en-IN")}</span></div>}
+            <div className="flex justify-between"><span className="text-white/60">Coins</span>
+              <span className={dep?.error ? "text-rose-300" : "text-gold-300 font-semibold"}>
+                {!dep ? "🪙 0" : dep.error ? "Not deposited" : `🪙 ${(dep.balance ?? dep.coins).toLocaleString("en-IN")}`}
+              </span>
+            </div>
           </div>
+          {dep && !dep.error && <div className="text-xs text-emerald-300/90 mt-2">✓ 🪙 {dep.coins.toLocaleString("en-IN")} deposited to {done.name}. It is in their statement and yours.</div>}
+          {dep?.error && <div className="text-xs text-rose-300 mt-2">The ID was created, but the deposit didn&apos;t go through: {dep.error}. Use the D button in the list to deposit.</div>}
           <CopyButton text={credsText(done)} label="Copy username & password" className="btn-ghost w-full mt-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5" />
           <div className="text-xs text-emerald-300/90 mt-3">
-            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : `They sign in to the player app with username "${done.username}"${done.phone ? " (or their mobile number)" : ""} and this password. Give them coins from the Players list.`}
+            {staff ? `✓ ${ROLE_LABEL[role]} created successfully! Open their details card below:` : `They sign in to the player app with username "${done.username}"${done.phone ? " (or their mobile number)" : ""} and this password.`}
           </div>
           <div className="flex items-center gap-2 mt-5">
             {onShowDetails && staff && (
@@ -1278,6 +1301,11 @@ function CreateModal({
             </label>
           )}
 
+          <label className="block text-xs text-white/60">Deposit coins <span className="text-white/40">(optional • credited as soon as the ID is created)</span>
+            <input type="number" inputMode="numeric" min={0} value={f.deposit} onChange={(e) => set("deposit", e.target.value.replace(/[^\d]/g, ""))} placeholder="0" className={`${inputCls} mt-1`} />
+            <span className="block text-[11px] text-white/40 mt-1">{isSuper ? "Super Admin: coins are minted for the new ID." : `From your balance: 🪙 ${myCoins.toLocaleString("en-IN")}`}</span>
+          </label>
+
           {staff && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2.5">
               <div className="flex items-center justify-between text-xs font-semibold text-white/80">
@@ -1288,11 +1316,8 @@ function CreateModal({
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
-                <label className="block text-xs text-white/60">City
+                <label className="block text-xs text-white/60 col-span-2">City
                   <input value={f.city} onChange={(e) => set("city", e.target.value)} placeholder="City" className={`${inputCls} mt-1`} />
-                </label>
-                <label className="block text-xs text-white/60">Credit pts
-                  <input type="number" value={f.creditPts} onChange={(e) => set("creditPts", e.target.value)} placeholder="0" className={`${inputCls} mt-1`} />
                 </label>
               </div>
 
@@ -1316,7 +1341,7 @@ function CreateModal({
           )}
 
           {err && <div className="text-xs text-rose-300">{err}</div>}
-          <button type="submit" disabled={busy} className="btn-green w-full py-2.5 rounded-xl text-sm !mt-5">{busy ? "Creating…" : `Create ${ROLE_LABEL[role]}`}</button>
+          <button type="submit" disabled={busy} className="btn-green w-full py-2.5 rounded-xl text-sm !mt-5">{busy ? "Creating…" : Number(f.deposit) > 0 ? `Create ${ROLE_LABEL[role]} & deposit 🪙 ${Number(f.deposit).toLocaleString("en-IN")}` : `Create ${ROLE_LABEL[role]}`}</button>
         </form>
       )}
     </Modal>
