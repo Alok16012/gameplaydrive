@@ -1653,7 +1653,6 @@ function BotsView() {
 type GameCfg = { enabled?: boolean; min_bet?: number; max_bet?: number; rake?: number; rtp?: number; turn?: number; blind_limit?: number; bot_speed?: "slow" | "normal" | "fast"; outcome_mode?: "fair" | "force_win" | "force_loss" };
 type Field = "bets" | "rake" | "rtp" | "turn" | "blind_limit" | "bot_speed";
 const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
-  { id: "cricket", fields: [], note: "Locking stops new bets. Bets already placed still settle" },
   { id: "teen-patti", fields: ["rake", "turn", "blind_limit"], note: "Fee is taken from each pot. Boots follow the table list" },
   { id: "rummy", fields: ["rake", "turn"], note: "13 and 21 Card. Fee on Points winnings and Pool/Deals prize pools" },
   { id: "dragon-tiger", fields: ["bets", "rtp"], note: "Limits apply to the total staked per round" },
@@ -1667,8 +1666,6 @@ const CONFIG_GAMES: { id: GameId; fields: Field[]; note: string }[] = [
   { id: "ludo", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "chess", fields: ["bets", "rake", "bot_speed"], note: "Limits apply to the table entry" },
   { id: "poker", fields: ["bets", "rake", "turn"], note: "Limits apply to the table boot. Fee comes off every pot; turn time applies to every table" },
-  { id: "matka", fields: [], note: "Bharat Matka (provider game). Locking stops new launches; a game already open plays on" },
-  { id: "9wickets", fields: ["bets"], note: "9Wickets live exchange (provider). Limits apply to the coins taken into a session; locking stops new sessions" },
 ];
 
 export function ConfigView() {
