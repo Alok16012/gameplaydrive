@@ -20,6 +20,7 @@ import { OutcomeControlView } from "./OutcomeControlView";
 import { UserDetailsModal } from "./UserDetailsModal";
 import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView";
 import { RtpView, RTP } from "./RtpView";
+import { GameAccessPicker, loadGameAccess, saveGameAccess } from "./GameAccess";
 import { ChangePasswordModal, ForceChangePasswordModal, ResetSubordinatePasswordModal } from "../components/ChangePasswordModal";
 
 // Admin console, backed by Supabase. Super Admin creates admins, agents and players and is the only account
@@ -1170,6 +1171,16 @@ function CreateModal({
   const [dep, setDep] = useState<{ coins: number; balance: number | null; error?: string } | null>(null);
   const isSuper = me.role === "superadmin";
   const myCoins = accounts.find((a) => a.id === me.id)?.coins ?? me.coins;
+  // Game access for the new ID: games switched off here, and those already off for the account it reports to (and
+  // above), which it can't have either.
+  const [offGames, setOffGames] = useState<Set<string>>(new Set());
+  const [parentOff, setParentOff] = useState<Set<string>>(new Set());
+  const [access, setAccess] = useState<{ saved?: number; error?: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    loadGameAccess(f.owner).then(({ own, inherited }) => { if (alive) setParentOff(new Set([...own, ...inherited])); }).catch(() => alive && setParentOff(new Set()));
+    return () => { alive = false; };
+  }, [f.owner]);
   const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
   const staff = role !== "player";
   const credsText = (acc: Account) => `🎮 Khelobaazi login\nUsername: ${acc.username ?? f.username.trim().toLowerCase()}\nPassword: ${f.password}\n\nhttps://khelobaazi.in`;
@@ -1214,6 +1225,11 @@ function CreateModal({
       });
       // The deposit, straight after the ID exists: the same transfer as the D button (a ledger line on both sides
       // with sender, receiver and time, an audit entry, and the giver's balance checked by the database).
+      const toLock = [...offGames].filter((g) => !parentOff.has(g));
+      if (toLock.length) {
+        try { setAccess({ saved: (await saveGameAccess(acc.id, toLock)).length }); }
+        catch (e) { setAccess({ error: errText(e) }); }
+      }
       if (coinsIn > 0) {
         try {
           await transferCoins(acc.id, coinsIn, `Deposit • ${me.name} → ${acc.name} • New ID ${acc.code}`);
@@ -1249,6 +1265,8 @@ function CreateModal({
             </div>
           </div>
           {dep && !dep.error && <div className="text-xs text-emerald-300/90 mt-2">✓ 🪙 {dep.coins.toLocaleString("en-IN")} deposited to {done.name}. It is in their statement and yours.</div>}
+          {access?.saved != null && <div className="text-xs text-emerald-300/90 mt-2">✓ {access.saved} game{access.saved === 1 ? "" : "s"} switched off for {done.name}{staff ? " and everyone under them" : ""}.</div>}
+          {access?.error && <div className="text-xs text-rose-300 mt-2">Game access wasn&apos;t saved: {access.error}. Set it from their details card → Games.</div>}
           {dep?.error && <div className="text-xs text-rose-300 mt-2">The ID was created, but the deposit didn&apos;t go through: {dep.error}. Use the D button in the list to deposit.</div>}
           <CopyButton text={credsText(done)} label="Copy username & password" className="btn-ghost w-full mt-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5" />
           <div className="text-xs text-emerald-300/90 mt-3">
@@ -1305,6 +1323,12 @@ function CreateModal({
             <input type="number" inputMode="numeric" min={0} value={f.deposit} onChange={(e) => set("deposit", e.target.value.replace(/[^\d]/g, ""))} placeholder="0" className={`${inputCls} mt-1`} />
             <span className="block text-[11px] text-white/40 mt-1">{isSuper ? "Super Admin: coins are minted for the new ID." : `From your balance: 🪙 ${myCoins.toLocaleString("en-IN")}`}</span>
           </label>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-sky-300 mb-1"><Gamepad2 size={13} /> Game access</div>
+            <div className="text-[11px] text-white/45 mb-2">{staff ? `Games switched off here are hidden for this ${ROLE_LABEL[role].toLowerCase()} and everyone under them.` : "Games switched off here are hidden for this player."} Change it later from their details card → Games.</div>
+            <GameAccessPicker locked={offGames} inherited={parentOff} onChange={setOffGames} compact />
+          </div>
 
           {staff && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 space-y-2.5">

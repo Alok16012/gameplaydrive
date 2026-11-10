@@ -51,8 +51,8 @@ export const latestSettings = () => latest;
 // the tiles and says why instead of opening the game.
 let myLocks = new Set<string>();
 let locksCache: { at: number; p: Promise<Set<string>> } | null = null;
-/** Lock key for a game id (both Rummy variants are one switch). */
-export const lockKey = (id: string) => (id === "rummy21" ? "rummy" : id);
+/** Lock key for a game id (migration 122: Rummy 13 and 21 Card are separate switches). */
+export const lockKey = (id: string) => id;
 export function loadMyLocks(): Promise<Set<string>> {
   if (locksCache && Date.now() - locksCache.at < 30000) return locksCache.p;
   const p = Promise.resolve(supabase().rpc("my_locked_games"))
