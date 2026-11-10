@@ -117,7 +117,16 @@ export const jiliRealReady = (p: Provider = "jili") =>
 
 /** Most coins a launch may carry: SoftAPI wants GGR credit against the launch balance.
  *  For JILI (VND) it is ~5%; for Bharat Matka (INR) SoftAPI requires ~1% GGR in USDT. */
-async function launchCap(p: Provider = "jili"): Promise<number> {
+/** The cap changes only when the GGR wallet does: one lookup per minute serves every launch in it. */
+const capCache = new Map<Provider, { at: number; p: Promise<number> }>();
+function launchCap(p: Provider = "jili"): Promise<number> {
+  const c = capCache.get(p);
+  if (c && Date.now() - c.at < 60000) return c.p;
+  const q = fetchLaunchCap(p).catch((e) => { capCache.delete(p); throw e; });
+  capCache.set(p, { at: Date.now(), p: q });
+  return q;
+}
+async function fetchLaunchCap(p: Provider): Promise<number> {
   const r = await fetch(`${BASE()}/ggr-balance?token=${encodeURIComponent(TOKEN(p))}`, { cache: "no-store" });
   const j = (await r.json().catch(() => null)) as { code?: number; data?: { wallet?: number } } | null;
   const usdt = Number(j?.data?.wallet ?? 0);
@@ -134,20 +143,23 @@ export async function jiliLaunch(userId: string, uid: string, p: Provider = "jil
     const [games, hidden] = await Promise.all([jiliGames(), jiliHidden()]);
     if (!games.some((g) => g.uid === uid) || hidden.has(uid)) throw new Error("This game is not available");
   }
-  await rpc("game_guard", { g: p, amount: 0, check_size: false }); // closed for maintenance?
-  await rpc("player_game_guard", { p_uid: userId, p_game: p }); // locked for this player (115)?
-  const w = await selectOne<{ coins: number }>("wallets", `select=coins&user_id=eq.${userId}`);
+  // Everything the launch needs, at once (one after another this took over a second before SoftAPI was even asked).
+  const [, , w, capVnd, num] = await Promise.all([
+    rpc("game_guard", { g: p, amount: 0, check_size: false }), // closed for maintenance?
+    rpc("player_game_guard", { p_uid: userId, p_game: p }), // locked for this player (115, 122)?
+    selectOne<{ coins: number }>("wallets", `select=coins&user_id=eq.${userId}`),
+    launchCap(p),
+    rpc<number>("jili_player_num", { p_user: userId }),
+  ]);
   const coins = Math.floor(Number(w?.coins ?? 0));
   if (coins < 1) throw new Error("Not enough coins — ask your agent");
 
   const rate = RATE(p);
   const playerVnd = Math.floor(coins * rate);
-  const capVnd = await launchCap(p);
   if (capVnd < rate) throw new Error(`${PROVIDER_NAME[p]} is resting for a moment — please try again later`);
 
   const balanceVnd = Math.min(playerVnd, capVnd);
   const balance = Math.floor(balanceVnd / rate); // coins taken into game
-  const num = await rpc<number>("jili_player_num", { p_user: userId });
   const site = process.env.JILI_SITE_URL ?? "https://www.khelobaazi.in";
   const payload = {
     user_id: String(num + MEMBER_OFFSET),

@@ -112,7 +112,9 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   const brand = provider === "matka" ? "Bharat Matka" : "JILI";
   const { total, refresh, showToast } = useStore();
   const [ready, setReady] = useState<boolean | null>(null); // real-coin play set up on the server?
-  const [mode, setMode] = useState<"coins" | "free" | null>(null);
+  // A coins-only game (Bharat Matka, some JILI games) has nothing to choose: it opens with coins straight away.
+  const [mode, setMode] = useState<"coins" | "free" | null>(demo ? null : "coins");
+  const [inGame, setInGame] = useState<{ balance: number; coins: number } | null>(null); // coins taken into the game vs the wallet
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -146,8 +148,9 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   };
 
   useEffect(() => {
+    if (!demo) return; // coins only: the launch itself says if it can't
     apiFetch(`/api/jili/launch?check=1&p=${provider}`).then((r) => r.json()).then((j: { ready?: boolean }) => setReady(!!j.ready)).catch(() => setReady(false));
-  }, [provider]);
+  }, [provider, demo]);
   // Without real-coin play on this server, go straight to free play.
   useEffect(() => { if (ready === false && mode === null && demo) setMode("free"); }, [ready, mode, demo]);
 
@@ -162,6 +165,7 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
         if (!alive) return;
         if (j.url) {
           setUrl(j.url);
+          setInGame(mode === "coins" && j.balance != null && j.coins != null ? { balance: j.balance, coins: j.coins } : null);
         } else setErr(j.error ?? "The game could not be opened");
       })
       .catch(() => alive && setErr("The game could not be opened — check your connection"));
@@ -171,7 +175,9 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   // Coins won or lost in the game reach the wallet round by round: show the latest balance while playing and after.
   useEffect(() => {
     if (mode !== "coins" || !url) return;
-    const t = setInterval(() => { if (!document.hidden) refresh(); }, 15000);
+    // Every round settles to the wallet through the provider's callback: follow it closely so the app's balance
+    // keeps up with the game.
+    const t = setInterval(() => { if (!document.hidden) refresh(); }, 5000);
     return () => { clearInterval(t); refresh(); };
   }, [mode, url, refresh]);
 
@@ -184,7 +190,11 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
         <div className="leading-tight min-w-0">
           <div className="text-sm font-semibold truncate">{title}</div>
           <div className={`text-[10px] ${mode === "coins" ? "text-neon-400" : "text-amber-300"}`}>
-            {mode === "coins" ? `${brand} • Playing with your coins` : mode === "free" ? `${brand} • Free play — practice credits, no coins used` : brand}
+            {mode === "coins"
+              ? inGame && inGame.balance < inGame.coins
+                ? `${brand} • 🪙 ${inGame.balance.toLocaleString("en-IN")} in game • ${(inGame.coins - inGame.balance).toLocaleString("en-IN")} safe in wallet`
+                : `${brand} • Playing with your coins`
+              : mode === "free" ? `${brand} • Free play — practice credits, no coins used` : brand}
           </div>
         </div>
         {url && (
@@ -223,7 +233,10 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-white/60 animate-pulse">Loading {title}…</div>
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-9 h-9 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+                <div className="text-sm text-white/70">Opening {title}{mode === "coins" ? " with your coins" : ""}…</div>
+              </div>
             )}
           </div>
         )}
