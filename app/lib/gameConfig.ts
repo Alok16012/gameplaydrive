@@ -62,6 +62,22 @@ export function loadMyLocks(): Promise<Set<string>> {
   return p;
 }
 export const isLockedForMe = (id: string) => myLocks.has(lockKey(id));
+
+/**
+ * The games this player can open, in lobby order: open in Game Config and not switched off for them or anyone above
+ * them (migrations 115, 122 — the server refuses the rest anyway). Null until both are loaded, so a closed game never
+ * flashes up and disappears.
+ */
+export function useVisibleGames<T extends { id: string }>(all: readonly T[]): T[] | null {
+  const [state, setState] = useState<{ s: All; l: Set<string> } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([loadGameSettings(), loadMyLocks()]).then(([s, l]) => { if (alive) setState({ s, l }); });
+    return () => { alive = false; };
+  }, []);
+  if (!state) return null;
+  return all.filter((g) => !isClosed(state.s, g.id) && !state.l.has(lockKey(g.id)));
+}
 export function useMyLocks(): Set<string> {
   const [s, setS] = useState<Set<string>>(myLocks);
   useEffect(() => { loadMyLocks().then(setS); }, []);

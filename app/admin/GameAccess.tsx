@@ -29,27 +29,26 @@ export async function saveGameAccess(id: string, locked: Iterable<string>): Prom
   return (data ?? []) as string[];
 }
 
-/** A switch per game. `inherited`: off above this account — shown off and locked. */
+/** A switch per game. Games off above this account (`inherited`) are not listed: it can't have them. */
 export function GameAccessPicker({ locked, inherited, onChange, compact = false }: { locked: Set<string>; inherited: Set<string>; onChange: (next: Set<string>) => void; compact?: boolean }) {
   const flip = (id: string) => { const n = new Set(locked); if (n.has(id)) n.delete(id); else n.add(id); onChange(n); };
   const allowed = ACCESS_GAMES.filter((g) => !inherited.has(g.id));
   const on = allowed.filter((g) => !locked.has(g.id)).length;
+  if (!allowed.length) return <div className="text-[12px] text-white/50 py-3 text-center">No games are open above this account.</div>;
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <span className="text-[11px] text-white/50 flex-1">{on} of {ACCESS_GAMES.length} games on</span>
+        <span className="text-[11px] text-white/50 flex-1">{on} of {allowed.length} games on</span>
         <button type="button" onClick={() => onChange(new Set())} className="rounded-lg px-2.5 py-1 text-[11px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">All on</button>
         <button type="button" onClick={() => onChange(new Set(allowed.map((g) => g.id)))} className="rounded-lg px-2.5 py-1 text-[11px] bg-rose-500/15 border border-rose-500/30 text-rose-300">All off</button>
       </div>
       <div className={compact ? "grid grid-cols-2 gap-x-3" : ""}>
-        {ACCESS_GAMES.map((g) => {
-          const fixed = inherited.has(g.id);
-          const isOn = !fixed && !locked.has(g.id);
+        {allowed.map((g) => {
+          const isOn = !locked.has(g.id);
           return (
-            <button key={g.id} type="button" disabled={fixed} onClick={() => flip(g.id)} title={fixed ? "Switched off above this account" : undefined}
-              className={`w-full flex items-center gap-2.5 py-2 px-1 border-b border-white/5 text-left ${fixed ? "opacity-45" : ""}`}>
+            <button key={g.id} type="button" onClick={() => flip(g.id)} className="w-full flex items-center gap-2.5 py-2 px-1 border-b border-white/5 text-left">
               <span className={`p-1 rounded-md ${isOn ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300"}`}>{isOn ? <Unlock size={12} /> : <Lock size={12} />}</span>
-              <span className="flex-1 min-w-0 text-[13px] text-white truncate">{g.name}{fixed && <span className="block text-[10px] text-white/45">Off for the upline</span>}</span>
+              <span className="flex-1 min-w-0 text-[13px] text-white truncate">{g.name}</span>
               <span className={`w-9 h-5 shrink-0 rounded-full p-0.5 transition-colors ${isOn ? "bg-emerald-500" : "bg-white/15"}`}><span className={`block w-4 h-4 rounded-full bg-white transition-transform ${isOn ? "translate-x-4" : ""}`} /></span>
             </button>
           );

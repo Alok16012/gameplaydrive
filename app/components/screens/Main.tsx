@@ -8,7 +8,7 @@ import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
 import { Avatar, Header, Money, Sheet } from "../ui";
-import { isClosed, isLockedForMe, latestSettings, lockKey, useGameSettings, useMyLocks } from "../../lib/gameConfig";
+import { isClosed, isLockedForMe, latestSettings, useVisibleGames } from "../../lib/gameConfig";
 import type { Nav, RummyMode } from "../nav";
 
 const SERVER_GAMES: GameId[] = ["teen-patti", "rummy", "rummy21", "poker"];
@@ -73,8 +73,8 @@ async function createServerPrivate(game: "teenpatti" | "poker", boot: number): P
 
 export function Home({ nav }: { nav: Nav }) {
   const { player, showToast } = useStore();
-  const gs = useGameSettings();
-  const locks = useMyLocks();
+  // Only the games this account can play: closed or switched-off games are not shown at all.
+  const visible = useVisibleGames(LOBBY_GAMES);
   // Real players seated at Teen Patti / Rummy tables right now. Teen Patti tables live on the game server
   // (Railway); Rummy is still dealt from Supabase until it moves over too.
   const [live, setLive] = useState<Record<string, number>>({});
@@ -125,11 +125,15 @@ export function Home({ nav }: { nav: Nav }) {
 
       <div className="mt-5"><BalanceSummary /></div>
 
-      <div className="grid grid-cols-3 gap-2.5 mt-4">
-        {LOBBY_GAMES.map((g) => (
-          <GameTile key={g.id} game={g} closed={isClosed(gs, g.id) ? "Closed" : locks.has(lockKey(g.id)) ? "Locked" : false} onClick={() => openGame(nav, g, showToast)} />
-        ))}
-      </div>
+      {visible === null ? (
+        <div className="grid grid-cols-3 gap-2.5 mt-4">{[0, 1, 2].map((i) => <div key={i} className="aspect-square rounded-2xl bg-white/5 animate-pulse" />)}</div>
+      ) : visible.length === 0 ? (
+        <div className="card p-6 mt-4 text-center text-sm text-white/60">No games are open for your account right now — please contact your agent.</div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2.5 mt-4">
+          {visible.map((g) => <GameTile key={g.id} game={g} onClick={() => openGame(nav, g, showToast)} />)}
+        </div>
+      )}
 
       <button
         onClick={() => nav.push({ name: "games" })}
@@ -141,12 +145,13 @@ export function Home({ nav }: { nav: Nav }) {
         <ChevronRight />
       </button>
 
+      {(visible ?? []).some((g) => SERVER_GAMES.includes(g.id)) && <>
       <div className="mt-6 flex items-center justify-between">
         <div className="font-semibold">Live multiplayer</div>
         <button onClick={() => nav.reset({ name: "games" })} className="text-xs text-neon-400">See all</button>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        {SERVER_GAMES.map((id) => gameById(id)).map((g) => {
+        {SERVER_GAMES.filter((id) => visible?.some((g) => g.id === id)).map((id) => gameById(id)).map((g) => {
           const liveCount = (live[g.id] && live[g.id] > 0) ? live[g.id] : (32 + ((g.id.charCodeAt(0) % 7) + 2));
           return (
             <button key={g.id} onClick={() => openGame(nav, g, showToast)} className="card p-2.5 text-left">
@@ -160,17 +165,21 @@ export function Home({ nav }: { nav: Nav }) {
           );
         })}
       </div>
+      </>}
     </div>
   );
 }
 
 export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports" | "card" | "casino" | "board" }) {
   const { showToast } = useStore();
-  const gs = useGameSettings();
-  const locks = useMyLocks();
+  // Only the games this account can play: closed or switched-off games are not shown at all.
+  const visible = useVisibleGames(LOBBY_GAMES);
   const [cat, setCat] = useState(initial);
   const [q, setQ] = useState<string | null>(null);
-  const list = LOBBY_GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
+  const cats = ([["sports", "Sports Exchange"], ["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).filter(([id]) => (visible ?? []).some((g) => g.category === id));
+  // The asked-for category may have nothing open: fall back to the first one that does.
+  const shownCat = cats.some(([id]) => id === cat) ? cat : cats[0]?.[0] ?? cat;
+  const list = (visible ?? []).filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === shownCat));
   return (
     <div className="pb-28 fadein">
       <Header
@@ -182,11 +191,11 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
       />
       <div className="px-4">
         {q !== null ? (
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${LOBBY_GAMES.length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${(visible ?? []).length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
         ) : (
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {([["sports", "Sports Exchange"], ["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
-              <button key={id} onClick={() => setCat(id)} className={`pill px-3.5 py-2 text-[12.5px] font-medium whitespace-nowrap transition-colors ${cat === id ? "btn-green" : "bg-white/5 text-white/80"}`}>
+            {cats.map(([id, label]) => (
+              <button key={id} onClick={() => setCat(id)} className={`pill px-3.5 py-2 text-[12.5px] font-medium whitespace-nowrap transition-colors ${shownCat === id ? "btn-green" : "bg-white/5 text-white/80"}`}>
                 {label}
               </button>
             ))}
@@ -199,12 +208,13 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
               <div className="flex-1 min-w-0">
                 <div className="font-semibold">{g.name}</div>
                 <div className="text-xs text-[var(--ink-soft)]">{g.meta}</div>
-                {isClosed(gs, g.id) || locks.has(lockKey(g.id)) ? <span className="inline-block pill px-4 py-1.5 text-xs mt-2.5 bg-white/10 text-white/60">{isClosed(gs, g.id) ? "Closed" : "Locked"}</span> : <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>}
+                <button className="btn-green pill px-4 py-1.5 text-xs mt-2.5">Play Now</button>
               </div>
               <ChevronRight className="text-white/60 mr-1" />
             </div>
           ))}
-          {list.length === 0 && <div className="text-center text-sm text-white/40 py-10">No games match “{q}”</div>}
+          {visible === null && <div className="text-center text-sm text-white/40 py-10 animate-pulse">Loading games…</div>}
+          {visible !== null && list.length === 0 && <div className="text-center text-sm text-white/40 py-10">{q ? `No games match “${q}”` : "No games are open for your account right now — please contact your agent."}</div>}
         </div>
       </div>
     </div>
