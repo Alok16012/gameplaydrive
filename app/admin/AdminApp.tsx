@@ -17,7 +17,6 @@ import { JiliAdmin } from "./JiliAdmin";
 import { staffEmail } from "../lib/loginEmail";
 import { apiFetch, errText, supabase } from "../lib/supabase";
 import { OutcomeControlView } from "./OutcomeControlView";
-import { CricketResultsView } from "./CricketResultsView";
 import { UserDetailsModal } from "./UserDetailsModal";
 import { ReportsView, type ReportSubTab, REPORT_TABS_LIST } from "./ReportsView";
 import { RtpView, RTP } from "./RtpView";
@@ -60,7 +59,6 @@ export default function AdminApp() {
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "alerts", label: "Alerts", icon: <Bell size={18} />, roles: ["superadmin", "admin", "agent"] },
     { id: "outcome", label: "Win / Loss Control", icon: <Sliders size={18} />, roles: ["superadmin"] },
-    { id: "cricket", label: "Cricket Results", icon: <Trophy size={18} />, roles: ["superadmin"] },
     { id: "whatsapp", label: "Contact for ID (WhatsApp)", icon: <MessageCircle size={18} className="text-[#25d366]" />, roles: ["superadmin", "admin"] },
     { id: "admins", label: "Admins", icon: <Crown size={18} />, roles: ["superadmin"] },
     { id: "agents", label: "Agents", icon: <Briefcase size={18} />, roles: ["superadmin", "admin"] },
@@ -191,7 +189,6 @@ export default function AdminApp() {
           {sec === "dashboard" && <Dashboard {...ctx} go={setSec} />}
           {sec === "alerts" && <AlertsView me={me} />}
           {sec === "outcome" && <OutcomeControlView me={me} accounts={accounts} />}
-          {sec === "cricket" && <CricketResultsView me={me} accounts={accounts} />}
           {sec === "admins" && <AccountsView key="admin" role="admin" {...ctx} />}
           {sec === "agents" && <AccountsView key="agent" role="agent" {...ctx} />}
           {sec === "players" && <AccountsView key="player" role="player" {...ctx} />}

@@ -60,6 +60,10 @@ export const GAMES: Game[] = [
   { id: "chess", name: "Chess", tag: "Board Game", meta: "Board Game • 2 Players", category: "board", kind: "board", from: "#4a5368", to: "#171b27", glow: "#8a94ad", players: "2", online: 4410, phase: 3 },
 ];
 
+/** The games players see in the lobby and the Games tab. Cricket Live is retired from the app (9Wickets is the live
+ *  exchange now); it stays in GAMES so its old bets still show in Game History and the reports. */
+export const LOBBY_GAMES = GAMES.filter((g) => g.id !== "cricket");
+
 export const gameById = (id: GameId) => GAMES.find((g) => g.id === id)!;
 
 export type Stake = "Low" | "Mid" | "High";

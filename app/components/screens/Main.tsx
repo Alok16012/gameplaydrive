@@ -3,7 +3,7 @@
 import { useActiveGame } from "../../lib/rejoin";
 import { useEffect, useState } from "react";
 import { Bell, ChevronRight, Gamepad2, Plus, Search, Trophy, Users, X, Copy, Wallet as WalletIcon, Gift, Star } from "lucide-react";
-import { GAMES, NOTIFICATIONS, POKER_TABLES, RUMMY_TABLES, TABLES, TEEN_PATTI_TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
+import { LOBBY_GAMES, NOTIFICATIONS, POKER_TABLES, RUMMY_TABLES, TABLES, TEEN_PATTI_TABLES, gameById, inr, type Game, type GameId, type Stake } from "../../lib/data";
 import { useStore } from "../../lib/store";
 import { errText, supabase } from "../../lib/supabase";
 import { GameThumb, GameTile, GameIcon } from "../GameArt";
@@ -126,7 +126,7 @@ export function Home({ nav }: { nav: Nav }) {
       <div className="mt-5"><BalanceSummary /></div>
 
       <div className="grid grid-cols-3 gap-2.5 mt-4">
-        {GAMES.map((g) => (
+        {LOBBY_GAMES.map((g) => (
           <GameTile key={g.id} game={g} closed={isClosed(gs, g.id) ? "Closed" : locks.has(lockKey(g.id)) ? "Locked" : false} onClick={() => openGame(nav, g, showToast)} />
         ))}
       </div>
@@ -170,7 +170,7 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
   const locks = useMyLocks();
   const [cat, setCat] = useState(initial);
   const [q, setQ] = useState<string | null>(null);
-  const list = GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
+  const list = LOBBY_GAMES.filter((g) => (q ? g.name.toLowerCase().includes(q.toLowerCase()) : g.category === cat));
   return (
     <div className="pb-28 fadein">
       <Header
@@ -182,7 +182,7 @@ export function Games({ nav, initial = "sports" }: { nav: Nav; initial?: "sports
       />
       <div className="px-4">
         {q !== null ? (
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${GAMES.length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${LOBBY_GAMES.length} games…`} className="w-full card px-4 py-3 outline-none bg-transparent text-sm" />
         ) : (
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
             {([["sports", "Sports Exchange"], ["card", "Card Games"], ["casino", "Casino Games"], ["board", "Board Games"]] as const).map(([id, label]) => (
