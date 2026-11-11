@@ -41,7 +41,7 @@ const ABOUT: Record<string, { kind: Kind; rtp: string; fee?: string; feeDef?: nu
   matka: { kind: "provider", rtp: "Bharat Matka runs on the provider's own draw; the return is set by the provider, not here" },
   "9wickets": { kind: "exchange", rtp: "9Wickets live exchange — bets settle on real matches at the odds taken (provider); no RTP to set" },
 };
-const RTP_ORDER: GameId[] = ["dragon-tiger", "andar-bahar", "lucky-7", "roulette", "plinko", "blackjack", "aviator", "stock-market", "teen-patti", "rummy", "poker", "ludo", "chess", "cricket", "jili", "matka", "9wickets"];
+const RTP_ORDER: GameId[] = ["dragon-tiger", "andar-bahar", "lucky-7", "roulette", "plinko", "blackjack", "aviator", "stock-market", "teen-patti", "rummy", "poker", "ludo", "chess"]; // Cricket, JILI, Matka, 9Wickets: no RTP to set here
 const FEE_ORDER: GameId[] = ["teen-patti", "rummy", "poker", "ludo", "chess", "stock-market"];
 
 type Cfg = { rtp?: number; rake?: number; outcome_mode?: string };
