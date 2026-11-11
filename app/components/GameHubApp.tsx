@@ -30,7 +30,7 @@ import { Roulette } from "./games/Roulette";
 import { Blackjack } from "./games/Blackjack";
 import { Plinko } from "./games/Plinko";
 import { JiliGame, JiliLobby } from "./games/JiliGame";
-import { NineWickets } from "./games/NineWickets";
+import { NineWickets, useNineReturn } from "./games/NineWickets";
 import { StockMarket } from "./games/StockMarket";
 import { Cricket } from "./games/Cricket";
 import { ForceChangePasswordModal } from "./ChangePasswordModal";
@@ -45,7 +45,9 @@ function Shell() {
   const [forceChangePw, setForceChangePw] = useState(false);
   const [stack, setStack] = useState<Route[]>([{ name: "home" }]);
   const route = stack[stack.length - 1];
-  const { signIn, signOut, showToast } = useStore();
+  const { signIn, signOut, showToast, refresh } = useStore();
+  // Back from 9Wickets (it opens in this tab): the coins left in the 9Wickets wallet come home.
+  useNineReturn(auth === "in", (coins) => { refresh(); if (coins > 0) showToast(`🪙 ${coins.toLocaleString("en-IN")} came back from 9Wickets`); });
 
   const enter = useCallback(async (p: Account) => {
     const { data: agent } = await supabase().from("profiles").select("name").eq("id", p.parentId ?? "").maybeSingle();

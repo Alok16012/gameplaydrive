@@ -259,7 +259,13 @@ export async function nineOpen(userId: string): Promise<NineSession | null> {
 /** Move coins into 9Wickets and open the sportsbook. A session still open from before is cashed out first.
  *  If coins is omitted, takes the player's full wallet balance up to the launch cap. */
 export async function nineLaunch(userId: string, coins?: number): Promise<{ url: string; session: number; coins: number; walletCoins: number }> {
+  // Start from an empty 9Wickets wallet: whatever is still there (an open session, or coins left by an earlier exit
+  // that didn't finish) comes back to the player first. Then a failed launch below knows exactly what reached 9Wickets.
   if (await nineOpen(userId)) await nineCashout(userId);
+  else {
+    const pre = await nineTransfer(await rpc<number>("jili_player_num", { p_user: userId }), 0, `inq-pre-${Date.now()}`);
+    if (pre.code === 0 && Math.floor(Number(pre.data?.after_amount ?? 0)) > 0) await nineCashout(userId);
+  }
   const cap = await nineCap();
   if (cap < 10) throw new Error("9Wickets is resting for a moment — please try again later");
 
@@ -278,7 +284,25 @@ export async function nineLaunch(userId: string, coins?: number): Promise<{ url:
     await rpc("nw_opened", { p_id: sid, p_session: j.data.session_id != null ? String(j.data.session_id) : null });
     return { url: j.data.url, session: sid, coins: toTake, walletCoins };
   } catch (e) {
-    await rpc("nw_cancel", { p_id: sid, p_why: e instanceof Error ? e.message : String(e) }).catch(() => {});
+    // The credit may have reached 9Wickets even though the launch failed (an upstream error after the transfer): ask
+    // what is there and take it back before refunding, or the coins would be paid twice (refund now + cash out later).
+    // The wallet was empty before this launch, so anything there now is this launch's credit.
+    const why = e instanceof Error ? e.message : String(e);
+    try {
+      const inq = await nineTransfer(num, 0, `inq-fail-${sid}-${Date.now()}`);
+      if (inq.code !== 0) throw new Error("9Wickets wallet could not be checked");
+      const left = Math.floor(Number(inq.data?.after_amount ?? 0));
+      if (left > 0) {
+        const out = await nineTransfer(num, -left, `undo-${sid}-${Date.now()}`);
+        if (out.code !== 0) throw new Error(out.msg || "undo failed");
+      }
+      await rpc("nw_cancel", { p_id: sid, p_why: why }); // the coins taken for this launch go back
+      if (left > toTake) await rpc("wallet_move", { p_uid: userId, p_amount: left - toTake, p_kind: "win", p_note: "9Wickets • Cash out" });
+    } catch (e2) {
+      // Can't tell: keep the session open — the next cash out settles exactly what 9Wickets holds.
+      console.warn(`9w launch ${sid} failed and could not be undone:`, e2 instanceof Error ? e2.message : e2);
+      await rpc("nw_opened", { p_id: sid, p_session: null }).catch(() => {});
+    }
     throw e;
   }
 }
