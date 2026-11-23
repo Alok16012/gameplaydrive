@@ -114,7 +114,6 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
   const [ready, setReady] = useState<boolean | null>(null); // real-coin play set up on the server?
   // A coins-only game (Bharat Matka, some JILI games) has nothing to choose: it opens with coins straight away.
   const [mode, setMode] = useState<"coins" | "free" | null>(demo ? null : "coins");
-  const [inGame, setInGame] = useState<{ balance: number; coins: number } | null>(null); // coins taken into the game vs the wallet
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -165,7 +164,6 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
         if (!alive) return;
         if (j.url) {
           setUrl(j.url);
-          setInGame(mode === "coins" && j.balance != null && j.coins != null ? { balance: j.balance, coins: j.coins } : null);
         } else setErr(j.error ?? "The game could not be opened");
       })
       .catch(() => alive && setErr("The game could not be opened — check your connection"));
@@ -190,11 +188,7 @@ export function JiliGame({ nav, uid, title, demo = true, provider = "jili" }: { 
         <div className="leading-tight min-w-0">
           <div className="text-sm font-semibold truncate">{title}</div>
           <div className={`text-[10px] ${mode === "coins" ? "text-neon-400" : "text-amber-300"}`}>
-            {mode === "coins"
-              ? inGame && inGame.balance < inGame.coins
-                ? `${brand} • 🪙 ${inGame.balance.toLocaleString("en-IN")} in game • ${(inGame.coins - inGame.balance).toLocaleString("en-IN")} safe in wallet`
-                : `${brand} • Playing with your coins`
-              : mode === "free" ? `${brand} • Free play — practice credits, no coins used` : brand}
+            {mode === "coins" ? `${brand} • Playing with your coins` : mode === "free" ? `${brand} • Free play — practice credits, no coins used` : brand}
           </div>
         </div>
         {url && (
