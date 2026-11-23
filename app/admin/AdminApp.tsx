@@ -1183,7 +1183,8 @@ function CreateModal({
   }, [f.owner]);
   const set = (k: keyof typeof f, v: string) => { setF((x) => ({ ...x, [k]: v })); setErr(""); };
   const staff = role !== "player";
-  const credsText = (acc: Account) => `🎮 Khelobaazi login\nUsername: ${acc.username ?? f.username.trim().toLowerCase()}\nPassword: ${f.password}\n\nhttps://khelobaazi.in`;
+  // Admins and agents sign in to the admin console; players to the player app.
+  const credsText = (acc: Account) => `🎮 Khelobaazi ${staff ? `${ROLE_LABEL[role]} ` : ""}login\nUsername: ${acc.username ?? f.username.trim().toLowerCase()}\nPassword: ${f.password}\n\nhttps://khelobaazi.in${staff ? "/admin" : ""}`;
 
   const submit = async () => {
     if (!f.name.trim()) return setErr("Enter a name");
